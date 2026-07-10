@@ -1,0 +1,24 @@
+package com.udaytank.browse.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface HistoryDao {
+    @Insert
+    suspend fun insert(entry: HistoryEntry)
+
+    @Query("SELECT * FROM history ORDER BY visitedAt DESC")
+    fun observeAll(): Flow<List<HistoryEntry>>
+
+    @Query("SELECT * FROM history ORDER BY visitedAt DESC LIMIT 1")
+    suspend fun mostRecent(): HistoryEntry?
+
+    @Query("DELETE FROM history WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM history")
+    suspend fun clearAll()
+}
