@@ -183,6 +183,20 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `page error shows on active tab and clears on retry and next load`() {
+        val vm = vm()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageError(tabId, "net::ERR_NAME_NOT_RESOLVED")
+        assertEquals("net::ERR_NAME_NOT_RESOLVED", vm.uiState.value.pageError)
+        vm.onRetryPressed()
+        assertNull(vm.uiState.value.pageError)
+        assertEquals(BrowserCommand.Reload, vm.uiState.value.pendingCommand)
+        vm.onPageError(tabId, "boom")
+        vm.onPageStarted(tabId, "https://works.com")
+        assertNull(vm.uiState.value.pageError)
+    }
+
+    @Test
     fun `history change updates nav button state`() {
         val vm = vm()
         val tabId = vm.activeTabId.value!!

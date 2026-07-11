@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import android.content.Intent
+import androidx.compose.foundation.background
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -262,6 +264,43 @@ fun BrowserScreen(
                                 viewModel.onContextMenuDismissed()
                             },
                         )
+                    }
+                }
+                state.pageError?.let { errorDescription ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "🛰️",
+                            style = MaterialTheme.typography.displayMedium,
+                            modifier = Modifier.padding(top = 64.dp, bottom = 16.dp),
+                        )
+                        Text(
+                            "Lost in space",
+                            style = MaterialTheme.typography.headlineSmall,
+                        )
+                        Text(
+                            "This page couldn't be reached. Check your connection and try again.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                        Text(
+                            errorDescription,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Button(
+                            onClick = viewModel::onRetryPressed,
+                            modifier = Modifier.padding(top = 24.dp),
+                        ) {
+                            Text("Try again")
+                        }
                     }
                 }
                 state.sslWarningUrl?.let { blockedUrl ->

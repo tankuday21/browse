@@ -12,7 +12,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.udaytank.browse"
+        applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
