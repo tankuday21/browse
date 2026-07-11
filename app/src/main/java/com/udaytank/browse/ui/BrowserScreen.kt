@@ -64,6 +64,7 @@ fun BrowserScreen(
     onOpenBookmarks: () -> Unit,
     onOpenTabs: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDownloads: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
@@ -157,6 +158,10 @@ fun BrowserScreen(
                         DropdownMenuItem(
                             text = { Text("History") },
                             onClick = { onOpenHistory(); menuOpen = false },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Downloads") },
+                            onClick = { onOpenDownloads(); menuOpen = false },
                         )
                         DropdownMenuItem(
                             text = { Text("Settings") },

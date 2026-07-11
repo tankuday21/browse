@@ -19,7 +19,17 @@ class BrowserViewModelTest {
         bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
         tabDao: FakeTabDao = FakeTabDao(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings)
+        downloadDao: FakeDownloadDao = FakeDownloadDao(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao)
+
+    @Test
+    fun `started downloads are recorded`() {
+        val downloads = FakeDownloadDao()
+        val vm = vm(downloadDao = downloads)
+        vm.onDownloadStarted(42, "file.pdf", "https://a.com/file.pdf")
+        assertEquals(1, downloads.entries.value.size)
+        assertEquals(42L, downloads.entries.value.first().downloadId)
+    }
 
     @Test
     fun `typing updates address bar text`() {

@@ -13,6 +13,8 @@ import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
+import com.udaytank.browse.data.DownloadDao
+import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.SearchEngine
@@ -54,6 +56,7 @@ class BrowserViewModel(
     private val bookmarkDao: BookmarkDao,
     tabDao: TabDao,
     private val settings: SettingsRepository,
+    private val downloadDao: DownloadDao,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao)
@@ -67,6 +70,9 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
@@ -282,6 +288,24 @@ class BrowserViewModel(
 
     fun onContextMenuDismissed() = _uiState.update { it.copy(contextMenu = null) }
 
+    /** Called from the download listener when the system DownloadManager accepts a file. */
+    fun onDownloadStarted(downloadId: Long, fileName: String, url: String) {
+        viewModelScope.launch {
+            downloadDao.insert(
+                DownloadEntry(
+                    downloadId = downloadId,
+                    fileName = fileName,
+                    url = url,
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
+    fun onDeleteDownload(id: Long) {
+        viewModelScope.launch { downloadDao.deleteById(id) }
+    }
+
     /** New tabs opened from a page inherit that page's incognito mode. */
     fun onOpenInNewTab(url: String) {
         val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
@@ -306,6 +330,7 @@ class BrowserViewModel(
                     app.database.bookmarkDao(),
                     app.database.tabDao(),
                     app.settingsRepository,
+                    app.database.downloadDao(),
                 )
             }
         }

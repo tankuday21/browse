@@ -39,6 +39,7 @@ class WebViewHolder(
         fun onSslError(tabId: Long, url: String)
         fun onRequestBlocked(tabId: Long)
         fun onLongPress(tabId: Long, url: String, isImage: Boolean)
+        fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -159,7 +160,8 @@ class WebViewHolder(
             setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
             setTitle(fileName)
         }
-        (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+        val downloadId = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+        listener.onDownloadStarted(downloadId, fileName, url)
         Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
     }
 

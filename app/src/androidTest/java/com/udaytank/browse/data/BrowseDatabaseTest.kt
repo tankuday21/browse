@@ -92,6 +92,18 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun downloadEntryRoundTrip() = runBlocking {
+        db.downloadDao().insert(
+            DownloadEntry(downloadId = 42, fileName = "file.pdf", url = "https://a.com/file.pdf", createdAt = 1)
+        )
+        val all = db.downloadDao().observeAll().first()
+        assertEquals(1, all.size)
+        assertEquals(42L, all.first().downloadId)
+        db.downloadDao().deleteById(all.first().id)
+        assertTrue(db.downloadDao().observeAll().first().isEmpty())
+    }
+
+    @Test
     fun bookmarkToggleLifecycle() = runBlocking {
         assertFalse(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
         db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1))
