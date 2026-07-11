@@ -47,6 +47,12 @@ class WebViewHolder(
     private val webViews = mutableMapOf<Long, WebView>()
     private var jsEnabled = true
 
+    val thumbnails = ThumbnailStore(context)
+
+    fun captureThumbnail(tabId: Long) {
+        webViews[tabId]?.let { thumbnails.capture(tabId, it) }
+    }
+
     // shouldInterceptRequest runs on WebView's background threads;
     // page hosts are written on the UI thread in onPageStarted.
     private val pageHosts = ConcurrentHashMap<Long, String>()
@@ -181,6 +187,7 @@ class WebViewHolder(
 
     fun close(tabId: Long) {
         pageHosts.remove(tabId)
+        thumbnails.remove(tabId)
         webViews.remove(tabId)?.destroy()
     }
 

@@ -148,6 +148,15 @@ class BrowserViewModel(
         viewModelScope.launch { tabManager.switchTo(id) }
     }
 
+    /** Swipe on the Command Bar: move to the neighbor tab in list order. */
+    fun onSwitchAdjacentTab(next: Boolean) {
+        val list = tabs.value
+        val index = list.indexOfFirst { it.id == activeTabId.value }
+        if (index == -1) return
+        val target = if (next) list.getOrNull(index + 1) else list.getOrNull(index - 1)
+        target?.let { onSwitchTab(it.id) }
+    }
+
     // --- settings events ---
 
     fun onSearchEngineSelected(engine: SearchEngine) {

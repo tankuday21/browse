@@ -4,6 +4,8 @@ import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -180,7 +182,10 @@ fun BrowserScreen(
             onAddressChange = viewModel::onAddressBarTextChanged,
             onGo = viewModel::onGoPressed,
             onBack = viewModel::onBackPressed,
-            onOpenTabs = onOpenTabs,
+            onOpenTabs = {
+                holder.captureThumbnail(activeTabId ?: -999L)
+                onOpenTabs()
+            },
             onMenuClick = { menuOpen = true },
             menu = {
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -259,7 +264,31 @@ fun BrowserScreen(
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(bottom = 12.dp),
+                .padding(bottom = 12.dp)
+                .pointerInput(isEditing) {
+                    if (isEditing) return@pointerInput
+                    var dragX = 0f
+                    var dragY = 0f
+                    detectDragGestures(
+                        onDragStart = { dragX = 0f; dragY = 0f },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            dragX += amount.x
+                            dragY += amount.y
+                        },
+                        onDragEnd = {
+                            val threshold = 56.dp.toPx()
+                            when {
+                                dragY < -threshold && kotlin.math.abs(dragY) > kotlin.math.abs(dragX) -> {
+                                    holder.captureThumbnail(activeTabId ?: -999L)
+                                    onOpenTabs()
+                                }
+                                dragX > threshold -> viewModel.onSwitchAdjacentTab(next = false)
+                                dragX < -threshold -> viewModel.onSwitchAdjacentTab(next = true)
+                            }
+                        },
+                    )
+                },
         )
 
         // ── Long-press context sheet ────────────────────────
