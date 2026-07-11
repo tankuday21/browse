@@ -22,6 +22,7 @@ import com.udaytank.browse.data.Bookmark
 @Composable
 fun HomePage(
     bookmarks: List<Bookmark>,
+    isIncognito: Boolean,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -30,12 +31,18 @@ fun HomePage(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "Browse",
+            if (isIncognito) "Incognito" else "Browse",
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 48.dp, bottom = 32.dp),
         )
-        if (bookmarks.isEmpty()) {
+        if (isIncognito) {
+            Text(
+                "Pages you view in this tab won't appear in your history,\nand the tab disappears when you close the app.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (bookmarks.isEmpty()) {
             Text(
                 "Star pages to see them here",
                 style = MaterialTheme.typography.bodyLarge,

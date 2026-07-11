@@ -10,4 +10,5 @@ data class TabEntity(
     val title: String,
     val position: Int,
     val isActive: Boolean,
+    val isIncognito: Boolean = false,
 )

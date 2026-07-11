@@ -2,6 +2,7 @@ package com.udaytank.browse.data
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -18,8 +19,12 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 interface SettingsRepository {
     val searchEngine: Flow<SearchEngine>
     val themeMode: Flow<ThemeMode>
+    val javaScriptEnabled: Flow<Boolean>
+    val cookiesEnabled: Flow<Boolean>
     suspend fun setSearchEngine(engine: SearchEngine)
     suspend fun setThemeMode(mode: ThemeMode)
+    suspend fun setJavaScriptEnabled(enabled: Boolean)
+    suspend fun setCookiesEnabled(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -38,8 +43,24 @@ class DataStoreSettingsRepository(
         } ?: ThemeMode.SYSTEM
     }
 
+    override val javaScriptEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[JAVASCRIPT_KEY] ?: true
+    }
+
+    override val cookiesEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[COOKIES_KEY] ?: true
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
+    }
+
+    override suspend fun setJavaScriptEnabled(enabled: Boolean) {
+        dataStore.edit { it[JAVASCRIPT_KEY] = enabled }
+    }
+
+    override suspend fun setCookiesEnabled(enabled: Boolean) {
+        dataStore.edit { it[COOKIES_KEY] = enabled }
     }
 
     override suspend fun setThemeMode(mode: ThemeMode) {
@@ -49,5 +70,7 @@ class DataStoreSettingsRepository(
     private companion object {
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
+        val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
+        val COOKIES_KEY = booleanPreferencesKey("cookies_enabled")
     }
 }

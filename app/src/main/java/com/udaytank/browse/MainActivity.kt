@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,10 +53,19 @@ class MainActivity : ComponentActivity() {
 
                         override fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) =
                             viewModel.onHistoryChanged(tabId, canGoBack, canGoForward)
+
+                        override fun onSslError(tabId: Long, url: String) =
+                            viewModel.onSslError(tabId, url)
                     })
                 }
                 DisposableEffect(Unit) {
                     onDispose { holder.destroyAll() }
+                }
+
+                val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
+                val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
+                LaunchedEffect(jsEnabled, cookiesEnabled) {
+                    holder.applyPolicy(jsEnabled, cookiesEnabled)
                 }
 
                 NavHost(navController = navController, startDestination = "browser") {
@@ -72,6 +82,7 @@ class MainActivity : ComponentActivity() {
                     composable("settings") {
                         SettingsScreen(
                             viewModel = viewModel,
+                            onClearBrowsingData = { holder.clearBrowsingData() },
                             onBack = { navController.popBackStack() },
                         )
                     }

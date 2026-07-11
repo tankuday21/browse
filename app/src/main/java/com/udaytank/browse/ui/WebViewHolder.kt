@@ -5,10 +5,14 @@ import android.app.DownloadManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Environment
 import android.webkit.CookieManager
+import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -26,15 +30,37 @@ class WebViewHolder(
         fun onProgressChanged(tabId: Long, percent: Int)
         fun onPageFinished(tabId: Long, url: String, title: String?)
         fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean)
+        fun onSslError(tabId: Long, url: String)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
+    private var jsEnabled = true
+
+    /** Applies global browsing policy to all live WebViews and future ones. */
+    fun applyPolicy(javaScriptEnabled: Boolean, cookiesEnabled: Boolean) {
+        jsEnabled = javaScriptEnabled
+        webViews.values.forEach { it.settings.javaScriptEnabled = javaScriptEnabled }
+        CookieManager.getInstance().setAcceptCookie(cookiesEnabled)
+    }
+
+    /** Clears cache, cookies, and web storage. History/tabs are the data layer's job. */
+    fun clearBrowsingData() {
+        webViews.values.forEach { it.clearCache(true) }
+        CookieManager.getInstance().removeAllCookies(null)
+        WebStorage.getInstance().deleteAllData()
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun obtain(tabId: Long): WebView = webViews.getOrPut(tabId) {
+    fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
         WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
+            settings.javaScriptEnabled = jsEnabled
+            if (incognito) {
+                // Leave no local traces: no DOM storage, no cache writes.
+                settings.domStorageEnabled = false
+                settings.cacheMode = WebSettings.LOAD_NO_CACHE
+            } else {
+                settings.domStorageEnabled = true
+            }
 
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
@@ -47,6 +73,12 @@ class WebViewHolder(
 
                 override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                     listener.onHistoryChanged(tabId, view.canGoBack(), view.canGoForward())
+                }
+
+                override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                    // Spec rule: never silently proceed past a bad certificate.
+                    handler.cancel()
+                    listener.onSslError(tabId, error.url)
                 }
             }
 

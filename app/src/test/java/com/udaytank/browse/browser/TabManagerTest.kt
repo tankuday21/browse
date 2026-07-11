@@ -4,6 +4,7 @@ import com.udaytank.browse.FakeTabDao
 import com.udaytank.browse.data.TabEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TabManagerTest {
@@ -66,6 +67,43 @@ class TabManagerTest {
         manager.closeTab(manager.activeTabId.value!!, "https://home")
         assertEquals(1, manager.tabs.value.size)
         assertEquals("https://home", manager.tabs.value.first().url)
+    }
+
+    @Test
+    fun `incognito tab is never written to storage`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao)
+        manager.initialize("https://home")
+        val incognitoId = manager.newTab("https://secret.com", incognito = true)
+        manager.onContentChanged(incognitoId, "https://secret.com/page", "Secret")
+        assertTrue(incognitoId < 0)
+        assertEquals(1, dao.stored.size)
+        assertTrue(dao.stored.none { it.isIncognito })
+    }
+
+    @Test
+    fun `incognito tabs vanish on restart but normal tabs survive`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao)
+        manager.initialize("https://home")
+        manager.newTab("https://secret.com", incognito = true)
+        assertEquals(2, manager.tabs.value.size)
+
+        val rebornManager = TabManager(dao) // simulates process death
+        rebornManager.initialize("https://home")
+        assertEquals(1, rebornManager.tabs.value.size)
+        assertTrue(rebornManager.tabs.value.none { it.isIncognito })
+    }
+
+    @Test
+    fun `closing an incognito tab works without touching storage`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao)
+        manager.initialize("https://home")
+        val incognitoId = manager.newTab("https://secret.com", incognito = true)
+        manager.closeTab(incognitoId, "https://home")
+        assertEquals(1, manager.tabs.value.size)
+        assertTrue(manager.tabs.value.none { it.isIncognito })
     }
 
     @Test

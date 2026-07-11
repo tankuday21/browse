@@ -79,10 +79,12 @@ fun TabSwitcherScreen(
                         viewModel.onSwitchTab(tab.id)
                         onTabChosen()
                     },
-                    colors = if (tab.id == activeTabId) {
-                        CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                    } else {
-                        CardDefaults.elevatedCardColors()
+                    colors = when {
+                        tab.id == activeTabId ->
+                            CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        tab.isIncognito ->
+                            CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        else -> CardDefaults.elevatedCardColors()
                     },
                 ) {
                     Row(
@@ -91,7 +93,11 @@ fun TabSwitcherScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
                             Text(tab.title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-                            Text(tab.url, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            Text(
+                                if (tab.isIncognito) "Incognito" else tab.url,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                            )
                         }
                         IconButton(onClick = {
                             onCloseTabView(tab.id)

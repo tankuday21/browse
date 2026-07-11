@@ -13,7 +13,7 @@ private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 class BrowseApplication : Application() {
     val database: BrowseDatabase by lazy {
         Room.databaseBuilder(this, BrowseDatabase::class.java, "browse.db")
-            .addMigrations(BrowseDatabase.MIGRATION_1_2)
+            .addMigrations(BrowseDatabase.MIGRATION_1_2, BrowseDatabase.MIGRATION_2_3)
             .build()
     }
 
