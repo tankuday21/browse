@@ -16,7 +16,8 @@ class BrowserViewModelTest {
     private fun vm(
         historyDao: FakeHistoryDao = FakeHistoryDao(),
         bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao)
+        tabDao: FakeTabDao = FakeTabDao(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao)
 
     @Test
     fun `typing updates address bar text`() {
@@ -42,9 +43,18 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `startup creates an active home tab`() {
+        val vm = vm()
+        assertEquals(1, vm.tabs.value.size)
+        assertEquals(vm.tabs.value.first().id, vm.activeTabId.value)
+        assertEquals(BrowserViewModel.HOME_URL, vm.uiState.value.addressBarText)
+    }
+
+    @Test
     fun `page start sets loading and syncs address bar`() {
         val vm = vm()
-        vm.onPageStarted("https://bbc.com/news")
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com/news")
         assertTrue(vm.uiState.value.isLoading)
         assertEquals("https://bbc.com/news", vm.uiState.value.addressBarText)
         assertEquals("https://bbc.com/news", vm.uiState.value.currentUrl)
@@ -54,8 +64,9 @@ class BrowserViewModelTest {
     fun `page finish clears loading and records history`() {
         val history = FakeHistoryDao()
         val vm = vm(historyDao = history)
-        vm.onPageStarted("https://bbc.com")
-        vm.onPageFinished("https://bbc.com", "BBC")
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com")
+        vm.onPageFinished(tabId, "https://bbc.com", "BBC")
         assertFalse(vm.uiState.value.isLoading)
         assertEquals(1, history.entries.value.size)
         assertEquals("BBC", history.entries.value.first().title)
@@ -65,9 +76,10 @@ class BrowserViewModelTest {
     fun `reloading the same page never duplicates - it refreshes the entry`() {
         val history = FakeHistoryDao()
         val vm = vm(historyDao = history)
-        vm.onPageFinished("https://bbc.com", "BBC")
-        vm.onPageFinished("https://bbc.com", "BBC")
-        vm.onPageFinished("https://bbc.com", "BBC")
+        val tabId = vm.activeTabId.value!!
+        vm.onPageFinished(tabId, "https://bbc.com", "BBC")
+        vm.onPageFinished(tabId, "https://bbc.com", "BBC")
+        vm.onPageFinished(tabId, "https://bbc.com", "BBC")
         assertEquals(1, history.entries.value.size)
     }
 
@@ -75,9 +87,10 @@ class BrowserViewModelTest {
     fun `revisiting a page after going elsewhere records it again`() {
         val history = FakeHistoryDao()
         val vm = vm(historyDao = history)
-        vm.onPageFinished("https://a.com", "A")
-        vm.onPageFinished("https://b.com", "B")
-        vm.onPageFinished("https://a.com", "A")
+        val tabId = vm.activeTabId.value!!
+        vm.onPageFinished(tabId, "https://a.com", "A")
+        vm.onPageFinished(tabId, "https://b.com", "B")
+        vm.onPageFinished(tabId, "https://a.com", "A")
         assertEquals(3, history.entries.value.size)
     }
 
@@ -85,7 +98,8 @@ class BrowserViewModelTest {
     fun `toggle bookmark adds bookmark for current page`() {
         val bookmarks = FakeBookmarkDao()
         val vm = vm(bookmarkDao = bookmarks)
-        vm.onPageStarted("https://bbc.com")
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com")
         vm.onToggleBookmark()
         assertEquals(1, bookmarks.bookmarks.value.size)
     }
@@ -93,8 +107,28 @@ class BrowserViewModelTest {
     @Test
     fun `history change updates nav button state`() {
         val vm = vm()
-        vm.onHistoryChanged(canGoBack = true, canGoForward = false)
+        val tabId = vm.activeTabId.value!!
+        vm.onHistoryChanged(tabId, canGoBack = true, canGoForward = false)
         assertTrue(vm.uiState.value.canGoBack)
         assertFalse(vm.uiState.value.canGoForward)
+    }
+
+    @Test
+    fun `events from a background tab do not disturb the active ui`() {
+        val vm = vm()
+        val first = vm.activeTabId.value!!
+        vm.onNewTab()
+        vm.onPageStarted(first, "https://background.com")
+        assertFalse(vm.uiState.value.isLoading)
+    }
+
+    @Test
+    fun `switching tabs syncs the address bar to that tab`() {
+        val vm = vm()
+        val first = vm.activeTabId.value!!
+        vm.onPageFinished(first, "https://a.com", "A")
+        vm.onNewTab()
+        vm.onSwitchTab(first)
+        assertEquals("https://a.com", vm.uiState.value.addressBarText)
     }
 }

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.browser.TabManager
 import com.udaytank.browse.browser.UrlInput
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
@@ -14,11 +15,14 @@ import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.TabDao
+import com.udaytank.browse.data.TabEntity
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -41,11 +45,14 @@ data class BrowserUiState(
 class BrowserViewModel(
     private val historyDao: HistoryDao,
     private val bookmarkDao: BookmarkDao,
+    tabDao: TabDao,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(
-        BrowserUiState(pendingCommand = BrowserCommand.LoadUrl(HOME_URL))
-    )
+    private val tabManager = TabManager(tabDao)
+    val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
+    val activeTabId: StateFlow<Long?> = tabManager.activeTabId
+
+    private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
     val historyEntries: StateFlow<List<HistoryEntry>> = historyDao.observeAll()
@@ -59,6 +66,36 @@ class BrowserViewModel(
         .distinctUntilChanged()
         .flatMapLatest { url -> if (url == null) flowOf(false) else bookmarkDao.observeIsBookmarked(url) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    init {
+        viewModelScope.launch {
+            tabManager.initialize(HOME_URL)
+        }
+        // Keep the address bar in sync with whichever tab is active.
+        viewModelScope.launch {
+            combine(tabManager.tabs, tabManager.activeTabId) { tabs, active ->
+                tabs.find { it.id == active }
+            }.distinctUntilChanged().collect { tab ->
+                if (tab != null) {
+                    _uiState.update { it.copy(currentUrl = tab.url, addressBarText = tab.url) }
+                }
+            }
+        }
+    }
+
+    // --- tab events ---
+
+    fun onNewTab() {
+        viewModelScope.launch { tabManager.newTab(HOME_URL) }
+    }
+
+    fun onCloseTab(id: Long) {
+        viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
+    }
+
+    fun onSwitchTab(id: Long) {
+        viewModelScope.launch { tabManager.switchTo(id) }
+    }
 
     // --- events from the UI ---
 
@@ -104,16 +141,22 @@ class BrowserViewModel(
         viewModelScope.launch { bookmarkDao.deleteByUrl(url) }
     }
 
-    // --- callbacks from the WebView ---
+    // --- callbacks from the WebViews (any tab) ---
 
-    fun onPageStarted(url: String) = _uiState.update {
-        it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0)
+    fun onPageStarted(tabId: Long, url: String) {
+        viewModelScope.launch { tabManager.onContentChanged(tabId, url, url) }
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0) }
+        }
     }
 
-    fun onProgressChanged(percent: Int) = _uiState.update { it.copy(progress = percent) }
+    fun onProgressChanged(tabId: Long, percent: Int) {
+        if (tabId == activeTabId.value) _uiState.update { it.copy(progress = percent) }
+    }
 
-    fun onPageFinished(url: String, title: String?) {
-        _uiState.update { it.copy(isLoading = false) }
+    fun onPageFinished(tabId: Long, url: String, title: String?) {
+        viewModelScope.launch { tabManager.onContentChanged(tabId, url, title ?: url) }
+        if (tabId == activeTabId.value) _uiState.update { it.copy(isLoading = false) }
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             when (val decision = VisitPolicy.decide(historyDao.mostRecent(), url)) {
@@ -126,8 +169,11 @@ class BrowserViewModel(
         }
     }
 
-    fun onHistoryChanged(canGoBack: Boolean, canGoForward: Boolean) =
-        _uiState.update { it.copy(canGoBack = canGoBack, canGoForward = canGoForward) }
+    fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(canGoBack = canGoBack, canGoForward = canGoForward) }
+        }
+    }
 
     companion object {
         const val HOME_URL = "https://www.google.com"
@@ -135,7 +181,11 @@ class BrowserViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val app = this[APPLICATION_KEY] as BrowseApplication
-                BrowserViewModel(app.database.historyDao(), app.database.bookmarkDao())
+                BrowserViewModel(
+                    app.database.historyDao(),
+                    app.database.bookmarkDao(),
+                    app.database.tabDao(),
+                )
             }
         }
     }
