@@ -80,6 +80,24 @@ class BrowserViewModel(
     /** Tabs currently requesting the desktop site (menu label state). */
     private val _desktopTabs = MutableStateFlow<Set<Long>>(emptySet())
     val desktopTabs: StateFlow<Set<Long>> = _desktopTabs.asStateFlow()
+
+    /** Active tab is showing reader mode. */
+    private val _readerActive = MutableStateFlow(false)
+    val readerActive: StateFlow<Boolean> = _readerActive.asStateFlow()
+
+    fun onToggleReaderMode(): Boolean {
+        _readerActive.value = !_readerActive.value
+        return _readerActive.value
+    }
+
+    fun onExitReaderMode() { _readerActive.value = false }
+
+    val forceDark: StateFlow<Boolean> = settings.forceDarkWebsites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onForceDarkToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setForceDarkWebsites(enabled) }
+    }
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
 
@@ -273,6 +291,7 @@ class BrowserViewModel(
      * rewriting the tab's url mounts the WebView, which then loads it.
      */
     private fun loadInActiveTab(url: String) {
+        _readerActive.value = false
         val tab = tabs.value.find { it.id == activeTabId.value }
         if (tab != null && tab.url == HOME_URL) {
             viewModelScope.launch { tabManager.onContentChanged(tab.id, url, url) }

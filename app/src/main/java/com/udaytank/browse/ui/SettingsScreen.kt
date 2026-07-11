@@ -49,6 +49,7 @@ fun SettingsScreen(
     val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
     val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
     val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
+    val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -170,6 +171,13 @@ fun SettingsScreen(
             ) {
                 Text("Accept cookies", modifier = Modifier.weight(1f))
                 Switch(checked = cookiesEnabled, onCheckedChange = viewModel::onCookiesToggled)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Dark mode for websites", modifier = Modifier.weight(1f))
+                Switch(checked = forceDark, onCheckedChange = viewModel::onForceDarkToggled)
             }
             TextButton(
                 onClick = { showClearDialog = true },
