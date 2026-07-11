@@ -42,6 +42,7 @@ data class BrowserUiState(
     val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
     val pendingCommand: BrowserCommand? = null,
+    val sslWarningUrl: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -71,6 +72,12 @@ class BrowserViewModel(
 
     val themeMode: StateFlow<ThemeMode> = settings.themeMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
+
+    val javaScriptEnabled: StateFlow<Boolean> = settings.javaScriptEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val cookiesEnabled: StateFlow<Boolean> = settings.cookiesEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     val isBookmarked: StateFlow<Boolean> = uiState
         .map { it.currentUrl }
@@ -109,6 +116,10 @@ class BrowserViewModel(
         viewModelScope.launch { tabManager.newTab(HOME_URL) }
     }
 
+    fun onNewIncognitoTab() {
+        viewModelScope.launch { tabManager.newTab(HOME_URL, incognito = true) }
+    }
+
     fun onCloseTab(id: Long) {
         viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
     }
@@ -125,6 +136,14 @@ class BrowserViewModel(
 
     fun onThemeSelected(mode: ThemeMode) {
         viewModelScope.launch { settings.setThemeMode(mode) }
+    }
+
+    fun onJavaScriptToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setJavaScriptEnabled(enabled) }
+    }
+
+    fun onCookiesToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setCookiesEnabled(enabled) }
     }
 
     // --- events from the UI ---
@@ -198,6 +217,11 @@ class BrowserViewModel(
     fun onPageFinished(tabId: Long, url: String, title: String?) {
         viewModelScope.launch { tabManager.onContentChanged(tabId, url, title ?: url) }
         if (tabId == activeTabId.value) _uiState.update { it.copy(isLoading = false) }
+
+        // Incognito visits leave no trace in history.
+        val isIncognito = tabs.value.find { it.id == tabId }?.isIncognito == true
+        if (isIncognito) return
+
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             when (val decision = VisitPolicy.decide(historyDao.mostRecent(), url)) {
@@ -209,6 +233,14 @@ class BrowserViewModel(
             }
         }
     }
+
+    fun onSslError(tabId: Long, url: String) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(sslWarningUrl = url, isLoading = false) }
+        }
+    }
+
+    fun onSslWarningDismissed() = _uiState.update { it.copy(sslWarningUrl = null) }
 
     fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) {
         if (tabId == activeTabId.value) {

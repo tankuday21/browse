@@ -129,6 +129,28 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `incognito page visits are never recorded in history`() {
+        val history = FakeHistoryDao()
+        val vm = vm(historyDao = history)
+        vm.onNewIncognitoTab()
+        val incognitoId = vm.activeTabId.value!!
+        vm.onPageStarted(incognitoId, "https://secret.com")
+        vm.onPageFinished(incognitoId, "https://secret.com", "Secret")
+        assertTrue(incognitoId < 0)
+        assertTrue(history.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `ssl error on active tab raises the warning and dismiss clears it`() {
+        val vm = vm()
+        val tabId = vm.activeTabId.value!!
+        vm.onSslError(tabId, "https://expired.badssl.com/")
+        assertEquals("https://expired.badssl.com/", vm.uiState.value.sslWarningUrl)
+        vm.onSslWarningDismissed()
+        assertNull(vm.uiState.value.sslWarningUrl)
+    }
+
+    @Test
     fun `history change updates nav button state`() {
         val vm = vm()
         val tabId = vm.activeTabId.value!!

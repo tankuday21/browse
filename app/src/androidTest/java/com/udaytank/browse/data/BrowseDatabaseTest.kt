@@ -79,6 +79,12 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun tabIncognitoFlagRoundTrips() = runBlocking {
+        db.tabDao().insert(TabEntity(url = "https://a.com", title = "A", position = 0, isActive = true, isIncognito = true))
+        assertTrue(db.tabDao().getAll().first().isIncognito)
+    }
+
+    @Test
     fun tabUpdateContent() = runBlocking {
         val id = db.tabDao().insert(TabEntity(url = "https://a.com", title = "A", position = 0, isActive = true))
         db.tabDao().updateContent(id, "https://a.com/page", "A page")

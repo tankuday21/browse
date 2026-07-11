@@ -12,6 +12,7 @@ fun TabWebView(
     holder: WebViewHolder,
     tabId: Long,
     tabUrl: String,
+    incognito: Boolean,
     pendingCommand: BrowserCommand?,
     onCommandConsumed: () -> Unit,
     modifier: Modifier = Modifier,
@@ -20,7 +21,7 @@ fun TabWebView(
         AndroidView(
             modifier = modifier,
             factory = {
-                holder.obtain(tabId).also { webView ->
+                holder.obtain(tabId, incognito).also { webView ->
                     (webView.parent as? ViewGroup)?.removeView(webView)
                     if (webView.url == null) webView.loadUrl(tabUrl)
                 }
