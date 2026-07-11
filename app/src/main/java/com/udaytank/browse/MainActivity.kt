@@ -66,6 +66,9 @@ class MainActivity : ComponentActivity() {
 
                         override fun onDownloadStarted(downloadId: Long, fileName: String, url: String) =
                             viewModel.onDownloadStarted(downloadId, fileName, url)
+
+                        override fun onPageError(tabId: Long, description: String) =
+                            viewModel.onPageError(tabId, description)
                     })
                 }
                 DisposableEffect(Unit) {

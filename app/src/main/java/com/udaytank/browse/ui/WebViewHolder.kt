@@ -11,6 +11,7 @@ import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -40,6 +41,7 @@ class WebViewHolder(
         fun onRequestBlocked(tabId: Long)
         fun onLongPress(tabId: Long, url: String, isImage: Boolean)
         fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
+        fun onPageError(tabId: Long, description: String)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -105,6 +107,18 @@ class WebViewHolder(
                     // Spec rule: never silently proceed past a bad certificate.
                     handler.cancel()
                     listener.onSslError(tabId, error.url)
+                }
+
+                override fun onReceivedError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError,
+                ) {
+                    // Sub-resource failures (a broken image, a blocked ad)
+                    // are normal; only whole-page failures get the error UI.
+                    if (request.isForMainFrame) {
+                        listener.onPageError(tabId, error.description?.toString() ?: "Unknown error")
+                    }
                 }
             }
 

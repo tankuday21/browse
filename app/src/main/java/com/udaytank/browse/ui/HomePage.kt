@@ -31,7 +31,7 @@ fun HomePage(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            if (isIncognito) "Incognito" else "Browse",
+            if (isIncognito) "Incognito" else "Andromeda",
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 48.dp, bottom = 32.dp),

@@ -48,6 +48,7 @@ data class BrowserUiState(
     val pendingCommand: BrowserCommand? = null,
     val sslWarningUrl: String? = null,
     val contextMenu: LinkContextMenu? = null,
+    val pageError: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -244,7 +245,9 @@ class BrowserViewModel(
         viewModelScope.launch { tabManager.onContentChanged(tabId, url, url) }
         _blockedCounts.update { it + (tabId to 0) } // fresh page, fresh counter
         if (tabId == activeTabId.value) {
-            _uiState.update { it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0) }
+            _uiState.update {
+                it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0, pageError = null)
+            }
         }
     }
 
@@ -279,6 +282,17 @@ class BrowserViewModel(
     }
 
     fun onSslWarningDismissed() = _uiState.update { it.copy(sslWarningUrl = null) }
+
+    fun onPageError(tabId: Long, description: String) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(pageError = description, isLoading = false) }
+        }
+    }
+
+    fun onRetryPressed() {
+        _uiState.update { it.copy(pageError = null) }
+        onReloadPressed()
+    }
 
     fun onLongPress(tabId: Long, url: String, isImage: Boolean) {
         if (tabId == activeTabId.value) {
