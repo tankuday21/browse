@@ -13,6 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +56,31 @@ fun SettingsScreen(
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/html")
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val html = viewModel.exportBookmarksHtml()
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(html.toByteArray()) }
+                Toast.makeText(context, "Bookmarks exported", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val html = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            if (html != null) viewModel.importBookmarksHtml(html) { count ->
+                Toast.makeText(context, "Imported $count bookmarks", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -200,6 +227,25 @@ fun SettingsScreen(
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) {
                 Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Bookmarks",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            TextButton(
+                onClick = { exportLauncher.launch("andromeda-bookmarks.html") },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Export bookmarks")
+            }
+            TextButton(
+                onClick = { importLauncher.launch(arrayOf("text/html")) },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Import bookmarks")
             }
         }
 

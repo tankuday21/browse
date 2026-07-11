@@ -132,6 +132,9 @@ class MainActivity : FragmentActivity() {
 
                         override fun onPermissionRequest(request: com.udaytank.browse.ui.PermissionRequestInfo) =
                             viewModel.onPermissionRequested(request)
+
+                        override fun onTitleUpdated(tabId: Long, url: String, title: String) =
+                            viewModel.onTitleUpdated(tabId, url, title)
                     }).also { holderRef[0] = it }
                 }
                 DisposableEffect(Unit) {
