@@ -5,12 +5,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.udaytank.browse.ui.BookmarksScreen
 import com.udaytank.browse.ui.BrowserScreen
 import com.udaytank.browse.ui.HistoryScreen
+import com.udaytank.browse.ui.TabSwitcherScreen
+import com.udaytank.browse.ui.WebViewHolder
 import com.udaytank.browse.ui.theme.BrowseTheme
 
 class MainActivity : ComponentActivity() {
@@ -23,12 +27,41 @@ class MainActivity : ComponentActivity() {
         setContent {
             BrowseTheme {
                 val navController = rememberNavController()
+                val holder = remember {
+                    WebViewHolder(this, object : WebViewHolder.Listener {
+                        override fun onPageStarted(tabId: Long, url: String) =
+                            viewModel.onPageStarted(tabId, url)
+
+                        override fun onProgressChanged(tabId: Long, percent: Int) =
+                            viewModel.onProgressChanged(tabId, percent)
+
+                        override fun onPageFinished(tabId: Long, url: String, title: String?) =
+                            viewModel.onPageFinished(tabId, url, title)
+
+                        override fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) =
+                            viewModel.onHistoryChanged(tabId, canGoBack, canGoForward)
+                    })
+                }
+                DisposableEffect(Unit) {
+                    onDispose { holder.destroyAll() }
+                }
+
                 NavHost(navController = navController, startDestination = "browser") {
                     composable("browser") {
                         BrowserScreen(
                             viewModel = viewModel,
+                            holder = holder,
                             onOpenHistory = { navController.navigate("history") },
                             onOpenBookmarks = { navController.navigate("bookmarks") },
+                            onOpenTabs = { navController.navigate("tabs") },
+                        )
+                    }
+                    composable("tabs") {
+                        TabSwitcherScreen(
+                            viewModel = viewModel,
+                            onTabChosen = { navController.popBackStack() },
+                            onCloseTabView = { tabId -> holder.close(tabId) },
+                            onBack = { navController.popBackStack() },
                         )
                     }
                     composable("history") {
