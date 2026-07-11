@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlInput
+import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
@@ -115,8 +116,12 @@ class BrowserViewModel(
         _uiState.update { it.copy(isLoading = false) }
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            if (VisitPolicy.shouldRecord(historyDao.mostRecent(), url, now)) {
-                historyDao.insert(HistoryEntry(url = url, title = title ?: url, visitedAt = now))
+            when (val decision = VisitPolicy.decide(historyDao.mostRecent(), url)) {
+                VisitDecision.Skip -> Unit
+                VisitDecision.RecordNew ->
+                    historyDao.insert(HistoryEntry(url = url, title = title ?: url, visitedAt = now))
+                is VisitDecision.RefreshExisting ->
+                    historyDao.updateVisitedAt(decision.existingId, now)
             }
         }
     }

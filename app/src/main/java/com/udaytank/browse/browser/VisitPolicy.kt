@@ -2,17 +2,25 @@ package com.udaytank.browse.browser
 
 import com.udaytank.browse.data.HistoryEntry
 
+/** What to do with a finished page visit. */
+sealed interface VisitDecision {
+    data object Skip : VisitDecision
+    data object RecordNew : VisitDecision
+
+    /** Same page as the latest entry — bump its timestamp instead of adding a row. */
+    data class RefreshExisting(val existingId: Long) : VisitDecision
+}
+
 object VisitPolicy {
 
-    private const val DUPLICATE_WINDOW_MS = 5_000L
-
     /**
-     * Should this visit be written to history?
-     * Skip junk (blank pages) and reload spam (same URL within the window).
+     * Junk pages are skipped; a page different from the latest entry is
+     * recorded; the same page again (a reload, however much later) only
+     * refreshes the existing entry so history never fills with duplicates.
      */
-    fun shouldRecord(previous: HistoryEntry?, url: String, visitedAt: Long): Boolean {
-        if (url.isBlank() || url == "about:blank") return false
-        if (previous == null || previous.url != url) return true
-        return (visitedAt - previous.visitedAt) >= DUPLICATE_WINDOW_MS
+    fun decide(previous: HistoryEntry?, url: String): VisitDecision {
+        if (url.isBlank() || url == "about:blank") return VisitDecision.Skip
+        if (previous == null || previous.url != url) return VisitDecision.RecordNew
+        return VisitDecision.RefreshExisting(previous.id)
     }
 }

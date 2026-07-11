@@ -1,37 +1,37 @@
 package com.udaytank.browse.browser
 
 import com.udaytank.browse.data.HistoryEntry
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class VisitPolicyTest {
 
-    private fun prev(url: String, at: Long) = HistoryEntry(url = url, title = "t", visitedAt = at)
+    private fun prev(id: Long, url: String) = HistoryEntry(id = id, url = url, title = "t", visitedAt = 1_000L)
 
     @Test
-    fun `first ever visit is recorded`() {
-        assertTrue(VisitPolicy.shouldRecord(null, "https://a.com", 1_000L))
+    fun `first ever visit records a new entry`() {
+        assertEquals(VisitDecision.RecordNew, VisitPolicy.decide(null, "https://a.com"))
     }
 
     @Test
-    fun `different url is always recorded`() {
-        assertTrue(VisitPolicy.shouldRecord(prev("https://a.com", 1_000L), "https://b.com", 2_000L))
+    fun `different url records a new entry`() {
+        assertEquals(
+            VisitDecision.RecordNew,
+            VisitPolicy.decide(prev(1, "https://a.com"), "https://b.com")
+        )
     }
 
     @Test
-    fun `same url within 5 seconds is skipped (reload spam)`() {
-        assertFalse(VisitPolicy.shouldRecord(prev("https://a.com", 1_000L), "https://a.com", 4_000L))
+    fun `same url as latest entry refreshes it - no matter how much time passed`() {
+        assertEquals(
+            VisitDecision.RefreshExisting(existingId = 7),
+            VisitPolicy.decide(prev(7, "https://a.com"), "https://a.com")
+        )
     }
 
     @Test
-    fun `same url after 5 seconds is recorded again`() {
-        assertTrue(VisitPolicy.shouldRecord(prev("https://a.com", 1_000L), "https://a.com", 7_000L))
-    }
-
-    @Test
-    fun `blank pages are never recorded`() {
-        assertFalse(VisitPolicy.shouldRecord(null, "about:blank", 1_000L))
-        assertFalse(VisitPolicy.shouldRecord(null, "", 1_000L))
+    fun `blank pages are skipped`() {
+        assertEquals(VisitDecision.Skip, VisitPolicy.decide(null, "about:blank"))
+        assertEquals(VisitDecision.Skip, VisitPolicy.decide(null, ""))
     }
 }

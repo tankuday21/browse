@@ -62,12 +62,23 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `reload spam records history only once`() {
+    fun `reloading the same page never duplicates - it refreshes the entry`() {
         val history = FakeHistoryDao()
         val vm = vm(historyDao = history)
         vm.onPageFinished("https://bbc.com", "BBC")
         vm.onPageFinished("https://bbc.com", "BBC")
+        vm.onPageFinished("https://bbc.com", "BBC")
         assertEquals(1, history.entries.value.size)
+    }
+
+    @Test
+    fun `revisiting a page after going elsewhere records it again`() {
+        val history = FakeHistoryDao()
+        val vm = vm(historyDao = history)
+        vm.onPageFinished("https://a.com", "A")
+        vm.onPageFinished("https://b.com", "B")
+        vm.onPageFinished("https://a.com", "A")
+        assertEquals(3, history.entries.value.size)
     }
 
     @Test

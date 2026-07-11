@@ -13,8 +13,11 @@ interface HistoryDao {
     @Query("SELECT * FROM history ORDER BY visitedAt DESC")
     fun observeAll(): Flow<List<HistoryEntry>>
 
-    @Query("SELECT * FROM history ORDER BY visitedAt DESC LIMIT 1")
+    @Query("SELECT * FROM history ORDER BY visitedAt DESC, id DESC LIMIT 1")
     suspend fun mostRecent(): HistoryEntry?
+
+    @Query("UPDATE history SET visitedAt = :visitedAt WHERE id = :id")
+    suspend fun updateVisitedAt(id: Long, visitedAt: Long)
 
     @Query("DELETE FROM history WHERE id = :id")
     suspend fun deleteById(id: Long)

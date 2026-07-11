@@ -19,7 +19,13 @@ class FakeHistoryDao : HistoryDao {
         entries.map { it.sortedByDescending { e -> e.visitedAt } }
 
     override suspend fun mostRecent(): HistoryEntry? =
-        entries.value.maxByOrNull { it.visitedAt }
+        entries.value.maxWithOrNull(compareBy({ it.visitedAt }, { it.id }))
+
+    override suspend fun updateVisitedAt(id: Long, visitedAt: Long) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(visitedAt = visitedAt) else it
+        }
+    }
 
     override suspend fun deleteById(id: Long) {
         entries.value = entries.value.filterNot { it.id == id }

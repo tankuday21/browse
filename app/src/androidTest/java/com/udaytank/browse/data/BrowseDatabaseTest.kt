@@ -46,6 +46,14 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun historyUpdateVisitedAtBumpsTimestamp() = runBlocking {
+        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1))
+        val id = db.historyDao().mostRecent()!!.id
+        db.historyDao().updateVisitedAt(id, 99)
+        assertEquals(99L, db.historyDao().mostRecent()?.visitedAt)
+    }
+
+    @Test
     fun bookmarkDuplicateUrlIsIgnored() = runBlocking {
         db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1))
         db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A again", createdAt = 2))
