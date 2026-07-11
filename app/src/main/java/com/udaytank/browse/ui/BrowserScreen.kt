@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -76,6 +77,7 @@ fun BrowserScreen(
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val desktopTabs by viewModel.desktopTabs.collectAsStateWithLifecycle()
     val readerActive by viewModel.readerActive.collectAsStateWithLifecycle()
+    val permissionPrompt by viewModel.permissionPrompt.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
 
@@ -361,6 +363,21 @@ fun BrowserScreen(
                 },
                 )
             }
+        }
+
+        // ── Site permission prompt ──────────────────────────
+        permissionPrompt?.let { prompt ->
+            AlertDialog(
+                onDismissRequest = { viewModel.onPermissionResolved(false) },
+                title = { Text("Permission request") },
+                text = { Text("${prompt.host} wants to ${prompt.label}.") },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.onPermissionResolved(true) }) { Text("Allow") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onPermissionResolved(false) }) { Text("Block") }
+                },
+            )
         }
 
         // ── Long-press context sheet ────────────────────────

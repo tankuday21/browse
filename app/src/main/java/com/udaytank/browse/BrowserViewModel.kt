@@ -98,6 +98,40 @@ class BrowserViewModel(
     fun onForceDarkToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setForceDarkWebsites(enabled) }
     }
+
+    val httpsOnly: StateFlow<Boolean> = settings.httpsOnly
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onHttpsOnlyToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setHttpsOnly(enabled) }
+    }
+
+    val lockIncognito: StateFlow<Boolean> = settings.lockIncognito
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onLockIncognitoToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setLockIncognito(enabled) }
+    }
+
+    /** Whether incognito content is currently hidden behind the biometric gate. */
+    private val _incognitoLocked = MutableStateFlow(false)
+    val incognitoLocked: StateFlow<Boolean> = _incognitoLocked.asStateFlow()
+    fun onIncognitoLocked() { _incognitoLocked.value = true }
+    fun onIncognitoUnlocked() { _incognitoLocked.value = false }
+
+    /** The pending site-permission prompt, if any (camera/mic/location). */
+    private val _permissionPrompt = MutableStateFlow<com.udaytank.browse.ui.PermissionRequestInfo?>(null)
+    val permissionPrompt: StateFlow<com.udaytank.browse.ui.PermissionRequestInfo?> = _permissionPrompt.asStateFlow()
+
+    fun onPermissionRequested(info: com.udaytank.browse.ui.PermissionRequestInfo) {
+        _permissionPrompt.value = info
+    }
+
+    fun onPermissionResolved(grant: Boolean) {
+        val info = _permissionPrompt.value ?: return
+        if (grant) info.grant() else info.deny()
+        _permissionPrompt.value = null
+    }
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
 

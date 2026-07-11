@@ -3,6 +3,7 @@ package com.udaytank.browse
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -27,17 +28,50 @@ import com.udaytank.browse.ui.BookmarksScreen
 import com.udaytank.browse.ui.BrowserScreen
 import com.udaytank.browse.ui.DownloadsScreen
 import com.udaytank.browse.ui.HistoryScreen
+import com.udaytank.browse.ui.IncognitoLockScreen
 import com.udaytank.browse.ui.TabSwitcherScreen
 import com.udaytank.browse.ui.WebViewHolder
 import com.udaytank.browse.ui.theme.BrowseTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val viewModel: BrowserViewModel by viewModels { BrowserViewModel.Factory }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleWebIntent(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Re-lock incognito whenever the app leaves the foreground.
+        if (viewModel.lockIncognito.value && viewModel.tabs.value.any { it.isIncognito }) {
+            viewModel.onIncognitoLocked()
+        }
+    }
+
+    fun promptBiometricUnlock() {
+        val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
+        val prompt = androidx.biometric.BiometricPrompt(
+            this,
+            executor,
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(
+                    result: androidx.biometric.BiometricPrompt.AuthenticationResult,
+                ) {
+                    viewModel.onIncognitoUnlocked()
+                }
+            },
+        )
+        val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Unlock incognito")
+            .setSubtitle("Verify it's you to view private tabs")
+            .setAllowedAuthenticators(
+                androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .build()
+        prompt.authenticate(info)
     }
 
     private fun handleWebIntent(intent: Intent?) {
@@ -95,6 +129,9 @@ class MainActivity : ComponentActivity() {
 
                         override fun onFindResult(tabId: Long, ordinal: Int, total: Int) =
                             viewModel.onFindResult(tabId, ordinal, total)
+
+                        override fun onPermissionRequest(request: com.udaytank.browse.ui.PermissionRequestInfo) =
+                            viewModel.onPermissionRequested(request)
                     }).also { holderRef[0] = it }
                 }
                 DisposableEffect(Unit) {
@@ -103,6 +140,9 @@ class MainActivity : ComponentActivity() {
 
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }
+
+                val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
+                LaunchedEffect(httpsOnly) { holder.httpsOnly = httpsOnly }
 
                 val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
                 val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
@@ -188,6 +228,15 @@ class MainActivity : ComponentActivity() {
                             onBack = { navController.popBackStack() },
                         )
                     }
+                }
+
+                // Biometric gate over incognito content.
+                val locked by viewModel.incognitoLocked.collectAsStateWithLifecycle()
+                val tabs by viewModel.tabs.collectAsStateWithLifecycle()
+                val activeId by viewModel.activeTabId.collectAsStateWithLifecycle()
+                val activeIsIncognito = tabs.find { it.id == activeId }?.isIncognito == true
+                if (locked && activeIsIncognito) {
+                    IncognitoLockScreen(onUnlock = { promptBiometricUnlock() })
                 }
             }
         }
