@@ -20,6 +20,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import com.udaytank.browse.browser.HttpsUpgrade
 import com.udaytank.browse.browser.ReaderMode
 import android.widget.Toast
 import com.udaytank.browse.browser.AdBlockEngine
@@ -46,6 +47,7 @@ class WebViewHolder(
         fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
         fun onPageError(tabId: Long, description: String)
         fun onFindResult(tabId: Long, ordinal: Int, total: Int)
+        fun onPermissionRequest(request: PermissionRequestInfo)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -55,6 +57,19 @@ class WebViewHolder(
 
     @Volatile
     var forceDark: Boolean = false
+
+    @Volatile
+    var httpsOnly: Boolean = false
+
+    /** Hosts the user has granted a given permission for this session. */
+    private val grantedPermissions = HashSet<String>()
+
+    fun rememberPermissionGrant(host: String, resource: String) {
+        grantedPermissions.add("$host|$resource")
+    }
+
+    private fun isGranted(host: String, resource: String) =
+        grantedPermissions.contains("$host|$resource")
 
     fun extractReaderContent(tabId: Long, onResult: (String) -> Unit) {
         val webView = webViews[tabId] ?: run { onResult("{\"ok\":false}"); return }
@@ -114,6 +129,15 @@ class WebViewHolder(
                 // Leave no local traces: no DOM storage, no cache writes.
                 settings.domStorageEnabled = false
                 settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                // True cookie/storage isolation via a dedicated profile when the
+                // installed WebView supports it (androidx.webkit ProfileStore).
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    runCatching {
+                        val store = androidx.webkit.ProfileStore.getInstance()
+                        val profile = store.getOrCreateProfile("incognito")
+                        androidx.webkit.WebViewCompat.setProfile(this, profile.name)
+                    }
+                }
             } else {
                 settings.domStorageEnabled = true
             }
@@ -122,6 +146,17 @@ class WebViewHolder(
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     Uri.parse(url).host?.let { pageHosts[tabId] = it }
                     listener.onPageStarted(tabId, url)
+                }
+
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): Boolean {
+                    val target = request.url.toString()
+                    if (HttpsUpgrade.shouldUpgrade(target, httpsOnly)) {
+                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it); return true }
+                    }
+                    return false
                 }
 
                 override fun shouldInterceptRequest(
@@ -169,6 +204,54 @@ class WebViewHolder(
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     listener.onProgressChanged(tabId, newProgress)
+                }
+
+                override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
+                    val host = request.origin.host ?: ""
+                    val resources = request.resources
+                    val label = when {
+                        resources.any { it.contains("VideoCapture") } -> "use your camera"
+                        resources.any { it.contains("AudioCapture") } -> "use your microphone"
+                        else -> "access a device feature"
+                    }
+                    val resourceKey = resources.joinToString()
+                    if (isGranted(host, resourceKey)) {
+                        request.grant(resources)
+                        return
+                    }
+                    listener.onPermissionRequest(
+                        PermissionRequestInfo(
+                            host = host,
+                            label = label,
+                            grant = {
+                                rememberPermissionGrant(host, resourceKey)
+                                request.grant(resources)
+                            },
+                            deny = { request.deny() },
+                        )
+                    )
+                }
+
+                override fun onGeolocationPermissionsShowPrompt(
+                    origin: String,
+                    callback: android.webkit.GeolocationPermissions.Callback,
+                ) {
+                    val host = Uri.parse(origin).host ?: origin
+                    if (isGranted(host, "geolocation")) {
+                        callback.invoke(origin, true, false)
+                        return
+                    }
+                    listener.onPermissionRequest(
+                        PermissionRequestInfo(
+                            host = host,
+                            label = "access your location",
+                            grant = {
+                                rememberPermissionGrant(host, "geolocation")
+                                callback.invoke(origin, true, false)
+                            },
+                            deny = { callback.invoke(origin, false, false) },
+                        )
+                    )
                 }
             }
 

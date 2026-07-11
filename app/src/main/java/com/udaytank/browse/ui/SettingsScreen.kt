@@ -50,6 +50,8 @@ fun SettingsScreen(
     val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
     val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
     val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
+    val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
+    val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -178,6 +180,20 @@ fun SettingsScreen(
             ) {
                 Text("Dark mode for websites", modifier = Modifier.weight(1f))
                 Switch(checked = forceDark, onCheckedChange = viewModel::onForceDarkToggled)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("HTTPS-only mode", modifier = Modifier.weight(1f))
+                Switch(checked = httpsOnly, onCheckedChange = viewModel::onHttpsOnlyToggled)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Lock incognito with biometrics", modifier = Modifier.weight(1f))
+                Switch(checked = lockIncognito, onCheckedChange = viewModel::onLockIncognitoToggled)
             }
             TextButton(
                 onClick = { showClearDialog = true },

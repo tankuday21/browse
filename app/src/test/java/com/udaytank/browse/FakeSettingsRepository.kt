@@ -43,4 +43,10 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setForceDarkWebsites(enabled: Boolean) {
         forceDarkWebsites.value = enabled
     }
+
+    override val httpsOnly = MutableStateFlow(false)
+    override suspend fun setHttpsOnly(enabled: Boolean) { httpsOnly.value = enabled }
+
+    override val lockIncognito = MutableStateFlow(false)
+    override suspend fun setLockIncognito(enabled: Boolean) { lockIncognito.value = enabled }
 }

@@ -86,6 +86,8 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

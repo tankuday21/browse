@@ -32,6 +32,10 @@ interface SettingsRepository {
     suspend fun toggleAdAllowedSite(host: String)
     val forceDarkWebsites: Flow<Boolean>
     suspend fun setForceDarkWebsites(enabled: Boolean)
+    val httpsOnly: Flow<Boolean>
+    suspend fun setHttpsOnly(enabled: Boolean)
+    val lockIncognito: Flow<Boolean>
+    suspend fun setLockIncognito(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -64,6 +68,16 @@ class DataStoreSettingsRepository(
 
     override suspend fun setForceDarkWebsites(enabled: Boolean) {
         dataStore.edit { it[FORCE_DARK_KEY] = enabled }
+    }
+
+    override val httpsOnly: Flow<Boolean> = dataStore.data.map { it[HTTPS_ONLY_KEY] ?: false }
+    override suspend fun setHttpsOnly(enabled: Boolean) {
+        dataStore.edit { it[HTTPS_ONLY_KEY] = enabled }
+    }
+
+    override val lockIncognito: Flow<Boolean> = dataStore.data.map { it[LOCK_INCOGNITO_KEY] ?: false }
+    override suspend fun setLockIncognito(enabled: Boolean) {
+        dataStore.edit { it[LOCK_INCOGNITO_KEY] = enabled }
     }
 
     override suspend fun setSearchEngine(engine: SearchEngine) {
@@ -109,6 +123,8 @@ class DataStoreSettingsRepository(
         val COOKIES_KEY = booleanPreferencesKey("cookies_enabled")
         val AD_BLOCK_KEY = booleanPreferencesKey("ad_block_enabled")
         val FORCE_DARK_KEY = booleanPreferencesKey("force_dark_websites")
+        val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
+        val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
     }
 }
