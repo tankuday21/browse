@@ -25,6 +25,9 @@ interface HistoryDao {
     @Query("UPDATE history SET visitedAt = :visitedAt WHERE id = :id")
     suspend fun updateVisitedAt(id: Long, visitedAt: Long)
 
+    @Query("UPDATE history SET title = :title WHERE url = :url")
+    suspend fun updateTitleForUrl(url: String, title: String)
+
     @Query("DELETE FROM history WHERE id = :id")
     suspend fun deleteById(id: Long)
 

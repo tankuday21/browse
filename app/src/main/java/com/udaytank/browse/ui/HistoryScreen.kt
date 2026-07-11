@@ -16,11 +16,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,7 +41,12 @@ fun HistoryScreen(
     onOpenUrl: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val entries by viewModel.historyEntries.collectAsStateWithLifecycle()
+    val allEntries by viewModel.historyEntries.collectAsStateWithLifecycle()
+    var query by remember { mutableStateOf("") }
+    val entries = remember(allEntries, query) {
+        if (query.isBlank()) allEntries
+        else allEntries.filter { it.title.contains(query, true) || it.url.contains(query, true) }
+    }
 
     val grouped = entries.groupBy { entry ->
         Instant.ofEpochMilli(entry.visitedAt).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -45,6 +54,7 @@ fun HistoryScreen(
 
     Scaffold(
         topBar = {
+            Column {
             TopAppBar(
                 title = { Text("History") },
                 navigationIcon = {
@@ -58,6 +68,16 @@ fun HistoryScreen(
                     }
                 },
             )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search history") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            }
         },
     ) { innerPadding ->
         if (entries.isEmpty()) {

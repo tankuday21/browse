@@ -10,4 +10,6 @@ data class Bookmark(
     val url: String,
     val title: String,
     val createdAt: Long,
+    /** Null = top level; otherwise the folder name this bookmark lives in. */
+    val folder: String? = null,
 )

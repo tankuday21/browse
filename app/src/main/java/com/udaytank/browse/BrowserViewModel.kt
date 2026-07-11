@@ -371,6 +371,19 @@ class BrowserViewModel(
         viewModelScope.launch { bookmarkDao.deleteByUrl(url) }
     }
 
+    /** Returns Netscape-format HTML of all bookmarks for export. */
+    suspend fun exportBookmarksHtml(): String =
+        com.udaytank.browse.browser.BookmarkIO.export(bookmarkDao.getAll())
+
+    /** Imports bookmarks from a Netscape HTML file; returns how many were added. */
+    fun importBookmarksHtml(html: String, onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            val parsed = com.udaytank.browse.browser.BookmarkIO.parse(html, System.currentTimeMillis())
+            parsed.forEach { bookmarkDao.insert(it) }
+            onDone(parsed.size)
+        }
+    }
+
     // --- callbacks from the WebViews (any tab) ---
 
     fun onPageStarted(tabId: Long, url: String) {
@@ -457,6 +470,14 @@ class BrowserViewModel(
         val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
         viewModelScope.launch { tabManager.newTab(url, incognito) }
         onContextMenuDismissed()
+    }
+
+    fun onTitleUpdated(tabId: Long, url: String, title: String) {
+        viewModelScope.launch {
+            tabManager.onContentChanged(tabId, url, title)
+            val tab = tabs.value.find { it.id == tabId }
+            if (tab?.isIncognito != true) historyDao.updateTitleForUrl(url, title)
+        }
     }
 
     fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) {

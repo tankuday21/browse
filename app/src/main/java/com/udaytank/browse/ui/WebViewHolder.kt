@@ -48,6 +48,7 @@ class WebViewHolder(
         fun onPageError(tabId: Long, description: String)
         fun onFindResult(tabId: Long, ordinal: Int, total: Int)
         fun onPermissionRequest(request: PermissionRequestInfo)
+        fun onTitleUpdated(tabId: Long, url: String, title: String)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -204,6 +205,14 @@ class WebViewHolder(
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     listener.onProgressChanged(tabId, newProgress)
+                }
+
+                override fun onReceivedTitle(view: WebView, title: String?) {
+                    // Titles often arrive after onPageFinished (SPAs, search
+                    // pages) — update the tab and history when the real one lands.
+                    if (!title.isNullOrBlank()) {
+                        listener.onTitleUpdated(tabId, view.url ?: return, title)
+                    }
                 }
 
                 override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
