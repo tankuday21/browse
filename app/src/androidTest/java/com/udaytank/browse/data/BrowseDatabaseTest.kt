@@ -61,6 +61,31 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun tabInsertReturnsIdAndKeepsOrder() = runBlocking {
+        val id1 = db.tabDao().insert(TabEntity(url = "https://a.com", title = "A", position = 0, isActive = true))
+        val id2 = db.tabDao().insert(TabEntity(url = "https://b.com", title = "B", position = 1, isActive = false))
+        val all = db.tabDao().getAll()
+        assertEquals(listOf(id1, id2), all.map { it.id })
+    }
+
+    @Test
+    fun tabSetActiveMarksExactlyOne() = runBlocking {
+        val id1 = db.tabDao().insert(TabEntity(url = "https://a.com", title = "A", position = 0, isActive = true))
+        val id2 = db.tabDao().insert(TabEntity(url = "https://b.com", title = "B", position = 1, isActive = false))
+        db.tabDao().setActive(id2)
+        val all = db.tabDao().getAll()
+        assertEquals(listOf(false, true), all.map { it.isActive })
+        assertEquals(id1, all.first().id)
+    }
+
+    @Test
+    fun tabUpdateContent() = runBlocking {
+        val id = db.tabDao().insert(TabEntity(url = "https://a.com", title = "A", position = 0, isActive = true))
+        db.tabDao().updateContent(id, "https://a.com/page", "A page")
+        assertEquals("A page", db.tabDao().getAll().first().title)
+    }
+
+    @Test
     fun bookmarkToggleLifecycle() = runBlocking {
         assertFalse(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
         db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1))
