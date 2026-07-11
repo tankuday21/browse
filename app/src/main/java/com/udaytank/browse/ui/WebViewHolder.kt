@@ -1,11 +1,17 @@
 package com.udaytank.browse.ui
 
 import android.annotation.SuppressLint
+import android.app.DownloadManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Environment
+import android.webkit.CookieManager
+import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 
 /**
  * Owns one live WebView per tab, outside the compose tree, so instances
@@ -48,6 +54,20 @@ class WebViewHolder(
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     listener.onProgressChanged(tabId, newProgress)
                 }
+            }
+
+            setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                    setMimeType(mimetype)
+                    addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url))
+                    addRequestHeader("User-Agent", userAgent)
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                    setTitle(fileName)
+                }
+                (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+                Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
             }
         }
     }
