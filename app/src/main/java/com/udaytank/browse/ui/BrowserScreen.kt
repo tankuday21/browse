@@ -24,6 +24,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +65,10 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     val activeTab = tabs.find { it.id == activeTabId }
     val isIncognito = activeTab?.isIncognito == true
+    val blockedCounts by viewModel.blockedCounts.collectAsStateWithLifecycle()
+    val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
+    val blockedOnPage = blockedCounts[activeTabId] ?: 0
+    val currentHost = viewModel.currentHost()
 
     // System back button navigates page history before exiting the app.
     BackHandler(enabled = state.canGoBack) { viewModel.onBackPressed() }
@@ -146,6 +151,32 @@ fun BrowserScreen(
                             text = { Text("Settings") },
                             onClick = { onOpenSettings(); menuOpen = false },
                         )
+                        if (currentHost != null) {
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "$blockedOnPage ads blocked on this page",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                },
+                                onClick = { menuOpen = false },
+                                enabled = false,
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (currentHost in adAllowedSites) "Block ads on this site"
+                                        else "Allow ads on this site"
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.onToggleAllowAdsOnCurrentSite()
+                                    viewModel.onReloadPressed()
+                                    menuOpen = false
+                                },
+                            )
+                        }
                     }
                 }
             }

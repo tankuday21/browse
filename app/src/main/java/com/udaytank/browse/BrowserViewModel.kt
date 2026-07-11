@@ -79,6 +79,16 @@ class BrowserViewModel(
     val cookiesEnabled: StateFlow<Boolean> = settings.cookiesEnabled
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    val adBlockEnabled: StateFlow<Boolean> = settings.adBlockEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    val adAllowedSites: StateFlow<Set<String>> = settings.adAllowedSites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Per-tab count of requests blocked on the current page load. */
+    private val _blockedCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val blockedCounts: StateFlow<Map<Long, Int>> = _blockedCounts.asStateFlow()
+
     val isBookmarked: StateFlow<Boolean> = uiState
         .map { it.currentUrl }
         .distinctUntilChanged()
@@ -146,6 +156,24 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setCookiesEnabled(enabled) }
     }
 
+    fun onAdBlockToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setAdBlockEnabled(enabled) }
+    }
+
+    /** Host of the page in the active tab, or null (home tab / malformed url). */
+    fun currentHost(): String? =
+        _uiState.value.currentUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+
+    fun onToggleAllowAdsOnCurrentSite() {
+        val host = currentHost() ?: return
+        viewModelScope.launch { settings.toggleAdAllowedSite(host) }
+    }
+
+    /** Called from WebView background threads — StateFlow.update is atomic. */
+    fun onRequestBlocked(tabId: Long) {
+        _blockedCounts.update { it + (tabId to (it[tabId] ?: 0) + 1) }
+    }
+
     // --- events from the UI ---
 
     fun onAddressBarTextChanged(text: String) =
@@ -205,6 +233,7 @@ class BrowserViewModel(
 
     fun onPageStarted(tabId: Long, url: String) {
         viewModelScope.launch { tabManager.onContentChanged(tabId, url, url) }
+        _blockedCounts.update { it + (tabId to 0) } // fresh page, fresh counter
         if (tabId == activeTabId.value) {
             _uiState.update { it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0) }
         }

@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 val navController = rememberNavController()
                 val holder = remember {
-                    WebViewHolder(this, object : WebViewHolder.Listener {
+                    WebViewHolder(this, adBlock = (application as BrowseApplication).adBlockEngine, listener = object : WebViewHolder.Listener {
                         override fun onPageStarted(tabId: Long, url: String) =
                             viewModel.onPageStarted(tabId, url)
 
@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
 
                         override fun onSslError(tabId: Long, url: String) =
                             viewModel.onSslError(tabId, url)
+
+                        override fun onRequestBlocked(tabId: Long) =
+                            viewModel.onRequestBlocked(tabId)
                     })
                 }
                 DisposableEffect(Unit) {
@@ -66,6 +69,13 @@ class MainActivity : ComponentActivity() {
                 val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
                 LaunchedEffect(jsEnabled, cookiesEnabled) {
                     holder.applyPolicy(jsEnabled, cookiesEnabled)
+                }
+
+                val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
+                val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
+                LaunchedEffect(adBlockEnabled, adAllowedSites) {
+                    (application as BrowseApplication).adBlockEngine
+                        .updatePolicy(adBlockEnabled, adAllowedSites)
                 }
 
                 NavHost(navController = navController, startDestination = "browser") {
