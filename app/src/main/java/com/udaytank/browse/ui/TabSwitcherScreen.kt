@@ -55,10 +55,14 @@ fun TabSwitcherScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                viewModel.onNewTab()
-                onTabChosen()
-            }) {
+            FloatingActionButton(
+                onClick = {
+                    viewModel.onNewTab()
+                    onTabChosen()
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
                 Icon(Icons.Filled.Add, contentDescription = "New tab")
             }
         },
