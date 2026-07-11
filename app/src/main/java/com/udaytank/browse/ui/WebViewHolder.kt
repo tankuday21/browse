@@ -57,6 +57,12 @@ class WebViewHolder(
             }
 
             setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
+                // DownloadManager only accepts http/https; JS-generated
+                // blob:/data: urls would throw and crash the app.
+                if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                    Toast.makeText(context, "This site uses a download type Browse can't save yet", Toast.LENGTH_SHORT).show()
+                    return@setDownloadListener
+                }
                 val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
                 val request = DownloadManager.Request(Uri.parse(url)).apply {
                     setMimeType(mimetype)
