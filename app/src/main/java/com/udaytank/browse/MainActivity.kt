@@ -5,7 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.isSystemInDarkTheme
+import com.udaytank.browse.ui.theme.Orbit
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,7 +94,24 @@ class MainActivity : ComponentActivity() {
                         .updatePolicy(adBlockEnabled, adAllowedSites)
                 }
 
-                NavHost(navController = navController, startDestination = "browser") {
+                NavHost(
+                    navController = navController,
+                    startDestination = "browser",
+                    enterTransition = {
+                        slideInVertically(
+                            initialOffsetY = { it / 8 },
+                            animationSpec = tween(Orbit.MotionMs, easing = Orbit.Easing),
+                        ) + fadeIn(tween(Orbit.MotionMs))
+                    },
+                    exitTransition = { fadeOut(tween(150)) },
+                    popEnterTransition = { fadeIn(tween(Orbit.MotionMs)) },
+                    popExitTransition = {
+                        slideOutVertically(
+                            targetOffsetY = { it / 8 },
+                            animationSpec = tween(Orbit.MotionMs, easing = Orbit.Easing),
+                        ) + fadeOut(tween(Orbit.MotionMs))
+                    },
+                ) {
                     composable("browser") {
                         BrowserScreen(
                             viewModel = viewModel,

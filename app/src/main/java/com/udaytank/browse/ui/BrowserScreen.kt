@@ -1,27 +1,19 @@
 package com.udaytank.browse.ui
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import android.content.Intent
-import androidx.compose.foundation.background
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,33 +21,26 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
+import com.udaytank.browse.ui.components.CommandBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,144 +58,41 @@ fun BrowserScreen(
     val bookmarksList by viewModel.bookmarks.collectAsStateWithLifecycle()
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
-    val keyboard = LocalSoftwareKeyboardController.current
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
     val activeTab = tabs.find { it.id == activeTabId }
     val isIncognito = activeTab?.isIncognito == true
+    val isHome = activeTab == null || activeTab.url == BrowserViewModel.HOME_URL
     val blockedCounts by viewModel.blockedCounts.collectAsStateWithLifecycle()
     val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
 
-    // System back button navigates page history before exiting the app.
-    BackHandler(enabled = state.canGoBack) { viewModel.onBackPressed() }
+    // Back: close editing first, then page history, then exit.
+    BackHandler(enabled = isEditing) { isEditing = false }
+    BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
 
-    Scaffold(
-        topBar = {
-            Column(modifier = Modifier.statusBarsPadding()) {
-                OutlinedTextField(
-                    value = state.addressBarText,
-                    onValueChange = viewModel::onAddressBarTextChanged,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    singleLine = true,
-                    placeholder = { Text(if (isIncognito) "Search privately" else "Search or type URL") },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = {
-                        viewModel.onGoPressed()
-                        keyboard?.hide()
-                    }),
-                )
-                if (state.isLoading) {
-                    LinearProgressIndicator(
-                        progress = { state.progress / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        bottomBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .imePadding()
-            ) {
-                IconButton(onClick = viewModel::onBackPressed, enabled = state.canGoBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                IconButton(onClick = viewModel::onForwardPressed, enabled = state.canGoForward) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                }
-                IconButton(onClick = onOpenTabs) {
-                    Text(
-                        text = "${tabs.size}",
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier
-                            .border(1.5.dp, LocalContentColor.current, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 7.dp, vertical = 2.dp),
-                    )
-                }
-                IconButton(onClick = viewModel::onToggleBookmark, enabled = state.currentUrl != null) {
-                    Icon(
-                        if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Reload") },
-                            onClick = { viewModel.onReloadPressed(); menuOpen = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("New incognito tab") },
-                            onClick = { viewModel.onNewIncognitoTab(); menuOpen = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Bookmarks") },
-                            onClick = { onOpenBookmarks(); menuOpen = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("History") },
-                            onClick = { onOpenHistory(); menuOpen = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Downloads") },
-                            onClick = { onOpenDownloads(); menuOpen = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Settings") },
-                            onClick = { onOpenSettings(); menuOpen = false },
-                        )
-                        if (currentHost != null) {
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "$blockedOnPage ads blocked on this page",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                },
-                                onClick = { menuOpen = false },
-                                enabled = false,
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (currentHost in adAllowedSites) "Block ads on this site"
-                                        else "Allow ads on this site"
-                                    )
-                                },
-                                onClick = {
-                                    viewModel.onToggleAllowAdsOnCurrentSite()
-                                    viewModel.onReloadPressed()
-                                    menuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-    ) { innerPadding ->
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        // ── Full-bleed content ──────────────────────────────
         val currentTabId = activeTabId
         if (currentTabId != null) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (activeTab == null || activeTab.url == BrowserViewModel.HOME_URL) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
+                if (isHome) {
                     HomePage(
                         bookmarks = bookmarksList,
                         isIncognito = isIncognito,
                         onOpenUrl = viewModel::onOpenUrl,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     TabWebView(
@@ -220,57 +102,13 @@ fun BrowserScreen(
                         incognito = isIncognito,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
+                        modifier = Modifier.fillMaxSize(),
                     )
-                }
-                state.contextMenu?.let { menu ->
-                    ModalBottomSheet(onDismissRequest = viewModel::onContextMenuDismissed) {
-                        Text(
-                            menu.url,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        )
-                        ListItem(
-                            headlineContent = { Text("Open in new tab") },
-                            modifier = Modifier.clickable { viewModel.onOpenInNewTab(menu.url) },
-                        )
-                        if (menu.isImage) {
-                            ListItem(
-                                headlineContent = { Text("Download image") },
-                                modifier = Modifier.clickable {
-                                    holder.downloadFile(menu.url)
-                                    viewModel.onContextMenuDismissed()
-                                },
-                            )
-                        }
-                        ListItem(
-                            headlineContent = { Text("Copy link") },
-                            modifier = Modifier.clickable {
-                                clipboard.setText(AnnotatedString(menu.url))
-                                viewModel.onContextMenuDismissed()
-                            },
-                        )
-                        ListItem(
-                            headlineContent = { Text("Share") },
-                            modifier = Modifier.clickable {
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, menu.url)
-                                }
-                                context.startActivity(Intent.createChooser(send, "Share link"))
-                                viewModel.onContextMenuDismissed()
-                            },
-                        )
-                    }
                 }
                 state.pageError?.let { errorDescription ->
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding)
                             .background(MaterialTheme.colorScheme.surface)
                             .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -280,10 +118,7 @@ fun BrowserScreen(
                             style = MaterialTheme.typography.displayMedium,
                             modifier = Modifier.padding(top = 64.dp, bottom = 16.dp),
                         )
-                        Text(
-                            "Lost in space",
-                            style = MaterialTheme.typography.headlineSmall,
-                        )
+                        Text("Lost in space", style = MaterialTheme.typography.headlineSmall)
                         Text(
                             "This page couldn't be reached. Check your connection and try again.",
                             style = MaterialTheme.typography.bodyMedium,
@@ -317,7 +152,7 @@ fun BrowserScreen(
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                             )
                             Text(
-                                "Browse blocked $blockedUrl because its security certificate is not trustworthy.",
+                                "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onErrorContainer,
                                 modifier = Modifier.padding(vertical = 8.dp),
@@ -328,6 +163,145 @@ fun BrowserScreen(
                         }
                     }
                 }
+            }
+        }
+
+        // ── The Command Bar ─────────────────────────────────
+        CommandBar(
+            displayHost = if (isHome) null else currentHost ?: state.currentUrl,
+            addressBarText = state.addressBarText,
+            isSecure = state.currentUrl?.startsWith("https://") == true,
+            isLoading = state.isLoading,
+            progress = state.progress,
+            canGoBack = state.canGoBack,
+            tabCount = tabs.size,
+            isEditing = isEditing,
+            onEditingChanged = { isEditing = it },
+            onAddressChange = viewModel::onAddressBarTextChanged,
+            onGo = viewModel::onGoPressed,
+            onBack = viewModel::onBackPressed,
+            onOpenTabs = onOpenTabs,
+            onMenuClick = { menuOpen = true },
+            menu = {
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Forward") },
+                        enabled = state.canGoForward,
+                        onClick = { viewModel.onForwardPressed(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Reload") },
+                        onClick = { viewModel.onReloadPressed(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (isBookmarked) "Remove bookmark" else "Add bookmark") },
+                        leadingIcon = {
+                            Icon(
+                                if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = state.currentUrl != null,
+                        onClick = { viewModel.onToggleBookmark(); menuOpen = false },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("New incognito tab") },
+                        onClick = { viewModel.onNewIncognitoTab(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Bookmarks") },
+                        onClick = { onOpenBookmarks(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("History") },
+                        onClick = { onOpenHistory(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Downloads") },
+                        onClick = { onOpenDownloads(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        onClick = { onOpenSettings(); menuOpen = false },
+                    )
+                    if (currentHost != null) {
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "$blockedOnPage ads blocked on this page",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            onClick = { menuOpen = false },
+                            enabled = false,
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (currentHost in adAllowedSites) "Block ads on this site"
+                                    else "Allow ads on this site"
+                                )
+                            },
+                            onClick = {
+                                viewModel.onToggleAllowAdsOnCurrentSite()
+                                viewModel.onReloadPressed()
+                                menuOpen = false
+                            },
+                        )
+                    }
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(bottom = 12.dp),
+        )
+
+        // ── Long-press context sheet ────────────────────────
+        state.contextMenu?.let { menu ->
+            ModalBottomSheet(onDismissRequest = viewModel::onContextMenuDismissed) {
+                Text(
+                    menu.url,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                ListItem(
+                    headlineContent = { Text("Open in new tab") },
+                    modifier = Modifier.clickable { viewModel.onOpenInNewTab(menu.url) },
+                )
+                if (menu.isImage) {
+                    ListItem(
+                        headlineContent = { Text("Download image") },
+                        modifier = Modifier.clickable {
+                            holder.downloadFile(menu.url)
+                            viewModel.onContextMenuDismissed()
+                        },
+                    )
+                }
+                ListItem(
+                    headlineContent = { Text("Copy link") },
+                    modifier = Modifier.clickable {
+                        clipboard.setText(AnnotatedString(menu.url))
+                        viewModel.onContextMenuDismissed()
+                    },
+                )
+                ListItem(
+                    headlineContent = { Text("Share") },
+                    modifier = Modifier.clickable {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, menu.url)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Share link"))
+                        viewModel.onContextMenuDismissed()
+                    },
+                )
             }
         }
     }

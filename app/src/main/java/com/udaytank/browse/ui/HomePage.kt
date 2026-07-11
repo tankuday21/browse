@@ -18,6 +18,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.data.Bookmark
+import java.time.LocalTime
+
+private fun greeting(): String = when (LocalTime.now().hour) {
+    in 5..11 -> "Good morning"
+    in 12..16 -> "Good afternoon"
+    in 17..21 -> "Good evening"
+    else -> "Up late, explorer?"
+}
 
 @Composable
 fun HomePage(
@@ -34,8 +42,16 @@ fun HomePage(
             if (isIncognito) "Incognito" else "Andromeda",
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 48.dp, bottom = 32.dp),
+            modifier = Modifier.padding(top = 48.dp, bottom = 8.dp),
         )
+        if (!isIncognito) {
+            Text(
+                greeting(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 32.dp),
+            )
+        }
         if (isIncognito) {
             Text(
                 "Pages you view in this tab won't appear in your history,\nand the tab disappears when you close the app.",
