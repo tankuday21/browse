@@ -197,6 +197,20 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `adjacent swipe moves through the tab list and stops at the edges`() {
+        val vm = vm()
+        val first = vm.activeTabId.value!!
+        vm.onNewTab()
+        val second = vm.activeTabId.value!!
+        vm.onSwitchAdjacentTab(next = false)
+        assertEquals(first, vm.activeTabId.value)
+        vm.onSwitchAdjacentTab(next = false) // already at the left edge
+        assertEquals(first, vm.activeTabId.value)
+        vm.onSwitchAdjacentTab(next = true)
+        assertEquals(second, vm.activeTabId.value)
+    }
+
+    @Test
     fun `history change updates nav button state`() {
         val vm = vm()
         val tabId = vm.activeTabId.value!!

@@ -29,7 +29,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,13 +161,23 @@ private fun EditingContent(
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+    // Select-all on entry so typing replaces the URL, like every real browser.
+    var fieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(addressBarText, selection = TextRange(0, addressBarText.length))
+        )
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
         BasicTextField(
-            value = addressBarText,
-            onValueChange = onAddressChange,
+            value = fieldValue,
+            onValueChange = {
+                fieldValue = it
+                onAddressChange(it.text)
+            },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.onSurface,

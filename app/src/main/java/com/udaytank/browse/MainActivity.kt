@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
                 }
             ) {
                 val navController = rememberNavController()
+                val holderRef = remember { arrayOfNulls<WebViewHolder>(1) }
                 val holder = remember {
                     WebViewHolder(this, adBlock = (application as BrowseApplication).adBlockEngine, listener = object : WebViewHolder.Listener {
                         override fun onPageStarted(tabId: Long, url: String) =
@@ -55,8 +56,10 @@ class MainActivity : ComponentActivity() {
                         override fun onProgressChanged(tabId: Long, percent: Int) =
                             viewModel.onProgressChanged(tabId, percent)
 
-                        override fun onPageFinished(tabId: Long, url: String, title: String?) =
+                        override fun onPageFinished(tabId: Long, url: String, title: String?) {
                             viewModel.onPageFinished(tabId, url, title)
+                            holderRef[0]?.captureThumbnail(tabId)
+                        }
 
                         override fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) =
                             viewModel.onHistoryChanged(tabId, canGoBack, canGoForward)
@@ -75,7 +78,7 @@ class MainActivity : ComponentActivity() {
 
                         override fun onPageError(tabId: Long, description: String) =
                             viewModel.onPageError(tabId, description)
-                    })
+                    }).also { holderRef[0] = it }
                 }
                 DisposableEffect(Unit) {
                     onDispose { holder.destroyAll() }
@@ -139,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     composable("tabs") {
                         TabSwitcherScreen(
                             viewModel = viewModel,
+                            holder = holder,
                             onTabChosen = { navController.popBackStack() },
                             onCloseTabView = { tabId -> holder.close(tabId) },
                             onBack = { navController.popBackStack() },
