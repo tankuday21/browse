@@ -9,6 +9,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.ui.components.CommandBar
+import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.SuggestionsPanel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,8 +73,14 @@ fun BrowserScreen(
     val isHome = activeTab == null || activeTab.url == BrowserViewModel.HOME_URL
     val blockedCounts by viewModel.blockedCounts.collectAsStateWithLifecycle()
     val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
+    val desktopTabs by viewModel.desktopTabs.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
+
+    LaunchedEffect(isEditing) {
+        if (!isEditing) viewModel.onSuggestionsDismissed()
+    }
 
     // Back: close editing first, then page history, then exit.
     BackHandler(enabled = isEditing) { isEditing = false }
@@ -102,6 +112,7 @@ fun BrowserScreen(
                         tabId = currentTabId,
                         tabUrl = activeTab.url,
                         incognito = isIncognito,
+                        isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
                         modifier = Modifier.fillMaxSize(),
@@ -168,8 +179,45 @@ fun BrowserScreen(
             }
         }
 
-        // ── The Command Bar ─────────────────────────────────
-        CommandBar(
+        // ── Bottom stack: suggestions above the find bar / Command Bar ──
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(bottom = 12.dp),
+        ) {
+            if (isEditing && suggestions.isNotEmpty()) {
+                SuggestionsPanel(
+                    suggestions = suggestions,
+                    onPick = {
+                        viewModel.onSuggestionPicked(it)
+                        isEditing = false
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                )
+            }
+            if (state.findQuery != null) {
+                FindBar(
+                    query = state.findQuery ?: "",
+                    active = state.findActive,
+                    total = state.findTotal,
+                    onQueryChange = { query ->
+                        viewModel.onFindQueryChanged(query)
+                        activeTabId?.let { holder.findInPage(it, query) }
+                    },
+                    onPrev = { activeTabId?.let { holder.findNext(it, false) } },
+                    onNext = { activeTabId?.let { holder.findNext(it, true) } },
+                    onClose = {
+                        activeTabId?.let { holder.clearFind(it) }
+                        viewModel.onFindClose()
+                    },
+                )
+            } else {
+                CommandBar(
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
             isSecure = state.currentUrl?.startsWith("https://") == true,
@@ -197,6 +245,20 @@ fun BrowserScreen(
                     DropdownMenuItem(
                         text = { Text("Reload") },
                         onClick = { viewModel.onReloadPressed(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Find in page") },
+                        enabled = !isHome,
+                        onClick = { viewModel.onFindOpen(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (activeTabId in desktopTabs) "Mobile site" else "Desktop site") },
+                        enabled = !isHome,
+                        onClick = {
+                            val desktop = viewModel.onToggleDesktopSite()
+                            activeTabId?.let { holder.setDesktopMode(it, desktop) }
+                            menuOpen = false
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text(if (isBookmarked) "Remove bookmark" else "Add bookmark") },
@@ -260,11 +322,6 @@ fun BrowserScreen(
                 }
             },
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(bottom = 12.dp)
                 .pointerInput(isEditing) {
                     if (isEditing) return@pointerInput
                     var dragX = 0f
@@ -289,7 +346,9 @@ fun BrowserScreen(
                         },
                     )
                 },
-        )
+                )
+            }
+        }
 
         // ── Long-press context sheet ────────────────────────
         state.contextMenu?.let { menu ->

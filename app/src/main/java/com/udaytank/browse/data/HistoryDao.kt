@@ -16,6 +16,12 @@ interface HistoryDao {
     @Query("SELECT * FROM history ORDER BY visitedAt DESC, id DESC LIMIT 1")
     suspend fun mostRecent(): HistoryEntry?
 
+    @Query(
+        "SELECT * FROM history WHERE url LIKE '%' || :query || '%' " +
+            "OR title LIKE '%' || :query || '%' ORDER BY visitedAt DESC LIMIT :limit"
+    )
+    suspend fun search(query: String, limit: Int): List<HistoryEntry>
+
     @Query("UPDATE history SET visitedAt = :visitedAt WHERE id = :id")
     suspend fun updateVisitedAt(id: Long, visitedAt: Long)
 

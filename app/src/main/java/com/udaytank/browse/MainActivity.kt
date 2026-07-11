@@ -1,5 +1,6 @@
 package com.udaytank.browse
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,9 +35,22 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: BrowserViewModel by viewModels { BrowserViewModel.Factory }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleWebIntent(intent)
+    }
+
+    private fun handleWebIntent(intent: Intent?) {
+        val url = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            viewModel.onExternalUrl(url)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleWebIntent(intent)
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             BrowseTheme(
@@ -78,6 +92,9 @@ class MainActivity : ComponentActivity() {
 
                         override fun onPageError(tabId: Long, description: String) =
                             viewModel.onPageError(tabId, description)
+
+                        override fun onFindResult(tabId: Long, ordinal: Int, total: Int) =
+                            viewModel.onFindResult(tabId, ordinal, total)
                     }).also { holderRef[0] = it }
                 }
                 DisposableEffect(Unit) {
