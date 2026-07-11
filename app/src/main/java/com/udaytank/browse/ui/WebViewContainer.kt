@@ -14,10 +14,11 @@ import com.udaytank.browse.browser.BrowserCommand
 @Composable
 fun WebViewContainer(
     pendingCommand: BrowserCommand?,
+    currentUrl: String?,
     onCommandConsumed: () -> Unit,
     onPageStarted: (String) -> Unit,
     onProgressChanged: (Int) -> Unit,
-    onPageFinished: () -> Unit,
+    onPageFinished: (url: String, title: String?) -> Unit,
     onHistoryChanged: (canGoBack: Boolean, canGoForward: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -34,7 +35,7 @@ fun WebViewContainer(
                     }
 
                     override fun onPageFinished(view: WebView, url: String) {
-                        onPageFinished()
+                        onPageFinished(url, view.title)
                     }
 
                     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
@@ -55,7 +56,9 @@ fun WebViewContainer(
                 BrowserCommand.GoBack -> if (webView.canGoBack()) webView.goBack()
                 BrowserCommand.GoForward -> if (webView.canGoForward()) webView.goForward()
                 BrowserCommand.Reload -> webView.reload()
-                null -> Unit
+                // A fresh WebView instance (after rotation or returning from
+                // another screen) has url == null: restore the current page.
+                null -> if (webView.url == null && currentUrl != null) webView.loadUrl(currentUrl)
             }
             if (pendingCommand != null) onCommandConsumed()
         },

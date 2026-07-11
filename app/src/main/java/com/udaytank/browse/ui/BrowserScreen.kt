@@ -14,7 +14,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -31,8 +35,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 
 @Composable
-fun BrowserScreen(viewModel: BrowserViewModel) {
+fun BrowserScreen(
+    viewModel: BrowserViewModel,
+    onOpenHistory: () -> Unit,
+    onOpenBookmarks: () -> Unit,
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
 
     // System back button navigates page history before exiting the app.
@@ -79,11 +88,24 @@ fun BrowserScreen(viewModel: BrowserViewModel) {
                 IconButton(onClick = viewModel::onReloadPressed) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Reload")
                 }
+                IconButton(onClick = viewModel::onToggleBookmark, enabled = state.currentUrl != null) {
+                    Icon(
+                        if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
+                    )
+                }
+                IconButton(onClick = onOpenBookmarks) {
+                    Icon(Icons.Filled.Bookmarks, contentDescription = "Bookmarks")
+                }
+                IconButton(onClick = onOpenHistory) {
+                    Icon(Icons.Filled.History, contentDescription = "History")
+                }
             }
         },
     ) { innerPadding ->
         WebViewContainer(
             pendingCommand = state.pendingCommand,
+            currentUrl = state.currentUrl,
             onCommandConsumed = viewModel::onCommandConsumed,
             onPageStarted = viewModel::onPageStarted,
             onProgressChanged = viewModel::onProgressChanged,
