@@ -7,8 +7,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.browser.Suggestion
+import com.udaytank.browse.browser.SuggestionEngine
+import com.udaytank.browse.browser.SuggestionKind
 import com.udaytank.browse.browser.TabManager
 import com.udaytank.browse.browser.UrlInput
+import com.udaytank.browse.browser.googleSuggest
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
@@ -47,6 +53,9 @@ data class BrowserUiState(
     val canGoForward: Boolean = false,
     val pendingCommand: BrowserCommand? = null,
     val sslWarningUrl: String? = null,
+    val findQuery: String? = null,
+    val findActive: Int = 0,
+    val findTotal: Int = 0,
     val contextMenu: LinkContextMenu? = null,
     val pageError: String? = null,
 )
@@ -58,9 +67,19 @@ class BrowserViewModel(
     tabDao: TabDao,
     private val settings: SettingsRepository,
     private val downloadDao: DownloadDao,
+    suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao)
+    private val suggestionEngine = SuggestionEngine(historyDao, bookmarkDao, suggestionFetcher)
+
+    private val _suggestions = MutableStateFlow<List<Suggestion>>(emptyList())
+    val suggestions: StateFlow<List<Suggestion>> = _suggestions.asStateFlow()
+    private var suggestionJob: Job? = null
+
+    /** Tabs currently requesting the desktop site (menu label state). */
+    private val _desktopTabs = MutableStateFlow<Set<Long>>(emptySet())
+    val desktopTabs: StateFlow<Set<Long>> = _desktopTabs.asStateFlow()
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
 
@@ -195,8 +214,59 @@ class BrowserViewModel(
 
     // --- events from the UI ---
 
-    fun onAddressBarTextChanged(text: String) =
+    fun onAddressBarTextChanged(text: String) {
         _uiState.update { it.copy(addressBarText = text) }
+        suggestionJob?.cancel()
+        if (text.isBlank()) {
+            _suggestions.value = emptyList()
+            return
+        }
+        suggestionJob = viewModelScope.launch {
+            delay(200) // debounce typing
+            _suggestions.value = suggestionEngine.suggest(text)
+        }
+    }
+
+    fun onSuggestionsDismissed() {
+        suggestionJob?.cancel()
+        _suggestions.value = emptyList()
+    }
+
+    fun onSuggestionPicked(suggestion: Suggestion) {
+        when (suggestion.kind) {
+            SuggestionKind.SEARCH ->
+                onOpenUrl(UrlInput.toLoadableUrl(suggestion.title, searchEngine.value.queryUrl))
+            else -> onOpenUrl(suggestion.url)
+        }
+        onSuggestionsDismissed()
+    }
+
+    /** A link arriving from another app always opens in a fresh normal tab. */
+    fun onExternalUrl(url: String) {
+        viewModelScope.launch { tabManager.newTab(url, incognito = false) }
+    }
+
+    // --- find in page ---
+
+    fun onFindOpen() = _uiState.update { it.copy(findQuery = "") }
+
+    fun onFindQueryChanged(query: String) = _uiState.update { it.copy(findQuery = query) }
+
+    fun onFindClose() = _uiState.update { it.copy(findQuery = null, findActive = 0, findTotal = 0) }
+
+    fun onFindResult(tabId: Long, ordinal: Int, total: Int) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(findActive = ordinal, findTotal = total) }
+        }
+    }
+
+    /** Flips desktop-site mode for the active tab; returns the new state. */
+    fun onToggleDesktopSite(): Boolean {
+        val id = activeTabId.value ?: return false
+        val enabled = id !in _desktopTabs.value
+        _desktopTabs.update { if (enabled) it + id else it - id }
+        return enabled
+    }
 
     /**
      * A home tab has no WebView mounted, so commands can't reach it —

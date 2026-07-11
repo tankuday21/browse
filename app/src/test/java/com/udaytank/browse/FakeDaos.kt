@@ -21,6 +21,12 @@ class FakeHistoryDao : HistoryDao {
     override suspend fun mostRecent(): HistoryEntry? =
         entries.value.maxWithOrNull(compareBy({ it.visitedAt }, { it.id }))
 
+    override suspend fun search(query: String, limit: Int): List<HistoryEntry> =
+        entries.value
+            .filter { it.url.contains(query, true) || it.title.contains(query, true) }
+            .sortedByDescending { it.visitedAt }
+            .take(limit)
+
     override suspend fun updateVisitedAt(id: Long, visitedAt: Long) {
         entries.value = entries.value.map {
             if (it.id == id) it.copy(visitedAt = visitedAt) else it
@@ -49,6 +55,12 @@ class FakeBookmarkDao : BookmarkDao {
 
     override fun observeIsBookmarked(url: String): Flow<Boolean> =
         bookmarks.map { list -> list.any { it.url == url } }
+
+    override suspend fun search(query: String, limit: Int): List<Bookmark> =
+        bookmarks.value
+            .filter { it.url.contains(query, true) || it.title.contains(query, true) }
+            .sortedByDescending { it.createdAt }
+            .take(limit)
 
     override suspend fun deleteByUrl(url: String) {
         bookmarks.value = bookmarks.value.filterNot { it.url == url }

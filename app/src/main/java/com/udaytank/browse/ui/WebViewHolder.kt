@@ -42,6 +42,7 @@ class WebViewHolder(
         fun onLongPress(tabId: Long, url: String, isImage: Boolean)
         fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
         fun onPageError(tabId: Long, description: String)
+        fun onFindResult(tabId: Long, ordinal: Int, total: Int)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -51,6 +52,26 @@ class WebViewHolder(
 
     fun captureThumbnail(tabId: Long) {
         webViews[tabId]?.let { thumbnails.capture(tabId, it) }
+    }
+
+    fun findInPage(tabId: Long, query: String) {
+        webViews[tabId]?.findAllAsync(query)
+    }
+
+    fun findNext(tabId: Long, forward: Boolean) {
+        webViews[tabId]?.findNext(forward)
+    }
+
+    fun clearFind(tabId: Long) {
+        webViews[tabId]?.clearMatches()
+    }
+
+    fun setDesktopMode(tabId: Long, desktop: Boolean) {
+        val webView = webViews[tabId] ?: return
+        webView.settings.userAgentString = if (desktop) DESKTOP_UA else null
+        webView.settings.loadWithOverviewMode = desktop
+        webView.settings.useWideViewPort = desktop
+        webView.reload()
     }
 
     // shouldInterceptRequest runs on WebView's background threads;
@@ -138,6 +159,10 @@ class WebViewHolder(
                 downloadFile(url, userAgent, contentDisposition, mimetype)
             }
 
+            setFindListener { ordinal, total, done ->
+                if (done) listener.onFindResult(tabId, if (total == 0) 0 else ordinal + 1, total)
+            }
+
             setOnLongClickListener { view ->
                 val hit = (view as WebView).hitTestResult
                 val url = hit.extra
@@ -194,5 +219,10 @@ class WebViewHolder(
     fun destroyAll() {
         webViews.values.forEach { it.destroy() }
         webViews.clear()
+    }
+
+    private companion object {
+        const val DESKTOP_UA =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     }
 }

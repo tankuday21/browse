@@ -71,6 +71,33 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Text(
+                "General",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            TextButton(
+                onClick = {
+                    val intent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                        if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_BROWSER) &&
+                            !roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_BROWSER)
+                        ) {
+                            roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_BROWSER)
+                        } else {
+                            android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                        }
+                    } else {
+                        android.content.Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+                    }
+                    runCatching { context.startActivity(intent) }
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Set Andromeda as default browser")
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
                 "Search engine",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,

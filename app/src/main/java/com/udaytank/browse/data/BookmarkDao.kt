@@ -17,6 +17,12 @@ interface BookmarkDao {
     @Query("SELECT EXISTS(SELECT 1 FROM bookmarks WHERE url = :url)")
     fun observeIsBookmarked(url: String): Flow<Boolean>
 
+    @Query(
+        "SELECT * FROM bookmarks WHERE url LIKE '%' || :query || '%' " +
+            "OR title LIKE '%' || :query || '%' ORDER BY createdAt DESC LIMIT :limit"
+    )
+    suspend fun search(query: String, limit: Int): List<Bookmark>
+
     @Query("DELETE FROM bookmarks WHERE url = :url")
     suspend fun deleteByUrl(url: String)
 }
