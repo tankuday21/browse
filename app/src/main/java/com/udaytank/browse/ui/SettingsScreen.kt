@@ -48,6 +48,7 @@ fun SettingsScreen(
     val theme by viewModel.themeMode.collectAsStateWithLifecycle()
     val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
     val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
+    val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -122,6 +123,13 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(16.dp),
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Block ads", modifier = Modifier.weight(1f))
+                Switch(checked = adBlockEnabled, onCheckedChange = viewModel::onAdBlockToggled)
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),

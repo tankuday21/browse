@@ -10,6 +10,8 @@ class FakeSettingsRepository : SettingsRepository {
     override val themeMode = MutableStateFlow(ThemeMode.SYSTEM)
     override val javaScriptEnabled = MutableStateFlow(true)
     override val cookiesEnabled = MutableStateFlow(true)
+    override val adBlockEnabled = MutableStateFlow(true)
+    override val adAllowedSites = MutableStateFlow<Set<String>>(emptySet())
 
     override suspend fun setSearchEngine(engine: SearchEngine) {
         searchEngine.value = engine
@@ -25,5 +27,15 @@ class FakeSettingsRepository : SettingsRepository {
 
     override suspend fun setCookiesEnabled(enabled: Boolean) {
         cookiesEnabled.value = enabled
+    }
+
+    override suspend fun setAdBlockEnabled(enabled: Boolean) {
+        adBlockEnabled.value = enabled
+    }
+
+    override suspend fun toggleAdAllowedSite(host: String) {
+        adAllowedSites.value =
+            if (host in adAllowedSites.value) adAllowedSites.value - host
+            else adAllowedSites.value + host
     }
 }

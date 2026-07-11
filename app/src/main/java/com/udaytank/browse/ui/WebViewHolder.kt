@@ -11,11 +11,16 @@ import android.webkit.CookieManager
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import com.udaytank.browse.browser.AdBlockEngine
+import java.io.ByteArrayInputStream
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Owns one live WebView per tab, outside the compose tree, so instances
@@ -24,6 +29,7 @@ import android.widget.Toast
 class WebViewHolder(
     private val context: Context,
     private val listener: Listener,
+    private val adBlock: AdBlockEngine,
 ) {
     interface Listener {
         fun onPageStarted(tabId: Long, url: String)
@@ -31,10 +37,15 @@ class WebViewHolder(
         fun onPageFinished(tabId: Long, url: String, title: String?)
         fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean)
         fun onSslError(tabId: Long, url: String)
+        fun onRequestBlocked(tabId: Long)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
     private var jsEnabled = true
+
+    // shouldInterceptRequest runs on WebView's background threads;
+    // page hosts are written on the UI thread in onPageStarted.
+    private val pageHosts = ConcurrentHashMap<Long, String>()
 
     /** Applies global browsing policy to all live WebViews and future ones. */
     fun applyPolicy(javaScriptEnabled: Boolean, cookiesEnabled: Boolean) {
@@ -64,7 +75,20 @@ class WebViewHolder(
 
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                    Uri.parse(url).host?.let { pageHosts[tabId] = it }
                     listener.onPageStarted(tabId, url)
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): WebResourceResponse? {
+                    return if (adBlock.shouldBlock(request.url.host, pageHosts[tabId])) {
+                        listener.onRequestBlocked(tabId)
+                        WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                    } else {
+                        null // null = let the request through normally
+                    }
                 }
 
                 override fun onPageFinished(view: WebView, url: String) {
@@ -111,6 +135,7 @@ class WebViewHolder(
     }
 
     fun close(tabId: Long) {
+        pageHosts.remove(tabId)
         webViews.remove(tabId)?.destroy()
     }
 
