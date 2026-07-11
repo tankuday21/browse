@@ -39,6 +39,14 @@ class UrlInputTest {
     }
 
     @Test
+    fun `custom search engine url is used`() {
+        assertEquals(
+            "https://duckduckgo.com/?q=pizza",
+            UrlInput.toLoadableUrl("pizza", com.udaytank.browse.data.SearchEngine.DUCKDUCKGO.queryUrl)
+        )
+    }
+
+    @Test
     fun `special characters in searches are url-encoded`() {
         assertEquals(
             "https://www.google.com/search?q=what+is+2%2B2",

@@ -1,6 +1,7 @@
 package com.udaytank.browse
 
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.data.SearchEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,7 +18,8 @@ class BrowserViewModelTest {
         historyDao: FakeHistoryDao = FakeHistoryDao(),
         bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
         tabDao: FakeTabDao = FakeTabDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao)
+        settings: FakeSettingsRepository = FakeSettingsRepository(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings)
 
     @Test
     fun `typing updates address bar text`() {
@@ -27,27 +29,49 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `go pressed emits LoadUrl command with normalized url`() {
+    fun `go on a home tab loads by rewriting the tab url`() {
         val vm = vm()
         vm.onAddressBarTextChanged("bbc.com")
         vm.onGoPressed()
-        assertEquals(BrowserCommand.LoadUrl("https://bbc.com"), vm.uiState.value.pendingCommand)
+        assertNull(vm.uiState.value.pendingCommand)
+        assertEquals("https://bbc.com", vm.tabs.value.first().url)
+    }
+
+    @Test
+    fun `go on a web tab issues a load command`() {
+        val vm = vm()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com")
+        vm.onAddressBarTextChanged("cnn.com")
+        vm.onGoPressed()
+        assertEquals(BrowserCommand.LoadUrl("https://cnn.com"), vm.uiState.value.pendingCommand)
+    }
+
+    @Test
+    fun `selected search engine drives searches`() {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        vm.onSearchEngineSelected(SearchEngine.DUCKDUCKGO)
+        vm.onAddressBarTextChanged("pizza")
+        vm.onGoPressed()
+        assertEquals("https://duckduckgo.com/?q=pizza", vm.tabs.value.first().url)
     }
 
     @Test
     fun `consuming a command clears it`() {
         val vm = vm()
-        vm.onGoPressed()
+        vm.onReloadPressed()
         vm.onCommandConsumed()
         assertNull(vm.uiState.value.pendingCommand)
     }
 
     @Test
-    fun `startup creates an active home tab`() {
+    fun `startup creates an active home tab with empty address bar`() {
         val vm = vm()
         assertEquals(1, vm.tabs.value.size)
         assertEquals(vm.tabs.value.first().id, vm.activeTabId.value)
-        assertEquals(BrowserViewModel.HOME_URL, vm.uiState.value.addressBarText)
+        assertEquals("", vm.uiState.value.addressBarText)
+        assertNull(vm.uiState.value.currentUrl)
     }
 
     @Test

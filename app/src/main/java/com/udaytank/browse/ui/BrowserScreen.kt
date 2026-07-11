@@ -49,9 +49,11 @@ fun BrowserScreen(
     onOpenHistory: () -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenTabs: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
+    val bookmarksList by viewModel.bookmarks.collectAsStateWithLifecycle()
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -130,6 +132,10 @@ fun BrowserScreen(
                             text = { Text("History") },
                             onClick = { onOpenHistory(); menuOpen = false },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = { onOpenSettings(); menuOpen = false },
+                        )
                     }
                 }
             }
@@ -137,17 +143,27 @@ fun BrowserScreen(
     ) { innerPadding ->
         val currentTabId = activeTabId
         if (currentTabId != null) {
-            val tabUrl = tabs.find { it.id == currentTabId }?.url ?: BrowserViewModel.HOME_URL
-            TabWebView(
-                holder = holder,
-                tabId = currentTabId,
-                tabUrl = tabUrl,
-                pendingCommand = state.pendingCommand,
-                onCommandConsumed = viewModel::onCommandConsumed,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            )
+            val activeTab = tabs.find { it.id == currentTabId }
+            if (activeTab == null || activeTab.url == BrowserViewModel.HOME_URL) {
+                HomePage(
+                    bookmarks = bookmarksList,
+                    onOpenUrl = viewModel::onOpenUrl,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            } else {
+                TabWebView(
+                    holder = holder,
+                    tabId = currentTabId,
+                    tabUrl = activeTab.url,
+                    pendingCommand = state.pendingCommand,
+                    onCommandConsumed = viewModel::onCommandConsumed,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                )
+            }
         }
     }
 }

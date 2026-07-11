@@ -15,8 +15,11 @@ import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.SearchEngine
+import com.udaytank.browse.data.SettingsRepository
 import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
+import com.udaytank.browse.data.ThemeMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,6 +49,7 @@ class BrowserViewModel(
     private val historyDao: HistoryDao,
     private val bookmarkDao: BookmarkDao,
     tabDao: TabDao,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao)
@@ -60,6 +64,13 @@ class BrowserViewModel(
 
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
+    val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SearchEngine.GOOGLE)
+
+    val themeMode: StateFlow<ThemeMode> = settings.themeMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
 
     val isBookmarked: StateFlow<Boolean> = uiState
         .map { it.currentUrl }
@@ -77,7 +88,16 @@ class BrowserViewModel(
                 tabs.find { it.id == active }
             }.distinctUntilChanged().collect { tab ->
                 if (tab != null) {
-                    _uiState.update { it.copy(currentUrl = tab.url, addressBarText = tab.url) }
+                    if (tab.url == HOME_URL) {
+                        _uiState.update {
+                            it.copy(
+                                currentUrl = null, addressBarText = "",
+                                isLoading = false, canGoBack = false, canGoForward = false,
+                            )
+                        }
+                    } else {
+                        _uiState.update { it.copy(currentUrl = tab.url, addressBarText = tab.url) }
+                    }
                 }
             }
         }
@@ -97,17 +117,38 @@ class BrowserViewModel(
         viewModelScope.launch { tabManager.switchTo(id) }
     }
 
+    // --- settings events ---
+
+    fun onSearchEngineSelected(engine: SearchEngine) {
+        viewModelScope.launch { settings.setSearchEngine(engine) }
+    }
+
+    fun onThemeSelected(mode: ThemeMode) {
+        viewModelScope.launch { settings.setThemeMode(mode) }
+    }
+
     // --- events from the UI ---
 
     fun onAddressBarTextChanged(text: String) =
         _uiState.update { it.copy(addressBarText = text) }
 
-    fun onGoPressed() = _uiState.update {
-        it.copy(pendingCommand = BrowserCommand.LoadUrl(UrlInput.toLoadableUrl(it.addressBarText)))
+    /**
+     * A home tab has no WebView mounted, so commands can't reach it —
+     * rewriting the tab's url mounts the WebView, which then loads it.
+     */
+    private fun loadInActiveTab(url: String) {
+        val tab = tabs.value.find { it.id == activeTabId.value }
+        if (tab != null && tab.url == HOME_URL) {
+            viewModelScope.launch { tabManager.onContentChanged(tab.id, url, url) }
+        } else {
+            _uiState.update { it.copy(pendingCommand = BrowserCommand.LoadUrl(url)) }
+        }
     }
 
-    fun onOpenUrl(url: String) =
-        _uiState.update { it.copy(pendingCommand = BrowserCommand.LoadUrl(url)) }
+    fun onGoPressed() =
+        loadInActiveTab(UrlInput.toLoadableUrl(_uiState.value.addressBarText, searchEngine.value.queryUrl))
+
+    fun onOpenUrl(url: String) = loadInActiveTab(url)
 
     fun onBackPressed() = _uiState.update { it.copy(pendingCommand = BrowserCommand.GoBack) }
     fun onForwardPressed() = _uiState.update { it.copy(pendingCommand = BrowserCommand.GoForward) }
@@ -176,7 +217,7 @@ class BrowserViewModel(
     }
 
     companion object {
-        const val HOME_URL = "https://www.google.com"
+        const val HOME_URL = "browse://home"
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -185,6 +226,7 @@ class BrowserViewModel(
                     app.database.historyDao(),
                     app.database.bookmarkDao(),
                     app.database.tabDao(),
+                    app.settingsRepository,
                 )
             }
         }

@@ -5,8 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.udaytank.browse.data.ThemeMode
+import com.udaytank.browse.ui.SettingsScreen
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -25,7 +30,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            BrowseTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            BrowseTheme(
+                darkTheme = when (themeMode) {
+                    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                }
+            ) {
                 val navController = rememberNavController()
                 val holder = remember {
                     WebViewHolder(this, object : WebViewHolder.Listener {
@@ -54,6 +66,13 @@ class MainActivity : ComponentActivity() {
                             onOpenHistory = { navController.navigate("history") },
                             onOpenBookmarks = { navController.navigate("bookmarks") },
                             onOpenTabs = { navController.navigate("tabs") },
+                            onOpenSettings = { navController.navigate("settings") },
+                        )
+                    }
+                    composable("settings") {
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                     composable("tabs") {

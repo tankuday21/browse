@@ -1,16 +1,15 @@
 package com.udaytank.browse.browser
 
+import com.udaytank.browse.data.SearchEngine
 import java.net.URLEncoder
 
 object UrlInput {
-
-    private const val SEARCH_URL = "https://www.google.com/search?q="
 
     /**
      * Turns raw address-bar input into a URL the WebView can load.
      * Decide: is it already a URL, a bare domain, or a search?
      */
-    fun toLoadableUrl(input: String): String {
+    fun toLoadableUrl(input: String, searchUrl: String = SearchEngine.GOOGLE.queryUrl): String {
         val text = input.trim() // removes spaces from both ends
 
         return when {
@@ -21,7 +20,7 @@ object UrlInput {
             !text.contains(' ') && text.contains('.') -> "https://$text"
 
             // Case 3: everything else → search for it
-            else -> SEARCH_URL + URLEncoder.encode(text, "UTF-8")
+            else -> searchUrl + URLEncoder.encode(text, "UTF-8")
         }
     }
 }
