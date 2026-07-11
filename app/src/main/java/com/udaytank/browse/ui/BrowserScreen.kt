@@ -75,6 +75,7 @@ fun BrowserScreen(
     val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val desktopTabs by viewModel.desktopTabs.collectAsStateWithLifecycle()
+    val readerActive by viewModel.readerActive.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
 
@@ -105,6 +106,13 @@ fun BrowserScreen(
                         isIncognito = isIncognito,
                         onOpenUrl = viewModel::onOpenUrl,
                         modifier = Modifier.fillMaxSize(),
+                    )
+                } else if (readerActive) {
+                    ReaderOverlay(
+                        holder = holder,
+                        tabId = currentTabId,
+                        background = MaterialTheme.colorScheme.surface,
+                        onText = MaterialTheme.colorScheme.onSurface,
                     )
                 } else {
                     TabWebView(
@@ -245,6 +253,11 @@ fun BrowserScreen(
                     DropdownMenuItem(
                         text = { Text("Reload") },
                         onClick = { viewModel.onReloadPressed(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (readerActive) "Exit reader" else "Reader mode") },
+                        enabled = !isHome,
+                        onClick = { viewModel.onToggleReaderMode(); menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Find in page") },

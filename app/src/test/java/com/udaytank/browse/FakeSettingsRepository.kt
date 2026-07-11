@@ -38,4 +38,9 @@ class FakeSettingsRepository : SettingsRepository {
             if (host in adAllowedSites.value) adAllowedSites.value - host
             else adAllowedSites.value + host
     }
+
+    override val forceDarkWebsites = MutableStateFlow(false)
+    override suspend fun setForceDarkWebsites(enabled: Boolean) {
+        forceDarkWebsites.value = enabled
+    }
 }

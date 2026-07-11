@@ -30,6 +30,8 @@ interface SettingsRepository {
     suspend fun setCookiesEnabled(enabled: Boolean)
     suspend fun setAdBlockEnabled(enabled: Boolean)
     suspend fun toggleAdAllowedSite(host: String)
+    val forceDarkWebsites: Flow<Boolean>
+    suspend fun setForceDarkWebsites(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -54,6 +56,14 @@ class DataStoreSettingsRepository(
 
     override val cookiesEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[COOKIES_KEY] ?: true
+    }
+
+    override val forceDarkWebsites: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[FORCE_DARK_KEY] ?: false
+    }
+
+    override suspend fun setForceDarkWebsites(enabled: Boolean) {
+        dataStore.edit { it[FORCE_DARK_KEY] = enabled }
     }
 
     override suspend fun setSearchEngine(engine: SearchEngine) {
@@ -98,6 +108,7 @@ class DataStoreSettingsRepository(
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
         val COOKIES_KEY = booleanPreferencesKey("cookies_enabled")
         val AD_BLOCK_KEY = booleanPreferencesKey("ad_block_enabled")
+        val FORCE_DARK_KEY = booleanPreferencesKey("force_dark_websites")
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
     }
 }

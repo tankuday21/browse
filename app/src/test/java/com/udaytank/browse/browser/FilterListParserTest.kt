@@ -28,9 +28,17 @@ class FilterListParserTest {
     }
 
     @Test
-    fun `cosmetic rules are ignored`() {
+    fun `generic cosmetic rules are collected, domain-specific ones skipped`() {
         val list = FilterListParser.parse("example.com##.ad-banner\n##.adsbox\n||real.ads^")
         assertEquals(setOf("real.ads"), list.blockedDomains)
+        assertTrue(".adsbox" in list.cosmeticSelectors)
+        assertFalse(".ad-banner" in list.cosmeticSelectors) // domain-specific, skipped in v1
+    }
+
+    @Test
+    fun `procedural cosmetic selectors are rejected`() {
+        val list = FilterListParser.parse("##.ad:has(> img)\n##div:-abp-contains(ad)\n##.clean")
+        assertEquals(setOf(".clean"), list.cosmeticSelectors)
     }
 
     @Test

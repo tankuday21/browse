@@ -18,8 +18,28 @@ class AdBlockEngine {
     @Volatile
     private var siteAllowlist: Set<String> = emptySet()
 
+    @Volatile
+    private var cosmeticCss: String = ""
+
     fun load(list: BlockList) {
         blockList = list
+        // Precompute the CSS once: hide every generic selector.
+        cosmeticCss = if (list.cosmeticSelectors.isEmpty()) {
+            ""
+        } else {
+            list.cosmeticSelectors.joinToString(",") + "{display:none!important;}"
+        }
+    }
+
+    /** JS that injects a <style> hiding cosmetic-filter elements; empty when disabled. */
+    fun cosmeticInjectionScript(pageHost: String?): String {
+        if (!enabled) return ""
+        if (pageHost != null && matchesDomainChain(pageHost.lowercase(), siteAllowlist)) return ""
+        val css = cosmeticCss
+        if (css.isEmpty()) return ""
+        val escaped = css.replace("\\", "\\\\").replace("'", "\\'")
+        return "(function(){var s=document.createElement('style');" +
+            "s.textContent='$escaped';document.documentElement.appendChild(s);})();"
     }
 
     fun updatePolicy(enabled: Boolean, siteAllowlist: Set<String>) {

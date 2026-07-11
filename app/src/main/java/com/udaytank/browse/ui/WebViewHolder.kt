@@ -18,6 +18,9 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
+import com.udaytank.browse.browser.ReaderMode
 import android.widget.Toast
 import com.udaytank.browse.browser.AdBlockEngine
 import java.io.ByteArrayInputStream
@@ -49,6 +52,14 @@ class WebViewHolder(
     private var jsEnabled = true
 
     val thumbnails = ThumbnailStore(context)
+
+    @Volatile
+    var forceDark: Boolean = false
+
+    fun extractReaderContent(tabId: Long, onResult: (String) -> Unit) {
+        val webView = webViews[tabId] ?: run { onResult("{\"ok\":false}"); return }
+        webView.evaluateJavascript(ReaderMode.EXTRACT_SCRIPT) { json -> onResult(json) }
+    }
 
     fun captureThumbnail(tabId: Long) {
         webViews[tabId]?.let { thumbnails.capture(tabId, it) }
@@ -96,6 +107,9 @@ class WebViewHolder(
     fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
         WebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
+            if (forceDark && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, true)
+            }
             if (incognito) {
                 // Leave no local traces: no DOM storage, no cache writes.
                 settings.domStorageEnabled = false
@@ -123,6 +137,9 @@ class WebViewHolder(
                 }
 
                 override fun onPageFinished(view: WebView, url: String) {
+                    // Inject cosmetic ad-hiding CSS once the DOM exists.
+                    val css = adBlock.cosmeticInjectionScript(pageHosts[tabId])
+                    if (css.isNotEmpty()) view.evaluateJavascript(css, null)
                     listener.onPageFinished(tabId, url, view.title)
                 }
 

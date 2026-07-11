@@ -101,6 +101,9 @@ class MainActivity : ComponentActivity() {
                     onDispose { holder.destroyAll() }
                 }
 
+                val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
+                LaunchedEffect(forceDark) { holder.forceDark = forceDark }
+
                 val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
                 val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
                 LaunchedEffect(jsEnabled, cookiesEnabled) {
