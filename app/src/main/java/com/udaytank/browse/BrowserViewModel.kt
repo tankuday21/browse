@@ -13,6 +13,8 @@ import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
+import com.udaytank.browse.data.DownloadDao
+import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.SearchEngine
@@ -34,6 +36,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class LinkContextMenu(val url: String, val isImage: Boolean)
+
 data class BrowserUiState(
     val addressBarText: String = "",
     val currentUrl: String? = null,
@@ -43,6 +47,7 @@ data class BrowserUiState(
     val canGoForward: Boolean = false,
     val pendingCommand: BrowserCommand? = null,
     val sslWarningUrl: String? = null,
+    val contextMenu: LinkContextMenu? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -51,6 +56,7 @@ class BrowserViewModel(
     private val bookmarkDao: BookmarkDao,
     tabDao: TabDao,
     private val settings: SettingsRepository,
+    private val downloadDao: DownloadDao,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao)
@@ -64,6 +70,9 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
@@ -271,6 +280,39 @@ class BrowserViewModel(
 
     fun onSslWarningDismissed() = _uiState.update { it.copy(sslWarningUrl = null) }
 
+    fun onLongPress(tabId: Long, url: String, isImage: Boolean) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(contextMenu = LinkContextMenu(url, isImage)) }
+        }
+    }
+
+    fun onContextMenuDismissed() = _uiState.update { it.copy(contextMenu = null) }
+
+    /** Called from the download listener when the system DownloadManager accepts a file. */
+    fun onDownloadStarted(downloadId: Long, fileName: String, url: String) {
+        viewModelScope.launch {
+            downloadDao.insert(
+                DownloadEntry(
+                    downloadId = downloadId,
+                    fileName = fileName,
+                    url = url,
+                    createdAt = System.currentTimeMillis(),
+                )
+            )
+        }
+    }
+
+    fun onDeleteDownload(id: Long) {
+        viewModelScope.launch { downloadDao.deleteById(id) }
+    }
+
+    /** New tabs opened from a page inherit that page's incognito mode. */
+    fun onOpenInNewTab(url: String) {
+        val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+        viewModelScope.launch { tabManager.newTab(url, incognito) }
+        onContextMenuDismissed()
+    }
+
     fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) {
         if (tabId == activeTabId.value) {
             _uiState.update { it.copy(canGoBack = canGoBack, canGoForward = canGoForward) }
@@ -288,6 +330,7 @@ class BrowserViewModel(
                     app.database.bookmarkDao(),
                     app.database.tabDao(),
                     app.settingsRepository,
+                    app.database.downloadDao(),
                 )
             }
         }

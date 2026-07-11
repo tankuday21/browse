@@ -18,6 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.udaytank.browse.ui.BookmarksScreen
 import com.udaytank.browse.ui.BrowserScreen
+import com.udaytank.browse.ui.DownloadsScreen
 import com.udaytank.browse.ui.HistoryScreen
 import com.udaytank.browse.ui.TabSwitcherScreen
 import com.udaytank.browse.ui.WebViewHolder
@@ -59,6 +60,12 @@ class MainActivity : ComponentActivity() {
 
                         override fun onRequestBlocked(tabId: Long) =
                             viewModel.onRequestBlocked(tabId)
+
+                        override fun onLongPress(tabId: Long, url: String, isImage: Boolean) =
+                            viewModel.onLongPress(tabId, url, isImage)
+
+                        override fun onDownloadStarted(downloadId: Long, fileName: String, url: String) =
+                            viewModel.onDownloadStarted(downloadId, fileName, url)
                     })
                 }
                 DisposableEffect(Unit) {
@@ -87,6 +94,13 @@ class MainActivity : ComponentActivity() {
                             onOpenBookmarks = { navController.navigate("bookmarks") },
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
+                            onOpenDownloads = { navController.navigate("downloads") },
+                        )
+                    }
+                    composable("downloads") {
+                        DownloadsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                     composable("settings") {

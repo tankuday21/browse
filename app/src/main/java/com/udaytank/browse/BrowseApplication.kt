@@ -31,7 +31,11 @@ class BrowseApplication : Application() {
     }
     val database: BrowseDatabase by lazy {
         Room.databaseBuilder(this, BrowseDatabase::class.java, "browse.db")
-            .addMigrations(BrowseDatabase.MIGRATION_1_2, BrowseDatabase.MIGRATION_2_3)
+            .addMigrations(
+                BrowseDatabase.MIGRATION_1_2,
+                BrowseDatabase.MIGRATION_2_3,
+                BrowseDatabase.MIGRATION_3_4,
+            )
             .build()
     }
 

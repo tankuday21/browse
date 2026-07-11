@@ -19,7 +19,17 @@ class BrowserViewModelTest {
         bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
         tabDao: FakeTabDao = FakeTabDao(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings)
+        downloadDao: FakeDownloadDao = FakeDownloadDao(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao)
+
+    @Test
+    fun `started downloads are recorded`() {
+        val downloads = FakeDownloadDao()
+        val vm = vm(downloadDao = downloads)
+        vm.onDownloadStarted(42, "file.pdf", "https://a.com/file.pdf")
+        assertEquals(1, downloads.entries.value.size)
+        assertEquals(42L, downloads.entries.value.first().downloadId)
+    }
 
     @Test
     fun `typing updates address bar text`() {
@@ -148,6 +158,28 @@ class BrowserViewModelTest {
         assertEquals("https://expired.badssl.com/", vm.uiState.value.sslWarningUrl)
         vm.onSslWarningDismissed()
         assertNull(vm.uiState.value.sslWarningUrl)
+    }
+
+    @Test
+    fun `long press on active tab opens context menu - background tab does not`() {
+        val vm = vm()
+        val first = vm.activeTabId.value!!
+        vm.onNewTab()
+        vm.onLongPress(first, "https://a.com/img.png", isImage = true)
+        assertNull(vm.uiState.value.contextMenu)
+        vm.onLongPress(vm.activeTabId.value!!, "https://a.com/link", isImage = false)
+        assertEquals(LinkContextMenu("https://a.com/link", false), vm.uiState.value.contextMenu)
+    }
+
+    @Test
+    fun `open in new tab from incognito inherits incognito`() {
+        val vm = vm()
+        vm.onNewIncognitoTab()
+        vm.onOpenInNewTab("https://a.com")
+        val newActive = vm.tabs.value.find { it.id == vm.activeTabId.value }!!
+        assertTrue(newActive.isIncognito)
+        assertEquals("https://a.com", newActive.url)
+        assertNull(vm.uiState.value.contextMenu)
     }
 
     @Test
