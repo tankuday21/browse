@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class LinkContextMenu(val url: String, val isImage: Boolean)
+
 data class BrowserUiState(
     val addressBarText: String = "",
     val currentUrl: String? = null,
@@ -43,6 +45,7 @@ data class BrowserUiState(
     val canGoForward: Boolean = false,
     val pendingCommand: BrowserCommand? = null,
     val sslWarningUrl: String? = null,
+    val contextMenu: LinkContextMenu? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -270,6 +273,21 @@ class BrowserViewModel(
     }
 
     fun onSslWarningDismissed() = _uiState.update { it.copy(sslWarningUrl = null) }
+
+    fun onLongPress(tabId: Long, url: String, isImage: Boolean) {
+        if (tabId == activeTabId.value) {
+            _uiState.update { it.copy(contextMenu = LinkContextMenu(url, isImage)) }
+        }
+    }
+
+    fun onContextMenuDismissed() = _uiState.update { it.copy(contextMenu = null) }
+
+    /** New tabs opened from a page inherit that page's incognito mode. */
+    fun onOpenInNewTab(url: String) {
+        val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+        viewModelScope.launch { tabManager.newTab(url, incognito) }
+        onContextMenuDismissed()
+    }
 
     fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean) {
         if (tabId == activeTabId.value) {

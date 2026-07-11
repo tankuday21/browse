@@ -151,6 +151,28 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `long press on active tab opens context menu - background tab does not`() {
+        val vm = vm()
+        val first = vm.activeTabId.value!!
+        vm.onNewTab()
+        vm.onLongPress(first, "https://a.com/img.png", isImage = true)
+        assertNull(vm.uiState.value.contextMenu)
+        vm.onLongPress(vm.activeTabId.value!!, "https://a.com/link", isImage = false)
+        assertEquals(LinkContextMenu("https://a.com/link", false), vm.uiState.value.contextMenu)
+    }
+
+    @Test
+    fun `open in new tab from incognito inherits incognito`() {
+        val vm = vm()
+        vm.onNewIncognitoTab()
+        vm.onOpenInNewTab("https://a.com")
+        val newActive = vm.tabs.value.find { it.id == vm.activeTabId.value }!!
+        assertTrue(newActive.isIncognito)
+        assertEquals("https://a.com", newActive.url)
+        assertNull(vm.uiState.value.contextMenu)
+    }
+
+    @Test
     fun `history change updates nav button state`() {
         val vm = vm()
         val tabId = vm.activeTabId.value!!

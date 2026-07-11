@@ -20,11 +20,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import android.content.Intent
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,14 +43,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(
     viewModel: BrowserViewModel,
@@ -62,6 +71,8 @@ fun BrowserScreen(
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val keyboard = LocalSoftwareKeyboardController.current
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     val activeTab = tabs.find { it.id == activeTabId }
     val isIncognito = activeTab?.isIncognito == true
@@ -206,6 +217,47 @@ fun BrowserScreen(
                             .fillMaxSize()
                             .padding(innerPadding),
                     )
+                }
+                state.contextMenu?.let { menu ->
+                    ModalBottomSheet(onDismissRequest = viewModel::onContextMenuDismissed) {
+                        Text(
+                            menu.url,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                        ListItem(
+                            headlineContent = { Text("Open in new tab") },
+                            modifier = Modifier.clickable { viewModel.onOpenInNewTab(menu.url) },
+                        )
+                        if (menu.isImage) {
+                            ListItem(
+                                headlineContent = { Text("Download image") },
+                                modifier = Modifier.clickable {
+                                    holder.downloadFile(menu.url)
+                                    viewModel.onContextMenuDismissed()
+                                },
+                            )
+                        }
+                        ListItem(
+                            headlineContent = { Text("Copy link") },
+                            modifier = Modifier.clickable {
+                                clipboard.setText(AnnotatedString(menu.url))
+                                viewModel.onContextMenuDismissed()
+                            },
+                        )
+                        ListItem(
+                            headlineContent = { Text("Share") },
+                            modifier = Modifier.clickable {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, menu.url)
+                                }
+                                context.startActivity(Intent.createChooser(send, "Share link"))
+                                viewModel.onContextMenuDismissed()
+                            },
+                        )
+                    }
                 }
                 state.sslWarningUrl?.let { blockedUrl ->
                     Card(

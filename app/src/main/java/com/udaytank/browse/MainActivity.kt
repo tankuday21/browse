@@ -59,6 +59,9 @@ class MainActivity : ComponentActivity() {
 
                         override fun onRequestBlocked(tabId: Long) =
                             viewModel.onRequestBlocked(tabId)
+
+                        override fun onLongPress(tabId: Long, url: String, isImage: Boolean) =
+                            viewModel.onLongPress(tabId, url, isImage)
                     })
                 }
                 DisposableEffect(Unit) {

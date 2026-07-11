@@ -38,6 +38,7 @@ class WebViewHolder(
         fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean)
         fun onSslError(tabId: Long, url: String)
         fun onRequestBlocked(tabId: Long)
+        fun onLongPress(tabId: Long, url: String, isImage: Boolean)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -113,25 +114,53 @@ class WebViewHolder(
             }
 
             setDownloadListener { url, userAgent, contentDisposition, mimetype, _ ->
-                // DownloadManager only accepts http/https; JS-generated
-                // blob:/data: urls would throw and crash the app.
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    Toast.makeText(context, "This site uses a download type Browse can't save yet", Toast.LENGTH_SHORT).show()
-                    return@setDownloadListener
+                downloadFile(url, userAgent, contentDisposition, mimetype)
+            }
+
+            setOnLongClickListener { view ->
+                val hit = (view as WebView).hitTestResult
+                val url = hit.extra
+                when (hit.type) {
+                    WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                        if (url != null) listener.onLongPress(tabId, url, isImage = false)
+                        url != null
+                    }
+                    WebView.HitTestResult.IMAGE_TYPE,
+                    WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                        if (url != null) listener.onLongPress(tabId, url, isImage = true)
+                        url != null
+                    }
+                    // false = don't consume; text selection etc. keep working
+                    else -> false
                 }
-                val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
-                val request = DownloadManager.Request(Uri.parse(url)).apply {
-                    setMimeType(mimetype)
-                    addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url))
-                    addRequestHeader("User-Agent", userAgent)
-                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                    setTitle(fileName)
-                }
-                (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
-                Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /** Hands a file to the system DownloadManager (notification + Downloads folder). */
+    fun downloadFile(
+        url: String,
+        userAgent: String? = null,
+        contentDisposition: String? = null,
+        mimetype: String? = null,
+    ) {
+        // DownloadManager only accepts http/https; JS-generated
+        // blob:/data: urls would throw and crash the app.
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            Toast.makeText(context, "This site uses a download type Browse can't save yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+        val request = DownloadManager.Request(Uri.parse(url)).apply {
+            setMimeType(mimetype)
+            addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url))
+            userAgent?.let { addRequestHeader("User-Agent", it) }
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            setTitle(fileName)
+        }
+        (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+        Toast.makeText(context, "Downloading $fileName", Toast.LENGTH_SHORT).show()
     }
 
     fun close(tabId: Long) {
