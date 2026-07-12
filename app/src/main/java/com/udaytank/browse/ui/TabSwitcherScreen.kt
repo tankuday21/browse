@@ -190,7 +190,9 @@ fun TabSwitcherScreen(
             if (selection.isNotEmpty()) {
                 BottomAppBar {
                     TextButton(onClick = {
-                        viewModel.onCloseTabs(selection.toList())
+                        val closable = selection.filter { id -> tabs.find { it.id == id }?.locked != true }
+                        closable.forEach { id -> onCloseTabView(id) }
+                        viewModel.onCloseTabs(closable)
                         selection = emptySet()
                     }) { Text("Close (${selection.size})") }
                     TextButton(onClick = {
@@ -273,7 +275,7 @@ fun TabSwitcherScreen(
                                         }
                                     },
                                     onClose = {
-                                        onCloseTabView(tab.id)
+                                        if (!tab.locked) onCloseTabView(tab.id)
                                         viewModel.onCloseTab(tab.id)
                                     },
                                     onStartSelection = { selection = setOf(tab.id) },
@@ -369,13 +371,17 @@ fun TabSwitcherScreen(
         )
     }
 
-    if (uiState.confirmCloseTabId != null) {
+    val pendingCloseId = uiState.confirmCloseTabId
+    if (pendingCloseId != null) {
         AlertDialog(
             onDismissRequest = viewModel::onCloseCancelled,
             title = { Text("Close locked tab?") },
             text = { Text("This tab is locked. Are you sure you want to close it?") },
             confirmButton = {
-                TextButton(onClick = viewModel::onConfirmClose) { Text("Close") }
+                TextButton(onClick = {
+                    onCloseTabView(pendingCloseId)
+                    viewModel.onConfirmClose()
+                }) { Text("Close") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::onCloseCancelled) { Text("Cancel") }
