@@ -25,7 +25,8 @@ fun TabWebView(
             factory = { context ->
                 val webView = holder.obtain(tabId, incognito).also { wv ->
                     (wv.parent as? ViewGroup)?.removeView(wv)
-                    if (wv.url == null) wv.loadUrl(tabUrl)
+                    // Through the holder so app-issued loads carry the Sec-GPC header (D5).
+                    if (wv.url == null) holder.loadUrl(tabId, tabUrl)
                 }
                 SwipeRefreshLayout(context).apply {
                     addView(
@@ -43,7 +44,7 @@ fun TabWebView(
             update = { swipe ->
                 val webView = holder.obtain(tabId, incognito)
                 when (pendingCommand) {
-                    is BrowserCommand.LoadUrl -> webView.loadUrl(pendingCommand.url)
+                    is BrowserCommand.LoadUrl -> holder.loadUrl(tabId, pendingCommand.url)
                     BrowserCommand.GoBack -> if (webView.canGoBack()) webView.goBack()
                     BrowserCommand.GoForward -> if (webView.canGoForward()) webView.goForward()
                     BrowserCommand.Reload -> webView.reload()

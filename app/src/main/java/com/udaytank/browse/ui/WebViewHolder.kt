@@ -6,8 +6,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
+import android.os.Build
 import android.os.Environment
 import android.webkit.CookieManager
+import android.webkit.SafeBrowsingResponse
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
@@ -39,6 +41,7 @@ class WebViewHolder(
     private val context: Context,
     private val listener: Listener,
     private val adBlock: AdBlockEngine,
+    private val annoyance: AdBlockEngine,
 ) {
     interface Listener {
         fun onPageStarted(tabId: Long, url: String)
@@ -46,6 +49,8 @@ class WebViewHolder(
         fun onPageFinished(tabId: Long, url: String, title: String?)
         fun onHistoryChanged(tabId: Long, canGoBack: Boolean, canGoForward: Boolean)
         fun onSslError(tabId: Long, url: String)
+        /** A Safe Browsing main-frame hit is waiting on the user's decision (see [resolveSafeBrowsing]). */
+        fun onSafeBrowsingHit(tabId: Long, url: String, threatLabel: String)
         fun onRequestBlocked(tabId: Long)
         fun onLongPress(tabId: Long, url: String, isImage: Boolean)
         fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
@@ -60,6 +65,25 @@ class WebViewHolder(
 
     private val webViews = mutableMapOf<Long, WebView>()
     private var jsEnabled = true
+    private var safeBrowsingEnabled = true
+
+    /**
+     * Pending Safe Browsing decisions, keyed by tab (D1). Written/read on the UI thread only
+     * (onSafeBrowsingHit and the interstitial's buttons both run there). An entry is removed
+     * the moment it's resolved or superseded — never invoked twice (the engine would throw).
+     */
+    private val safeBrowsingResponses = mutableMapOf<Long, SafeBrowsingResponse>()
+
+    /**
+     * Resolves the tab's pending Safe Browsing interstitial: proceed into the flagged page or
+     * navigate back to safety. No-op when nothing is pending (e.g. the user already navigated
+     * away, which dropped the callback via [onPageStarted][WebViewClient] / [close]).
+     */
+    fun resolveSafeBrowsing(tabId: Long, proceed: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
+        val callback = safeBrowsingResponses.remove(tabId) ?: return
+        if (proceed) callback.proceed(false) else callback.backToSafety(false)
+    }
 
     /**
      * Tabs exempted from the background-media-playback opt-in from being paused when the app
@@ -89,6 +113,27 @@ class WebViewHolder(
 
     @Volatile
     var useSystemDownloader: Boolean = false
+
+    /**
+     * Cookie-banner auto-dismiss (D2): gates the [annoyance] engine for both network blocking
+     * and cosmetic hiding. Global on/off — deliberately not subject to the per-site ad
+     * allowlist, which only exempts a site from the ad engine.
+     */
+    @Volatile
+    var dismissCookieBanners: Boolean = true
+
+    /**
+     * Global Privacy Control (D5). Two surfaces, both with honest limits:
+     *  - a `navigator.globalPrivacyControl` JS shim, registered per WebView at [obtain] as a
+     *    document-start script (so toggling takes effect on NEW tabs; existing tabs keep their
+     *    creation-time state — the settings subtitle says so). Fallback for WebViews without
+     *    DOCUMENT_START_SCRIPT: injected at page start, which is later than ideal.
+     *  - a `Sec-GPC: 1` header on navigations WE issue via [loadUrl] (address bar, bookmarks,
+     *    https-upgrade redispatch). In-page link clicks stay engine-driven and don't carry it;
+     *    the JS shim is what sites see there.
+     */
+    @Volatile
+    var gpcEnabled: Boolean = false
 
     /**
      * Per-site display override lookup (H6). Supplied by the UI layer with a lambda backed by
@@ -233,11 +278,33 @@ class WebViewHolder(
     // page hosts are written on the UI thread in onPageStarted.
     private val pageHosts = ConcurrentHashMap<Long, String>()
 
+    /**
+     * The app's navigation entry point for a tab (address bar / bookmarks / pending commands):
+     * adds the `Sec-GPC: 1` header when GPC is on. No-op when the tab has no live WebView.
+     */
+    fun loadUrl(tabId: Long, url: String) {
+        webViews[tabId]?.loadUrl(url, gpcHeaders())
+    }
+
+    private fun gpcHeaders(): Map<String, String> =
+        if (gpcEnabled) mapOf("Sec-GPC" to "1") else emptyMap()
+
     /** Applies global browsing policy to all live WebViews and future ones. */
-    fun applyPolicy(javaScriptEnabled: Boolean, cookiesEnabled: Boolean) {
+    fun applyPolicy(javaScriptEnabled: Boolean, cookiesEnabled: Boolean, safeBrowsing: Boolean) {
         jsEnabled = javaScriptEnabled
-        webViews.values.forEach { it.settings.javaScriptEnabled = javaScriptEnabled }
+        safeBrowsingEnabled = safeBrowsing
+        webViews.values.forEach {
+            it.settings.javaScriptEnabled = javaScriptEnabled
+            applySafeBrowsing(it)
+        }
         CookieManager.getInstance().setAcceptCookie(cookiesEnabled)
+    }
+
+    /** Google Safe Browsing (D1) — only where the installed WebView supports the toggle. */
+    private fun applySafeBrowsing(webView: WebView) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
+            WebSettingsCompat.setSafeBrowsingEnabled(webView.settings, safeBrowsingEnabled)
+        }
     }
 
     /** Clears cache, cookies, and web storage. History/tabs are the data layer's job. */
@@ -251,6 +318,7 @@ class WebViewHolder(
     fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
         WebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
+            applySafeBrowsing(this)
             if (forceDark) applyForceDark(this, true)
             if (incognito) {
                 // Leave no local traces: no DOM storage, no cache writes.
@@ -269,11 +337,45 @@ class WebViewHolder(
                 settings.domStorageEnabled = true
             }
 
+            // GPC JS shim (D5): registered once per WebView at creation, before any page loads.
+            val gpcShimAtDocumentStart = gpcEnabled &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+            if (gpcShimAtDocumentStart) {
+                runCatching {
+                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(this, GPC_SHIM, setOf("*"))
+                }
+            }
+
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     Uri.parse(url).host?.let { pageHosts[tabId] = it }
+                    // A new navigation supersedes any pending Safe Browsing decision for this
+                    // tab; drop the callback so a stale interstitial can never act on it.
+                    safeBrowsingResponses.remove(tabId)
+                    // GPC fallback for WebViews without document-start scripts: later than
+                    // ideal (scripts that read the flag before this ran miss it), best effort.
+                    if (gpcEnabled && !gpcShimAtDocumentStart) {
+                        view.evaluateJavascript(GPC_SHIM, null)
+                    }
                     applySiteSettings(tabId, view, url)
                     listener.onPageStarted(tabId, url)
+                }
+
+                override fun onSafeBrowsingHit(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    threatType: Int,
+                    callback: SafeBrowsingResponse,
+                ) {
+                    // Framework callback exists since API 27; on 26 it simply never fires.
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return
+                    if (!request.isForMainFrame) {
+                        // A flagged sub-resource isn't worth an interstitial — drop it silently.
+                        callback.backToSafety(false)
+                        return
+                    }
+                    safeBrowsingResponses[tabId] = callback
+                    listener.onSafeBrowsingHit(tabId, request.url.toString(), threatLabel(threatType))
                 }
 
                 override fun shouldOverrideUrlLoading(
@@ -282,7 +384,7 @@ class WebViewHolder(
                 ): Boolean {
                     val target = request.url.toString()
                     if (HttpsUpgrade.shouldUpgrade(target, httpsOnly)) {
-                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it); return true }
+                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it, gpcHeaders()); return true }
                     }
                     return false
                 }
@@ -291,7 +393,11 @@ class WebViewHolder(
                     view: WebView,
                     request: WebResourceRequest,
                 ): WebResourceResponse? {
-                    return if (adBlock.shouldBlock(request.url.host, pageHosts[tabId])) {
+                    // Ads first (respects the per-site ad allowlist), then cookie-consent
+                    // scripts (global toggle only — the ad allowlist doesn't exempt these).
+                    val blocked = adBlock.shouldBlock(request.url.host, pageHosts[tabId]) ||
+                        (dismissCookieBanners && annoyance.shouldBlock(request.url.host, null))
+                    return if (blocked) {
                         listener.onRequestBlocked(tabId)
                         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                     } else {
@@ -303,6 +409,11 @@ class WebViewHolder(
                     // Inject cosmetic ad-hiding CSS once the DOM exists.
                     val css = adBlock.cosmeticInjectionScript(pageHosts[tabId])
                     if (css.isNotEmpty()) view.evaluateJavascript(css, null)
+                    // Cookie-banner hiding rides the same mechanism from the annoyance list.
+                    if (dismissCookieBanners) {
+                        val annoyCss = annoyance.cosmeticInjectionScript(pageHosts[tabId])
+                        if (annoyCss.isNotEmpty()) view.evaluateJavascript(annoyCss, null)
+                    }
                     listener.onPageFinished(tabId, url, view.title)
                 }
 
@@ -476,6 +587,9 @@ class WebViewHolder(
         thumbnails.remove(tabId)
         desktopTabs.remove(tabId)
         appliedDesktop.remove(tabId)
+        // The WebView is about to be destroyed — its pending Safe Browsing callback (if any)
+        // must never be invoked afterwards, so just drop it.
+        safeBrowsingResponses.remove(tabId)
         webViews.remove(tabId)?.destroy()
     }
 
@@ -487,5 +601,19 @@ class WebViewHolder(
     private companion object {
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /** Exposes `navigator.globalPrivacyControl === true` to page scripts (D5). */
+        const val GPC_SHIM =
+            "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl'," +
+                "{get:function(){return true},configurable:true})}catch(e){}"
+
+        /** User-facing label for a [WebViewClient] SAFE_BROWSING_THREAT_* code. */
+        fun threatLabel(threatType: Int): String = when (threatType) {
+            WebViewClient.SAFE_BROWSING_THREAT_MALWARE -> "Malware"
+            WebViewClient.SAFE_BROWSING_THREAT_PHISHING -> "Phishing"
+            WebViewClient.SAFE_BROWSING_THREAT_UNWANTED_SOFTWARE -> "Unwanted software"
+            WebViewClient.SAFE_BROWSING_THREAT_BILLING -> "Billing fraud"
+            else -> "Dangerous site"
+        }
     }
 }

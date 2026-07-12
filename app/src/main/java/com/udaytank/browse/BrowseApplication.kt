@@ -20,6 +20,14 @@ class BrowseApplication : Application() {
 
     val adBlockEngine = AdBlockEngine()
 
+    /**
+     * Second filter engine for annoyances (cookie-consent banners, D2), fed by a snapshot of
+     * Fanboy's Cookie Monster list. Kept separate from [adBlockEngine] so the per-site ad
+     * allowlist never disables banner dismissal — this engine is a global on/off, gated by the
+     * WebViewHolder's dismissCookieBanners flag rather than by [AdBlockEngine.updatePolicy].
+     */
+    val annoyanceEngine = AdBlockEngine()
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
@@ -27,6 +35,10 @@ class BrowseApplication : Application() {
         appScope.launch {
             val text = assets.open("adblock/easylist.txt").bufferedReader().use { it.readText() }
             adBlockEngine.load(FilterListParser.parse(text))
+        }
+        appScope.launch {
+            val text = assets.open("adblock/annoyance-cookies.txt").bufferedReader().use { it.readText() }
+            annoyanceEngine.load(FilterListParser.parse(text))
         }
         appScope.launch {
             // The download engine lives in this process: at process start no download

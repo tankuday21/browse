@@ -216,7 +216,11 @@ class MainActivity : FragmentActivity() {
                 val navController = rememberNavController()
                 val holderRef = remember { arrayOfNulls<WebViewHolder>(1) }
                 val holder = remember {
-                    WebViewHolder(this, adBlock = (application as BrowseApplication).adBlockEngine, listener = object : WebViewHolder.Listener {
+                    WebViewHolder(
+                        this,
+                        adBlock = (application as BrowseApplication).adBlockEngine,
+                        annoyance = (application as BrowseApplication).annoyanceEngine,
+                        listener = object : WebViewHolder.Listener {
                         override fun onPageStarted(tabId: Long, url: String) =
                             viewModel.onPageStarted(tabId, url)
 
@@ -233,6 +237,9 @@ class MainActivity : FragmentActivity() {
 
                         override fun onSslError(tabId: Long, url: String) =
                             viewModel.onSslError(tabId, url)
+
+                        override fun onSafeBrowsingHit(tabId: Long, url: String, threatLabel: String) =
+                            viewModel.onSafeBrowsingHit(tabId, url, threatLabel)
 
                         override fun onRequestBlocked(tabId: Long) =
                             viewModel.onRequestBlocked(tabId)
@@ -265,7 +272,8 @@ class MainActivity : FragmentActivity() {
                         override fun onFullscreenVideo(view: View?) {
                             fullscreenVideoView = view
                         }
-                    }).also { holderRef[0] = it; webViewHolder = it }
+                    },
+                    ).also { holderRef[0] = it; webViewHolder = it }
                 }
                 DisposableEffect(Unit) {
                     onDispose { holder.destroyAll() }
@@ -288,9 +296,16 @@ class MainActivity : FragmentActivity() {
 
                 val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
                 val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
-                LaunchedEffect(jsEnabled, cookiesEnabled) {
-                    holder.applyPolicy(jsEnabled, cookiesEnabled)
+                val safeBrowsing by viewModel.safeBrowsing.collectAsStateWithLifecycle()
+                LaunchedEffect(jsEnabled, cookiesEnabled, safeBrowsing) {
+                    holder.applyPolicy(jsEnabled, cookiesEnabled, safeBrowsing)
                 }
+
+                val dismissCookieBanners by viewModel.dismissCookieBanners.collectAsStateWithLifecycle()
+                LaunchedEffect(dismissCookieBanners) { holder.dismissCookieBanners = dismissCookieBanners }
+
+                val gpcEnabled by viewModel.gpcEnabled.collectAsStateWithLifecycle()
+                LaunchedEffect(gpcEnabled) { holder.gpcEnabled = gpcEnabled }
 
                 val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
                 val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()

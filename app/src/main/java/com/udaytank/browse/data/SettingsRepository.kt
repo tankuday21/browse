@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,18 @@ interface SettingsRepository {
     val cookiesEnabled: Flow<Boolean>
     val adBlockEnabled: Flow<Boolean>
     val adAllowedSites: Flow<Set<String>>
+    /** Google Safe Browsing checks inside WebView (D1). Default ON. */
+    val safeBrowsing: Flow<Boolean>
+    suspend fun setSafeBrowsing(enabled: Boolean)
+    /** Cookie-consent banner auto-dismiss via the annoyance filter list (D2). Default ON. */
+    val dismissCookieBanners: Flow<Boolean>
+    suspend fun setDismissCookieBanners(enabled: Boolean)
+    /** Global Privacy Control (D5) — a legal do-not-sell/share signal, so the user opts IN. */
+    val gpcEnabled: Flow<Boolean>
+    suspend fun setGpcEnabled(enabled: Boolean)
+    /** Lifetime count of blocked requests across all pages (C3 home stats). */
+    val lifetimeBlocked: Flow<Long>
+    suspend fun addBlockedCount(delta: Long)
     suspend fun setSearchEngine(engine: SearchEngine)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setJavaScriptEnabled(enabled: Boolean)
@@ -177,6 +190,38 @@ class DataStoreSettingsRepository(
         prefs[AD_ALLOWED_SITES_KEY] ?: emptySet()
     }
 
+    override val safeBrowsing: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SAFE_BROWSING_KEY] ?: true
+    }
+
+    override suspend fun setSafeBrowsing(enabled: Boolean) {
+        dataStore.edit { it[SAFE_BROWSING_KEY] = enabled }
+    }
+
+    override val dismissCookieBanners: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[DISMISS_COOKIE_BANNERS_KEY] ?: true
+    }
+
+    override suspend fun setDismissCookieBanners(enabled: Boolean) {
+        dataStore.edit { it[DISMISS_COOKIE_BANNERS_KEY] = enabled }
+    }
+
+    override val gpcEnabled: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[GPC_ENABLED_KEY] ?: false
+    }
+
+    override suspend fun setGpcEnabled(enabled: Boolean) {
+        dataStore.edit { it[GPC_ENABLED_KEY] = enabled }
+    }
+
+    override val lifetimeBlocked: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[LIFETIME_BLOCKED_KEY] ?: 0L
+    }
+
+    override suspend fun addBlockedCount(delta: Long) {
+        dataStore.edit { it[LIFETIME_BLOCKED_KEY] = (it[LIFETIME_BLOCKED_KEY] ?: 0L) + delta }
+    }
+
     override suspend fun setAdBlockEnabled(enabled: Boolean) {
         dataStore.edit { it[AD_BLOCK_KEY] = enabled }
     }
@@ -207,6 +252,10 @@ class DataStoreSettingsRepository(
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
         val COOKIES_KEY = booleanPreferencesKey("cookies_enabled")
         val AD_BLOCK_KEY = booleanPreferencesKey("ad_block_enabled")
+        val SAFE_BROWSING_KEY = booleanPreferencesKey("safe_browsing")
+        val DISMISS_COOKIE_BANNERS_KEY = booleanPreferencesKey("dismiss_cookie_banners")
+        val GPC_ENABLED_KEY = booleanPreferencesKey("gpc_enabled")
+        val LIFETIME_BLOCKED_KEY = longPreferencesKey("lifetime_blocked")
         val FORCE_DARK_KEY = booleanPreferencesKey("force_dark_websites")
         val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
         val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")

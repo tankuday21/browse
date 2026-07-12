@@ -9,14 +9,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.udaytank.browse.browser.PrivacyStatsFormat
 import com.udaytank.browse.data.Bookmark
 import java.time.LocalTime
 
@@ -33,6 +38,7 @@ fun HomePage(
     isIncognito: Boolean,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
+    lifetimeBlocked: Long = 0L,
 ) {
     Column(
         modifier = modifier.padding(24.dp),
@@ -94,6 +100,34 @@ fun HomePage(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+                }
+            }
+        }
+        // ── Privacy stats (C3) — under the shortcut grid, hidden until anything's blocked ──
+        if (!isIncognito && lifetimeBlocked > 0) {
+            val (blockedLine, savedLine) = PrivacyStatsFormat.format(lifetimeBlocked)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(top = 40.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Shield,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Column(modifier = Modifier.padding(start = 12.dp)) {
+                    Text(
+                        blockedLine,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        savedLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

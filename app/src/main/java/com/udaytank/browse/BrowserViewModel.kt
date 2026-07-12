@@ -60,6 +60,9 @@ import kotlinx.coroutines.launch
 
 data class LinkContextMenu(val url: String, val isImage: Boolean)
 
+/** A Safe Browsing hit waiting on the user's go-back / proceed decision (D1). */
+data class SafeBrowsingWarning(val tabId: Long, val url: String, val threatLabel: String)
+
 /** A download the engine wants user confirmation for before it starts. */
 data class DownloadPrompt(
     val url: String,
@@ -101,6 +104,7 @@ data class BrowserUiState(
     val pageError: String? = null,
     val confirmCloseTabId: Long? = null,
     val downloadPrompt: DownloadPrompt? = null,
+    val safeBrowsingWarning: SafeBrowsingWarning? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -365,6 +369,38 @@ class BrowserViewModel(
     val adAllowedSites: StateFlow<Set<String>> = settings.adAllowedSites
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    val safeBrowsing: StateFlow<Boolean> = settings.safeBrowsing
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun onSafeBrowsingToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setSafeBrowsing(enabled) }
+    }
+
+    val dismissCookieBanners: StateFlow<Boolean> = settings.dismissCookieBanners
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun onDismissCookieBannersToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setDismissCookieBanners(enabled) }
+    }
+
+    val gpcEnabled: StateFlow<Boolean> = settings.gpcEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onGpcToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setGpcEnabled(enabled) }
+    }
+
+    /** Persisted lifetime blocked-request count, for the home page stats block (C3). */
+    val lifetimeBlocked: StateFlow<Long> = settings.lifetimeBlocked
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    /**
+     * Blocks not yet flushed to DataStore. Atomic because [onRequestBlocked] arrives on
+     * WebView's background threads. Flushed every [LIFETIME_FLUSH_BATCH] events (a write
+     * per blocked request would be a storm on ad-heavy pages) and in [onCleared].
+     */
+    private val pendingLifetimeBlocked = java.util.concurrent.atomic.AtomicLong(0)
+
     /** Per-tab count of requests blocked on the current page load. */
     private val _blockedCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val blockedCounts: StateFlow<Map<Long, Int>> = _blockedCounts.asStateFlow()
@@ -416,12 +452,14 @@ class BrowserViewModel(
             _uiState.update { it.copy(confirmCloseTabId = id) }
             return
         }
+        clearSafeBrowsingWarningFor(id)
         viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
     }
 
     fun onConfirmClose() {
         val id = _uiState.value.confirmCloseTabId ?: return
         _uiState.update { it.copy(confirmCloseTabId = null) }
+        clearSafeBrowsingWarningFor(id)
         viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
     }
 
@@ -430,8 +468,16 @@ class BrowserViewModel(
     /** Closes multiple tabs at once (e.g. "close group"); locked tabs are skipped. */
     fun onCloseTabs(ids: List<Long>) {
         val closable = ids.filter { id -> tabs.value.find { it.id == id }?.locked != true }
+        closable.forEach(::clearSafeBrowsingWarningFor)
         viewModelScope.launch {
             closable.forEach { tabManager.closeTab(it, HOME_URL) }
+        }
+    }
+
+    /** A closing tab takes its Safe Browsing interstitial down with it. */
+    private fun clearSafeBrowsingWarningFor(tabId: Long) {
+        if (_uiState.value.safeBrowsingWarning?.tabId == tabId) {
+            _uiState.update { it.copy(safeBrowsingWarning = null) }
         }
     }
 
@@ -528,6 +574,24 @@ class BrowserViewModel(
     /** Called from WebView background threads — StateFlow.update is atomic. */
     fun onRequestBlocked(tabId: Long) {
         _blockedCounts.update { it + (tabId to (it[tabId] ?: 0) + 1) }
+        // Lifetime aggregate (C3). Incognito blocks count too: the total is a single number
+        // with no per-site breakdown, so it leaks nothing about what was browsed privately.
+        if (pendingLifetimeBlocked.incrementAndGet() >= LIFETIME_FLUSH_BATCH) {
+            val delta = pendingLifetimeBlocked.getAndSet(0)
+            if (delta > 0) viewModelScope.launch { settings.addBlockedCount(delta) }
+        }
+    }
+
+    override fun onCleared() {
+        // Last flush of the not-yet-persisted remainder. viewModelScope may already be
+        // cancelled at this point, so run the write on an independent, non-cancellable job.
+        val delta = pendingLifetimeBlocked.getAndSet(0)
+        if (delta > 0) {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.NonCancellable + ioDispatcher).launch {
+                settings.addBlockedCount(delta)
+            }
+        }
+        super.onCleared()
     }
 
     // --- events from the UI ---
@@ -755,6 +819,11 @@ class BrowserViewModel(
     fun onPageStarted(tabId: Long, url: String) {
         viewModelScope.launch { tabManager.onContentChanged(tabId, url, url) }
         _blockedCounts.update { it + (tabId to 0) } // fresh page, fresh counter
+        // Any navigation in the flagged tab (typed url, back/forward, reload) supersedes its
+        // Safe Browsing interstitial — mirrors the holder dropping the stored callback.
+        if (_uiState.value.safeBrowsingWarning?.tabId == tabId) {
+            _uiState.update { it.copy(safeBrowsingWarning = null) }
+        }
         if (tabId == activeTabId.value) {
             _uiState.update {
                 it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0, pageError = null)
@@ -793,6 +862,19 @@ class BrowserViewModel(
     }
 
     fun onSslWarningDismissed() = _uiState.update { it.copy(sslWarningUrl = null) }
+
+    /** Safe Browsing flagged a main-frame load; the interstitial replaces the content area (D1). */
+    fun onSafeBrowsingHit(tabId: Long, url: String, threatLabel: String) {
+        _uiState.update {
+            it.copy(safeBrowsingWarning = SafeBrowsingWarning(tabId, url, threatLabel), isLoading = false)
+        }
+    }
+
+    /**
+     * The interstitial was resolved (either button) — the UI has already handed the decision to
+     * the WebViewHolder's stored callback; here we just take the warning down.
+     */
+    fun onSafeBrowsingResolved() = _uiState.update { it.copy(safeBrowsingWarning = null) }
 
     fun onPageError(tabId: Long, description: String) {
         if (tabId == activeTabId.value) {
@@ -927,6 +1009,9 @@ class BrowserViewModel(
 
     companion object {
         const val HOME_URL = "browse://home"
+
+        /** How many blocked requests accumulate before the lifetime counter is persisted. */
+        const val LIFETIME_FLUSH_BATCH = 25
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
