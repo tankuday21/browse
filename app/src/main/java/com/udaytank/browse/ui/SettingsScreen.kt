@@ -20,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ThemeMode
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +61,8 @@ fun SettingsScreen(
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+    val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+    var draftTextScale by remember { mutableStateOf<Int?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
     val context = LocalContext.current
@@ -210,6 +214,38 @@ fun SettingsScreen(
                     )
                 }
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Accessibility",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            // Draft holds the value while dragging (live % label); DataStore is written once
+            // on release — MainActivity live-applies the persisted value to all open tabs.
+            val shownScale = draftTextScale ?: textScale
+            Text(
+                "Text size — ${if (shownScale == 100) "Default" else "$shownScale%"}",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Slider(
+                value = shownScale.toFloat(),
+                onValueChange = { raw -> draftTextScale = (raw / 10f).roundToInt() * 10 },
+                onValueChangeFinished = {
+                    draftTextScale?.let(viewModel::onTextScaleChanged)
+                    draftTextScale = null
+                },
+                valueRange = 50f..200f,
+                steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Text(
+                "Applies to every website. A per-site text size from Site settings wins.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 "Tabs",

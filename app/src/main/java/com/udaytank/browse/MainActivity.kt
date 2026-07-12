@@ -342,6 +342,11 @@ class MainActivity : FragmentActivity() {
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }
 
+                // Global text scale (I3): live re-apply to every open tab; site overrides win
+                // inside the holder's re-resolve. Also seeds fresh WebViews via obtain().
+                val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+                LaunchedEffect(textScale) { holder.applyGlobalTextScale(textScale) }
+
                 // Page-start site-settings lookup: a plain read of the VM's in-memory host map,
                 // so the WebView client callback never blocks on the database.
                 LaunchedEffect(Unit) {

@@ -380,6 +380,15 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setOnboardingDone(true) }
     }
 
+    /** Global page text scale in percent (I3) — the base textZoom for every tab; a positive
+     *  per-site override still wins (SiteSettingsResolver). */
+    val textScale: StateFlow<Int> = settings.textScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 100)
+
+    fun onTextScaleChanged(percent: Int) {
+        viewModelScope.launch { settings.setTextScale(percent) }
+    }
+
     // --- per-site display memory (H6) ---
 
     /**
@@ -801,7 +810,7 @@ class BrowserViewModel(
     /**
      * The explicit list of settings a backup carries. Values are their string forms (enum
      * names / toString), decoded leniently on restore so unknown values are skipped, not
-     * fatal. textScale (I3) doesn't exist yet — add it here when it lands.
+     * fatal. onboardingDone is deliberately absent — first-run state is device-local.
      */
     private suspend fun settingsSnapshot(): Map<String, String> = mapOf(
         "searchEngine" to settings.searchEngine.first().name,
@@ -816,6 +825,7 @@ class BrowserViewModel(
         "switcherListLayout" to settings.switcherListLayout.first().toString(),
         "backgroundMedia" to settings.backgroundMedia.first().toString(),
         "readerFontScale" to settings.readerFontScale.first().toString(),
+        "textScale" to settings.textScale.first().toString(),
         "readerTheme" to settings.readerTheme.first().name,
         "readerWide" to settings.readerWide.first().toString(),
         "safeBrowsing" to settings.safeBrowsing.first().toString(),
@@ -908,6 +918,7 @@ class BrowserViewModel(
         map["switcherListLayout"]?.toBooleanStrictOrNull()?.let { settings.setSwitcherListLayout(it) }
         map["backgroundMedia"]?.toBooleanStrictOrNull()?.let { settings.setBackgroundMedia(it) }
         map["readerFontScale"]?.toIntOrNull()?.let { settings.setReaderFontScale(it) }
+        map["textScale"]?.toIntOrNull()?.let { settings.setTextScale(it) }
         map["readerTheme"]?.let { v -> ReaderTheme.entries.find { it.name == v } }
             ?.let { settings.setReaderTheme(it) }
         map["readerWide"]?.toBooleanStrictOrNull()?.let { settings.setReaderWide(it) }

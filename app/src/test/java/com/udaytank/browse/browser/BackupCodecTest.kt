@@ -18,6 +18,7 @@ class BackupCodecTest {
             "themeMode" to "DARK",
             "javaScriptEnabled" to "false",
             "readerFontScale" to "120",
+            "textScale" to "130",
         ),
         bookmarks = listOf(
             Bookmark(url = "https://a.com", title = "Plain", createdAt = 1_700_000_000_000),

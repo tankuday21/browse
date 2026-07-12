@@ -112,6 +112,7 @@ fun BrowserScreen(
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
+    val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
     val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
@@ -716,7 +717,7 @@ fun BrowserScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
                 )
                 Slider(
-                    value = (if (draftZoom > 0) draftZoom else 100).toFloat(),
+                    value = (if (draftZoom > 0) draftZoom else globalTextScale).toFloat(),
                     onValueChange = { raw ->
                         val snapped = (raw / 10f).roundToInt() * 10
                         draftZoom = snapped
@@ -759,7 +760,7 @@ fun BrowserScreen(
                         draftZoom = -1
                         draftForceDark = -1
                         draftDesktop = -1
-                        holder.applyTextZoom(sheetTabId, 100)
+                        holder.applyTextZoom(sheetTabId, globalTextScale)
                         holder.applyForceDark(sheetTabId, globalForceDark)
                         holder.applyDesktopMode(sheetTabId, tabDesktopBaseline)
                     },
