@@ -1,46 +1,77 @@
 # Andromeda
 
-A fast, private mobile web browser for Android, built from scratch in Kotlin.
+A fast, private, power-user mobile web browser for Android, built from scratch in Kotlin.
 
-**Status:** v1.0 — all six planned phases complete.
+**Status:** v3.0 — the "Power Browser" release. Built on v1 (core) and v2 (privacy), v3 adds a real download engine, a reading stack, a safety shield, a foundation layer, and a from-scratch full-strength ad blocker.
 
 ## Features
 
+### Tabs & navigation
 - 🌌 **Tabs** — instant switching with preserved page state; survive app restarts
-- 🕶️ **Incognito** — in-memory-only tabs: no history, no persistence, gone on close
-- 🛡️ **Ad blocking** — 52k+ EasyList domain rules, per-site allow toggle, per-page counter
-- 🔒 **Privacy controls** — JavaScript/cookie toggles, clear browsing data, hard SSL blocking
-- ⭐ **Bookmarks & history** — smart visit dedup, speed-dial home page
-- ⬇️ **Downloads** — in-app manager with live progress; long-press to save images
-- 🔍 **Choice of search engine** (Google / DuckDuckGo / Bing) and theme (system / light / dark)
+- 🏝️ **Tab groups & auto-islands** — links auto-group with their opener; pin, lock, color, collapse
+- 🔎 **Tab search**, recently-closed reopen, and a grid⇄list switcher
+- 🕶️ **Incognito** — in-memory-only tabs: no history, no persistence, never touches disk
+- 📜 **Chrome-style toolbar** — centered home search that drops to a bottom bar, auto-hiding on scroll
+
+### Ad & tracker blocking (v3, rebuilt)
+- 🛡️ **Full Adblock-Plus engine** — network rules with `$domain`, `$third-party`, resource types, exceptions (`@@`), anchors, wildcards, and hosts-format lists; token-indexed for O(tokens) matching over ~100k rules
+- 🎨 **Cosmetic filtering** — generic + per-domain element hiding, injected at document start
+- 📺 **YouTube / YT Music** — scriptlet-based ad-data pruning + auto-skip (in-stream ads other WebView browsers can't touch)
+- 📚 **Four bundled lists** — EasyList, EasyPrivacy, AdGuard Mobile, Peter Lowe's — auto-updated weekly, per-list toggles
+- 📊 **Privacy stats** on the home page (lifetime blocked + estimated data saved)
+
+### Downloads & media
+- ⬇️ **Own download engine** — parallel segments, pause/resume/cancel/retry, auto-resume across process death, live speed graph, scheduling (Wi-Fi / later)
+- 🎵 **Background & lock-screen playback** — opted-in sites keep playing when locked, with lock-screen Play/Pause/Prev/Next and auto-advance to the next track
+- 🎬 **Picture-in-Picture** for fullscreen video
+
+### Reading
+- 📖 **Reading list** with offline cleaned-article copies (read in airplane mode)
+- 🗣️ **Read-aloud + podcast mode** — TTS with a media notification, plays through your unread list
+- 🖨️ **Print / Save as PDF**, per-site display memory, and a polished reader (font / theme / width)
+
+### Safety
+- 🚨 **Safe Browsing** with a custom full-screen warning for phishing/malware
+- 🍪 **Cookie-banner auto-dismiss** and **Global Privacy Control**
+- 🔒 **Privacy controls** — JavaScript/cookie toggles, clear data, hard SSL blocking, HTTPS-only
+
+### Foundation & delight
+- ⭐ **Bookmarks & history**, editable **home shortcut grid**
+- 💾 **Backup & restore** to a single JSON file (SAF)
+- 👋 **Onboarding**, launcher **app shortcuts**, **voice search**, clipboard chip, global text scaling
+- 🚀 **Asteroid game** on the offline error page
 
 ## Tech
 
-Kotlin · Jetpack Compose · MVVM (single `StateFlow` UI state) · Room (4-version migration chain) · DataStore · Android System WebView · JUnit (TDD, 61 unit + 12 instrumented tests)
+Kotlin · Jetpack Compose · MVVM (single `StateFlow` UI state) · Room (9-version migration chain, exported schemas) · DataStore · WorkManager · Android System WebView · platform MediaSession/TextToSpeech · JUnit + MockWebServer (TDD, 344 unit + instrumented migration/DAO tests)
 
 ## Architecture
 
 ```
-UI layer        Compose screens + ViewModel (one immutable UiState)
-Browser core    TabManager · AdBlockEngine · VisitPolicy · TabClosePolicy
-Data layer      Room · DataStore · bundled filter lists
+UI layer        Compose screens + ViewModel (immutable UiState)
+Browser core    TabManager · AdBlockEngine (ABP parser + token index) · DownloadPlanner
+                ReaderMode · SiteSettingsResolver · TtsQueue · BarScrollPolicy · pure & unit-tested
+Services        DownloadService · MediaHoldService · ReadAloudService (all foreground)
+Data layer      Room · DataStore · bundled + auto-updated filter lists
 Platform        WebViewHolder (live WebView per tab, outside the compose tree)
 ```
 
-Design decisions — engine choice (why System WebView over GeckoView or a Chromium fork), phased delivery, and documented limitations — live in [docs/superpowers/specs](docs/superpowers/specs/2026-07-10-mobile-browser-design.md) and the per-phase plans in [docs/superpowers/plans](docs/superpowers/plans/).
+Design decisions, the v3→v7 roadmap, and documented limitations live in [docs/superpowers/specs](docs/superpowers/specs/) and the per-phase plans in [docs/superpowers/plans](docs/superpowers/plans/). Browser-landscape research is in [docs/research](docs/research/).
 
 ## Known limitations (documented, by design)
 
-- Ad blocking is domain-level (display ads/trackers); in-stream video ads need cosmetic filtering + scriptlets — see backlog
-- Incognito does not isolate cookies from normal tabs (Android WebView's CookieManager is global; ProfileStore isolation backlogged)
+- WebView `shouldInterceptRequest` doesn't see WebSockets, so `$websocket`/`$ping` rules are unenforceable; procedural cosmetics (`:has-text`, scriptlet filters beyond the YouTube pack) aren't supported — extension APIs don't exist on WebView
+- YouTube in-stream ads are mitigated (data pruning + auto-skip), not guaranteed zero — server-stitched ads are a hard limit for every WebView browser
+- Incognito does not isolate cookies from normal tabs (WebView's CookieManager is global; ProfileStore isolation backlogged for v4)
+- Background media on WebView can still be killed by aggressive OEM battery managers (foreground service mitigates, doesn't guarantee)
 
 ## Build
 
 ```
-./gradlew assembleDebug          # debug build
-./gradlew testDebugUnitTest      # unit tests
+./gradlew assembleDebug              # debug build
+./gradlew testDebugUnitTest          # unit tests
 ./gradlew connectedDebugAndroidTest  # device tests (emulator required)
-./gradlew assembleRelease        # signed release (requires keystore.properties)
+./gradlew assembleRelease            # signed release (requires keystore.properties)
 ```
 
-Built as a learning project following a full professional SDLC: spec → phased plans → TDD → feature branches → tagged releases.
+Built as a learning project following a full professional SDLC: research → spec → phased plans → TDD / subagent-driven build → reviewed feature branches → tagged releases.
