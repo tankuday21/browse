@@ -23,6 +23,9 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.udaytank.browse.browser.HttpsUpgrade
 import com.udaytank.browse.browser.ReaderMode
+import com.udaytank.browse.browser.SiteSettingsResolver
+import com.udaytank.browse.browser.UrlHosts
+import com.udaytank.browse.data.SiteSettingsEntity
 import android.widget.Toast
 import com.udaytank.browse.browser.AdBlockEngine
 import java.io.ByteArrayInputStream
@@ -87,6 +90,14 @@ class WebViewHolder(
     @Volatile
     var useSystemDownloader: Boolean = false
 
+    /**
+     * Per-site display override lookup (H6). Supplied by the UI layer with a lambda backed by
+     * the ViewModel's in-memory host map, so calling it from [onPageStarted][WebViewClient]
+     * never blocks. Null until the UI wires it (fresh WebViews then just use the globals).
+     */
+    @Volatile
+    var siteSettingsProvider: ((String) -> SiteSettingsEntity?)? = null
+
     /** Hosts the user has granted a given permission for this session. */
     private val grantedPermissions = HashSet<String>()
 
@@ -137,13 +148,86 @@ class WebViewHolder(
         webViews[tabId]?.clearMatches()
     }
 
+    /**
+     * Tabs whose desktop toggle the user flipped on via the menu — the per-tab baseline that a
+     * site's tri-state desktop override resolves against. UI-thread only, like [webViews].
+     */
+    private val desktopTabs = mutableSetOf<Long>()
+
+    /**
+     * The UA state last written to each tab's settings. Guards every desktop-UA write so
+     * re-applying an unchanged value is a no-op — critical for [applySiteSettings], which runs
+     * inside onPageStarted where a reload would start the page (and this callback) over again.
+     */
+    private val appliedDesktop = mutableMapOf<Long, Boolean>()
+
+    /** The user's explicit desktop-site toggle for a tab: records the baseline and reloads. */
     fun setDesktopMode(tabId: Long, desktop: Boolean) {
-        val webView = webViews[tabId] ?: return
+        if (desktop) desktopTabs.add(tabId) else desktopTabs.remove(tabId)
+        if (applyDesktopUa(tabId, desktop)) webViews[tabId]?.reload()
+    }
+
+    /**
+     * Writes the desktop UA settings only when they differ from what's already applied.
+     * Returns true when a change was made (callers outside onPageStarted may then reload).
+     */
+    private fun applyDesktopUa(tabId: Long, desktop: Boolean): Boolean {
+        val webView = webViews[tabId] ?: return false
+        if ((appliedDesktop[tabId] ?: false) == desktop) return false
+        appliedDesktop[tabId] = desktop
         webView.settings.userAgentString = if (desktop) DESKTOP_UA else null
         webView.settings.loadWithOverviewMode = desktop
         webView.settings.useWideViewPort = desktop
-        webView.reload()
+        return true
     }
+
+    /**
+     * Applies the site's effective display settings when a page starts (H6). textZoom and
+     * force-dark affect the in-flight load directly; a desktop-UA difference only retunes the
+     * settings so the NEXT request for this host goes out with the right UA — deliberately no
+     * reload() here, which from inside onPageStarted would loop forever.
+     */
+    private fun applySiteSettings(tabId: Long, webView: WebView, url: String) {
+        val host = UrlHosts.of(url) ?: return
+        val effective = SiteSettingsResolver.resolve(
+            globalForceDark = forceDark,
+            globalDesktop = tabId in desktopTabs,
+            override = siteSettingsProvider?.invoke(host),
+        )
+        webView.settings.textZoom = effective.textZoom
+        applyForceDark(webView, effective.forceDark)
+        applyDesktopUa(tabId, effective.desktopMode)
+    }
+
+    /** Algorithmic darkening (same mechanism the global force-dark setting uses). */
+    private fun applyForceDark(webView: WebView, enabled: Boolean) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, enabled)
+        }
+    }
+
+    // Live-apply accessors for the site-settings sheet: changes take effect immediately on the
+    // visible page, independent of whether they were persisted (incognito never persists).
+
+    fun applyTextZoom(tabId: Long, zoom: Int) {
+        webViews[tabId]?.settings?.textZoom = zoom
+    }
+
+    fun applyForceDark(tabId: Long, enabled: Boolean) {
+        webViews[tabId]?.let { applyForceDark(it, enabled) }
+    }
+
+    /** Sheet-driven desktop change: reloads only when the UA actually changed. */
+    fun applyDesktopMode(tabId: Long, desktop: Boolean) {
+        if (applyDesktopUa(tabId, desktop)) webViews[tabId]?.reload()
+    }
+
+    /**
+     * Print adapter for the tab's current page (H5), fed to the system PrintManager whose
+     * dialog includes Save-as-PDF. Null when the tab has no live WebView (e.g. the home page).
+     */
+    fun printAdapter(tabId: Long): android.print.PrintDocumentAdapter? =
+        webViews[tabId]?.createPrintDocumentAdapter("Andromeda")
 
     // shouldInterceptRequest runs on WebView's background threads;
     // page hosts are written on the UI thread in onPageStarted.
@@ -167,9 +251,7 @@ class WebViewHolder(
     fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
         WebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
-            if (forceDark && WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
-                WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, true)
-            }
+            if (forceDark) applyForceDark(this, true)
             if (incognito) {
                 // Leave no local traces: no DOM storage, no cache writes.
                 settings.domStorageEnabled = false
@@ -190,6 +272,7 @@ class WebViewHolder(
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     Uri.parse(url).host?.let { pageHosts[tabId] = it }
+                    applySiteSettings(tabId, view, url)
                     listener.onPageStarted(tabId, url)
                 }
 
@@ -391,6 +474,8 @@ class WebViewHolder(
     fun close(tabId: Long) {
         pageHosts.remove(tabId)
         thumbnails.remove(tabId)
+        desktopTabs.remove(tabId)
+        appliedDesktop.remove(tabId)
         webViews.remove(tabId)?.destroy()
     }
 

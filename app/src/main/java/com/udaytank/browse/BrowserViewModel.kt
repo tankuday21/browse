@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
+import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.ClosedTabDao
@@ -27,14 +28,23 @@ import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.ReadingListDao
+import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
+import com.udaytank.browse.data.SiteSettingsDao
+import com.udaytank.browse.data.SiteSettingsEntity
 import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
 import com.udaytank.browse.data.TabGroupEntity
+import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.ThemeMode
+import com.udaytank.browse.reading.ArticleStore
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -102,6 +112,9 @@ class BrowserViewModel(
     private val downloadDao: DownloadDao,
     private val closedTabDao: ClosedTabDao,
     private val tabGroupDao: TabGroupDao,
+    private val readingListDao: ReadingListDao,
+    private val articleStore: ArticleStore,
+    private val siteSettingsDao: SiteSettingsDao,
     private val downloadController: DownloadController,
     /**
      * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
@@ -110,6 +123,8 @@ class BrowserViewModel(
      */
     private val downloadManagerRemover: (Long) -> Unit = {},
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
+    /** File work (article HTML writes/deletes) runs here; tests swap in Unconfined. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -248,6 +263,88 @@ class BrowserViewModel(
 
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // Eagerly: the menu's unread badge must be right the first time the menu opens.
+    val readingList: StateFlow<List<ReadingListEntry>> = readingListDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val unreadCount: StateFlow<Int> = readingList
+        .map { list -> list.count { it.readAt == null } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    // Reader display prefs — shared by the live reader overlay and the saved-article reader.
+    val readerFontScale: StateFlow<Int> = settings.readerFontScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 100)
+
+    val readerTheme: StateFlow<ReaderTheme> = settings.readerTheme
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ReaderTheme.SYSTEM)
+
+    val readerWide: StateFlow<Boolean> = settings.readerWide
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onReaderFontScaleChanged(percent: Int) {
+        viewModelScope.launch { settings.setReaderFontScale(percent) }
+    }
+
+    fun onReaderThemeSelected(theme: ReaderTheme) {
+        viewModelScope.launch { settings.setReaderTheme(theme) }
+    }
+
+    fun onReaderWideToggled(wide: Boolean) {
+        viewModelScope.launch { settings.setReaderWide(wide) }
+    }
+
+    // --- per-site display memory (H6) ---
+
+    /**
+     * host -> stored override row. Eager + in-memory so the WebViewHolder's page-start provider
+     * lambda is a plain map lookup — it runs inside onPageStarted and must never block.
+     */
+    val siteSettingsByHost: StateFlow<Map<String, SiteSettingsEntity>> = siteSettingsDao.observeAll()
+        .map { list -> list.associateBy { it.host } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** The stored override row for the active tab's host, or null (drives the site-settings sheet). */
+    val siteSettingsForCurrentSite: StateFlow<SiteSettingsEntity?> = combine(
+        uiState, siteSettingsByHost,
+    ) { state, byHost -> UrlHosts.of(state.currentUrl)?.let { byHost[it] } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** True when the active tab is incognito — site settings must then never touch the DAO. */
+    fun isActiveTabIncognito(): Boolean =
+        tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+
+    /**
+     * Merges the given fields into the current host's override row (null = leave that field as
+     * stored). A row where every field ends up -1 says nothing, so it's deleted rather than kept.
+     *
+     * Incognito guard (critical): a persisted row would leak which sites were visited privately,
+     * so incognito tabs never write — the sheet applies changes to the live WebView only.
+     */
+    fun onSetSiteOverride(textZoom: Int? = null, forceDark: Int? = null, desktopMode: Int? = null) {
+        if (isActiveTabIncognito()) return
+        val host = currentHost() ?: return
+        viewModelScope.launch {
+            val existing = siteSettingsDao.getByHost(host) ?: SiteSettingsEntity(host)
+            val merged = existing.copy(
+                textZoom = textZoom ?: existing.textZoom,
+                forceDark = forceDark ?: existing.forceDark,
+                desktopMode = desktopMode ?: existing.desktopMode,
+            )
+            if (merged.textZoom == -1 && merged.forceDark == -1 && merged.desktopMode == -1) {
+                siteSettingsDao.deleteByHost(host)
+            } else {
+                siteSettingsDao.upsert(merged)
+            }
+        }
+    }
+
+    /** Removes every stored override for the current host. Same incognito guard as [onSetSiteOverride]. */
+    fun onClearSiteOverrides() {
+        if (isActiveTabIncognito()) return
+        val host = currentHost() ?: return
+        viewModelScope.launch { siteSettingsDao.deleteByHost(host) }
+    }
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
@@ -553,6 +650,106 @@ class BrowserViewModel(
         }
     }
 
+    // --- reading list (save for later) ---
+
+    /**
+     * Saves the active page to the reading list and tries to capture an offline copy.
+     *
+     * [extract] runs [com.udaytank.browse.browser.ReaderMode.EXTRACT_SCRIPT] in the tab's live
+     * WebView and hands back the raw evaluateJavascript payload (the UI passes
+     * `holder::extractReaderContent`; tests pass a fake). It must be invoked on the main
+     * thread — which this is, since the VM's scope runs on Main — while file and DB work hops
+     * to [ioDispatcher]. Extraction failure still saves the row, just without an offline copy.
+     *
+     * Deliberately no incognito guard: saving is an explicit user action (same policy as
+     * downloads), and reading-list rows carry no browsing trace beyond the page the user chose.
+     *
+     * [onFeedback] receives a user-facing message (toast), following [importBookmarksHtml].
+     */
+    fun onSaveForLater(
+        extract: (Long, (String) -> Unit) -> Unit,
+        onFeedback: (String) -> Unit,
+    ) {
+        val tabId = activeTabId.value
+        val url = _uiState.value.currentUrl
+        if (tabId == null || url.isNullOrBlank() || url == HOME_URL) {
+            onFeedback("Nothing to save on this page")
+            return
+        }
+        val tabTitle = tabs.value.find { it.id == tabId }?.title
+        val title = tabTitle?.takeIf { it.isNotBlank() } ?: UrlHosts.of(url) ?: url
+        viewModelScope.launch {
+            if (readingListDao.existsByUrl(url)) {
+                onFeedback("Already in your reading list")
+                return@launch
+            }
+            val rowId = readingListDao.insert(
+                ReadingListEntry(url = url, title = title, addedAt = System.currentTimeMillis())
+            )
+            extract(tabId) { json ->
+                val result = ReaderExtraction.parse(json)
+                viewModelScope.launch(ioDispatcher) {
+                    val message = if (result != null) {
+                        val path = articleStore.save(rowId, result.content)
+                        readingListDao.setFilePath(rowId, path)
+                        "Saved for offline reading"
+                    } else {
+                        "Saved (couldn't make offline copy)"
+                    }
+                    withContext(Dispatchers.Main) { onFeedback(message) }
+                }
+            }
+        }
+    }
+
+    /** The last deleted row plus its offline HTML, held so the undo snackbar can restore both. */
+    private var lastDeletedReadingItem: Pair<ReadingListEntry, String?>? = null
+
+    fun onDeleteReadingItem(id: Long) {
+        viewModelScope.launch(ioDispatcher) {
+            val entry = readingListDao.getById(id) ?: return@launch
+            lastDeletedReadingItem = entry to entry.filePath?.let { articleStore.load(it) }
+            articleStore.delete(entry.filePath)
+            readingListDao.deleteById(id)
+        }
+    }
+
+    /**
+     * Undo for [onDeleteReadingItem]: re-inserts the last deleted row with its original fields
+     * (addedAt, readAt) and re-saves the offline copy captured before the delete, so an undone
+     * article stays readable offline.
+     */
+    fun onReopenReadingItem() {
+        val (entry, offlineHtml) = lastDeletedReadingItem ?: return
+        lastDeletedReadingItem = null
+        viewModelScope.launch(ioDispatcher) {
+            val rowId = readingListDao.insert(entry.copy(id = 0, filePath = null))
+            if (offlineHtml != null) {
+                readingListDao.setFilePath(rowId, articleStore.save(rowId, offlineHtml))
+            }
+        }
+    }
+
+    /**
+     * Opening an item marks it read. Online-only rows (no offline copy) also navigate the
+     * active tab to the original url; offline rows render in the saved-article reader, which
+     * the reading-list screen drives itself.
+     */
+    fun onOpenReadingItem(entry: ReadingListEntry) {
+        onMarkRead(entry.id, true)
+        if (entry.filePath == null) onOpenUrl(entry.url)
+    }
+
+    /** Loads a saved article's content HTML off the main thread; null when the file is gone. */
+    suspend fun loadSavedArticle(path: String): String? =
+        withContext(ioDispatcher) { articleStore.load(path) }
+
+    fun onMarkRead(id: Long, read: Boolean) {
+        viewModelScope.launch {
+            readingListDao.setReadAt(id, if (read) System.currentTimeMillis() else null)
+        }
+    }
+
     // --- callbacks from the WebViews (any tab) ---
 
     fun onPageStarted(tabId: Long, url: String) {
@@ -742,6 +939,9 @@ class BrowserViewModel(
                     app.database.downloadDao(),
                     app.database.closedTabDao(),
                     app.database.tabGroupDao(),
+                    app.database.readingListDao(),
+                    ArticleStore(java.io.File(app.filesDir, "reading_list")),
+                    app.database.siteSettingsDao(),
                     com.udaytank.browse.download.ServiceDownloadController(app),
                     downloadManagerRemover = { id ->
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)

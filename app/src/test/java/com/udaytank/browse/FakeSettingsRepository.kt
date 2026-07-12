@@ -1,5 +1,6 @@
 package com.udaytank.browse
 
+import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
 import com.udaytank.browse.data.ThemeMode
@@ -73,5 +74,20 @@ class FakeSettingsRepository : SettingsRepository {
     override val backgroundMediaSites = MutableStateFlow<Set<String>>(emptySet())
     override suspend fun setBackgroundMediaSites(sites: Set<String>) {
         backgroundMediaSites.value = sites
+    }
+
+    override val readerFontScale = MutableStateFlow(100)
+    override suspend fun setReaderFontScale(percent: Int) {
+        readerFontScale.value = percent.coerceIn(70, 160)
+    }
+
+    override val readerTheme = MutableStateFlow(ReaderTheme.SYSTEM)
+    override suspend fun setReaderTheme(theme: ReaderTheme) {
+        readerTheme.value = theme
+    }
+
+    override val readerWide = MutableStateFlow(false)
+    override suspend fun setReaderWide(wide: Boolean) {
+        readerWide.value = wide
     }
 }
