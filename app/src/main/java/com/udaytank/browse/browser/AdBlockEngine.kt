@@ -78,6 +78,18 @@ class AdBlockEngine {
         return core.decide(ctx)
     }
 
+    /**
+     * Whether the engine is acting on [pageHost] right now: the master toggle is on and the
+     * host isn't allowlisted (null host = just the master toggle). Lets injection callers
+     * (scriptlets) share the exact gating semantics of [shouldBlock]/[cosmeticInjectionScript]
+     * without conflating "engine off" with "no rules for this host".
+     */
+    fun isActiveFor(pageHost: String?): Boolean {
+        if (!enabled) return false
+        val page = pageHost?.lowercase() ?: return true
+        return !DomainChains.matches(page, siteAllowlist)
+    }
+
     /** JS that injects a <style> hiding cosmetic-filter elements; empty when disabled. */
     fun cosmeticInjectionScript(pageHost: String?): String {
         if (!enabled) return ""
