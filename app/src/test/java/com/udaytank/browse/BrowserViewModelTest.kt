@@ -34,12 +34,13 @@ class BrowserViewModelTest {
         readingListDao: FakeReadingListDao = FakeReadingListDao(),
         articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
         siteSettingsDao: FakeSiteSettingsDao = FakeSiteSettingsDao(),
+        homeShortcutDao: FakeHomeShortcutDao = FakeHomeShortcutDao(),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
-        readingListDao, articleStore, siteSettingsDao, downloadController, downloadManagerRemover,
-        ioDispatcher = Dispatchers.Unconfined,
+        readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
+        downloadManagerRemover, ioDispatcher = Dispatchers.Unconfined,
     )
 
     @Test
@@ -885,5 +886,117 @@ class BrowserViewModelTest {
         vm.onPageStarted(vm.activeTabId.value!!, "https://other.com/page")
         advanceUntilIdle()
         assertNull(vm.siteSettingsForCurrentSite.value)
+    }
+
+    // --- home shortcut grid (C1) ---
+
+    @Test
+    fun `add shortcut appends at the next position`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://a.com", "https://b.com"), dao.getAll().map { it.url })
+        assertEquals(listOf(0, 1), dao.getAll().map { it.position })
+    }
+
+    @Test
+    fun `add shortcut dedupes by url and reports feedback`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddShortcut("https://a.com", "A") { messages += it }
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A again") { messages += it }
+        advanceUntilIdle()
+
+        assertEquals(1, dao.getAll().size)
+        assertEquals(listOf("Added to home", "Already on your home screen"), messages)
+    }
+
+    @Test
+    fun `add shortcut with blank title falls back to host`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        vm.onAddShortcut("https://news.bbc.co.uk/story", "  ")
+        advanceUntilIdle()
+
+        assertEquals("news.bbc.co.uk", dao.getAll().single().title)
+    }
+
+    @Test
+    fun `add current page to home uses the active tab's url and title`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://a.com/page")
+        vm.onPageFinished(tabId, "https://a.com/page", "A page")
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddCurrentPageToHome { messages += it }
+        advanceUntilIdle()
+
+        assertEquals("https://a.com/page", dao.getAll().single().url)
+        assertEquals("A page", dao.getAll().single().title)
+        assertEquals(listOf("Added to home"), messages)
+    }
+
+    @Test
+    fun `add current page on the home tab reports nothing to add`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddCurrentPageToHome { messages += it }
+        advanceUntilIdle()
+
+        assertTrue(dao.getAll().isEmpty())
+        assertEquals(listOf("Nothing to add on this page"), messages)
+    }
+
+    @Test
+    fun `remove shortcut deletes the row`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        advanceUntilIdle()
+
+        vm.onRemoveShortcut(dao.getAll().first { it.url == "https://a.com" }.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://b.com"), dao.getAll().map { it.url })
+    }
+
+    @Test
+    fun `move shortcut to front reindexes every position`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        vm.onAddShortcut("https://c.com", "C")
+        advanceUntilIdle()
+
+        vm.onMoveShortcutToFront(dao.getAll().first { it.url == "https://c.com" }.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("https://c.com", "https://a.com", "https://b.com"),
+            dao.getAll().map { it.url },
+        )
+        assertEquals(listOf(0, 1, 2), dao.getAll().map { it.position })
     }
 }

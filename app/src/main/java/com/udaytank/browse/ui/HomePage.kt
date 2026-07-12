@@ -1,7 +1,9 @@
 package com.udaytank.browse.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,16 +15,27 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
-import com.udaytank.browse.data.Bookmark
+import com.udaytank.browse.data.HomeShortcutEntity
 import java.time.LocalTime
 
 private fun greeting(): String = when (LocalTime.now().hour) {
@@ -32,14 +45,29 @@ private fun greeting(): String = when (LocalTime.now().hour) {
     else -> "Up late, explorer?"
 }
 
+/** Does the clipboard text look like something we can navigate to? (Same cases as UrlInput 1+2.) */
+private fun looksLikeUrl(text: String): Boolean {
+    val t = text.trim()
+    return t.isNotEmpty() && !t.contains(' ') && !t.contains('\n') &&
+        (t.startsWith("http://") || t.startsWith("https://") || t.contains('.'))
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomePage(
-    bookmarks: List<Bookmark>,
+    shortcuts: List<HomeShortcutEntity>,
     isIncognito: Boolean,
     onOpenUrl: (String) -> Unit,
+    onAddShortcut: (url: String, title: String) -> Unit,
+    onRemoveShortcut: (Long) -> Unit,
+    onMoveShortcutToFront: (Long) -> Unit,
     modifier: Modifier = Modifier,
     lifetimeBlocked: Long = 0L,
 ) {
+    val clipboard = LocalClipboardManager.current
+    var showAddDialog by remember { mutableStateOf(false) }
+    var menuForId by remember { mutableStateOf<Long?>(null) }
+
     Column(
         modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -63,23 +91,23 @@ fun HomePage(
                 "Pages you view in this tab won't appear in your history,\nand the tab disappears when you close the app.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 24.dp),
             )
-        } else if (bookmarks.isEmpty()) {
-            Text(
-                "Star pages to see them here",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                items(bookmarks.take(8), key = { it.id }) { bookmark ->
+        }
+        // ── Shortcut grid (C1) — user-curated, so shown in incognito too ──
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            items(shortcuts, key = { it.id }) { shortcut ->
+                Box {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onOpenUrl(bookmark.url) },
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onOpenUrl(shortcut.url) },
+                            onLongClick = { menuForId = shortcut.id },
+                        ),
                     ) {
                         Box(
                             modifier = Modifier
@@ -88,18 +116,63 @@ fun HomePage(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                bookmark.title.take(1).uppercase(),
+                                shortcut.title.take(1).uppercase(),
                                 style = MaterialTheme.typography.titleLarge,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                             )
                         }
                         Text(
-                            bookmark.title,
+                            shortcut.title,
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
+                    DropdownMenu(
+                        expanded = menuForId == shortcut.id,
+                        onDismissRequest = { menuForId = null },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Move to front") },
+                            onClick = {
+                                onMoveShortcutToFront(shortcut.id)
+                                menuForId = null
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Remove") },
+                            onClick = {
+                                onRemoveShortcut(shortcut.id)
+                                menuForId = null
+                            },
+                        )
+                    }
+                }
+            }
+            item(key = "add-tile") {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.combinedClickable(onClick = { showAddDialog = true }),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "Add shortcut",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        "Add",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
                 }
             }
         }
@@ -131,5 +204,49 @@ fun HomePage(
                 }
             }
         }
+    }
+
+    if (showAddDialog) {
+        // Clipboard is read once, at the moment the dialog opens - never passively.
+        val clipboardUrl = remember {
+            clipboard.getText()?.text?.trim().orEmpty().takeIf(::looksLikeUrl).orEmpty()
+        }
+        var url by remember { mutableStateOf(clipboardUrl) }
+        var title by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add to home") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = url,
+                        onValueChange = { url = it },
+                        label = { Text("Link") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = url.isNotBlank(),
+                    onClick = {
+                        onAddShortcut(url, title)
+                        showAddDialog = false
+                    },
+                ) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+            },
+        )
     }
 }

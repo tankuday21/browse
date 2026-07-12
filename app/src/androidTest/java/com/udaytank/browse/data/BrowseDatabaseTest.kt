@@ -235,6 +235,89 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate8to9_createsHomeShortcutsAndSeedsFromNewestBookmarks() {
+        helper.createDatabase(DB, 8).apply {
+            execSQL(
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0, 0, 0)"
+            )
+            // 10 bookmarks, newest first by createdAt: b10 (createdAt=10) ... b1 (createdAt=1).
+            for (i in 1..10) {
+                execSQL(
+                    "INSERT INTO bookmarks (url, title, createdAt, folder) " +
+                        "VALUES ('https://b$i.com', 'B$i', $i, NULL)"
+                )
+            }
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 9, true, BrowseDatabase.MIGRATION_8_9)
+
+        // Legacy data survives.
+        db.query("SELECT url FROM tabs").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("https://a.com", c.getString(0))
+        }
+        db.query("SELECT COUNT(*) FROM bookmarks").use { c ->
+            c.moveToFirst()
+            assertEquals(10, c.getInt(0))
+        }
+
+        // Seeded with exactly the 8 newest bookmarks (what the old home speed-dial showed),
+        // positions 0..7 in newest-first order.
+        db.query("SELECT url, title, position FROM home_shortcuts ORDER BY position").use { c ->
+            assertEquals(8, c.count)
+            assertTrue(c.moveToFirst())
+            assertEquals("https://b10.com", c.getString(0))
+            assertEquals("B10", c.getString(1))
+            assertEquals(0, c.getInt(2))
+            assertTrue(c.moveToLast())
+            assertEquals("https://b3.com", c.getString(0))
+            assertEquals(7, c.getInt(2))
+        }
+
+        // Table is usable: insert + read back.
+        db.execSQL(
+            "INSERT INTO home_shortcuts (url, title, position) VALUES ('https://new.com', 'New', 8)"
+        )
+        db.query("SELECT url FROM home_shortcuts WHERE position = 8").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("https://new.com", c.getString(0))
+        }
+    }
+
+    @Test
+    fun migrate8to9_withNoBookmarksSeedsNothing() {
+        helper.createDatabase(DB, 8).close()
+        val db = helper.runMigrationsAndValidate(DB, 9, true, BrowseDatabase.MIGRATION_8_9)
+        db.query("SELECT COUNT(*) FROM home_shortcuts").use { c ->
+            c.moveToFirst()
+            assertEquals(0, c.getInt(0))
+        }
+    }
+
+    @Test
+    fun homeShortcutDao_roundTripAndReplaceAll() = runBlocking {
+        val dao = database.homeShortcutDao()
+        dao.insert(HomeShortcutEntity(url = "https://a.com", title = "A", position = 0))
+        dao.insert(HomeShortcutEntity(url = "https://b.com", title = "B", position = 1))
+
+        val all = dao.observeAll().first()
+        assertEquals(listOf("https://a.com", "https://b.com"), all.map { it.url })
+
+        // replaceAll rewrites the whole list atomically (reorder path).
+        dao.replaceAll(
+            listOf(
+                HomeShortcutEntity(url = "https://b.com", title = "B", position = 0),
+                HomeShortcutEntity(url = "https://a.com", title = "A", position = 1),
+            )
+        )
+        assertEquals(listOf("https://b.com", "https://a.com"), dao.getAll().map { it.url })
+
+        dao.deleteById(dao.getAll().first().id)
+        assertEquals(listOf("https://a.com"), dao.getAll().map { it.url })
+    }
+
+    @Test
     fun readingListDao_roundTrip() = runBlocking {
         val dao = database.readingListDao()
         val id = dao.insert(ReadingListEntry(url = "https://a.com/1", title = "One", addedAt = 1))

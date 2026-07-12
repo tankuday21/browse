@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.Print
@@ -84,7 +85,7 @@ fun BrowserScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
-    val bookmarksList by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val homeShortcuts by viewModel.homeShortcuts.collectAsStateWithLifecycle()
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
@@ -138,9 +139,16 @@ fun BrowserScreen(
             ) {
                 if (isHome) {
                     HomePage(
-                        bookmarks = bookmarksList,
+                        shortcuts = homeShortcuts,
                         isIncognito = isIncognito,
                         onOpenUrl = viewModel::onOpenUrl,
+                        onAddShortcut = { url, title ->
+                            viewModel.onAddShortcut(url, title) { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onRemoveShortcut = viewModel::onRemoveShortcut,
+                        onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
                         modifier = Modifier.fillMaxSize(),
                         lifetimeBlocked = lifetimeBlocked,
                     )
@@ -426,6 +434,23 @@ fun BrowserScreen(
                         },
                         enabled = state.currentUrl != null,
                         onClick = { viewModel.onToggleBookmark(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to home") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.AddHome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = state.currentUrl != null,
+                        onClick = {
+                            viewModel.onAddCurrentPageToHome { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            menuOpen = false
+                        },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(

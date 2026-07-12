@@ -28,6 +28,8 @@ import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.HomeShortcutDao
+import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
@@ -119,6 +121,7 @@ class BrowserViewModel(
     private val readingListDao: ReadingListDao,
     private val articleStore: ArticleStore,
     private val siteSettingsDao: SiteSettingsDao,
+    private val homeShortcutDao: HomeShortcutDao,
     private val downloadController: DownloadController,
     /**
      * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
@@ -264,6 +267,68 @@ class BrowserViewModel(
 
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Eagerly: the home page is the first thing rendered, before any subscriber settles.
+    val homeShortcuts: StateFlow<List<HomeShortcutEntity>> = homeShortcutDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Adds a shortcut tile at the end of the home grid. Dedupe by url — the grid is small
+     * and duplicate tiles would just waste slots. [onFeedback] gets a toastable message,
+     * following the [importBookmarksHtml] / [onSaveForLater] callback pattern.
+     */
+    fun onAddShortcut(url: String, title: String, onFeedback: (String) -> Unit = {}) {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isBlank()) {
+            onFeedback("Enter a link to add")
+            return
+        }
+        viewModelScope.launch {
+            if (homeShortcutDao.getAll().any { it.url == cleanUrl }) {
+                onFeedback("Already on your home screen")
+                return@launch
+            }
+            val nextPosition = (homeShortcutDao.getAll().maxOfOrNull { it.position } ?: -1) + 1
+            homeShortcutDao.insert(
+                HomeShortcutEntity(
+                    url = cleanUrl,
+                    title = title.trim().ifBlank { UrlHosts.of(cleanUrl) ?: cleanUrl },
+                    position = nextPosition,
+                )
+            )
+            onFeedback("Added to home")
+        }
+    }
+
+    /**
+     * Menu action: puts the current page on the home grid. Allowed from incognito too —
+     * it's an explicit user action, same policy as downloads and save-for-later.
+     */
+    fun onAddCurrentPageToHome(onFeedback: (String) -> Unit) {
+        val url = _uiState.value.currentUrl
+        if (url.isNullOrBlank() || url == HOME_URL) {
+            onFeedback("Nothing to add on this page")
+            return
+        }
+        val tabTitle = tabs.value.find { it.id == activeTabId.value }?.title
+        onAddShortcut(url, tabTitle ?: "", onFeedback)
+    }
+
+    fun onRemoveShortcut(id: Long) {
+        viewModelScope.launch { homeShortcutDao.deleteById(id) }
+    }
+
+    /** Moves a tile to the first slot; the whole list is rewritten with fresh 0..n positions. */
+    fun onMoveShortcutToFront(id: Long) {
+        viewModelScope.launch {
+            val current = homeShortcutDao.getAll()
+            val target = current.find { it.id == id } ?: return@launch
+            val reordered = listOf(target) + current.filterNot { it.id == id }
+            homeShortcutDao.replaceAll(
+                reordered.mapIndexed { index, shortcut -> shortcut.copy(position = index) }
+            )
+        }
+    }
 
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -1027,6 +1092,7 @@ class BrowserViewModel(
                     app.database.readingListDao(),
                     ArticleStore(java.io.File(app.filesDir, "reading_list")),
                     app.database.siteSettingsDao(),
+                    app.database.homeShortcutDao(),
                     com.udaytank.browse.download.ServiceDownloadController(app),
                     downloadManagerRemover = { id ->
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
