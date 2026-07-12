@@ -316,6 +316,17 @@ private fun SavedArticleReader(
                     }
                 },
             )
+            ReaderControls(
+                fontScale = fontScale,
+                theme = theme,
+                wide = wide,
+                onFontScale = viewModel::onReaderFontScaleChanged,
+                onTheme = viewModel::onReaderThemeSelected,
+                onWide = viewModel::onReaderWideToggled,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            )
         }
     }
 }

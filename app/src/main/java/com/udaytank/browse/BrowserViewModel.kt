@@ -279,6 +279,18 @@ class BrowserViewModel(
     val readerWide: StateFlow<Boolean> = settings.readerWide
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    fun onReaderFontScaleChanged(percent: Int) {
+        viewModelScope.launch { settings.setReaderFontScale(percent) }
+    }
+
+    fun onReaderThemeSelected(theme: ReaderTheme) {
+        viewModelScope.launch { settings.setReaderTheme(theme) }
+    }
+
+    fun onReaderWideToggled(wide: Boolean) {
+        viewModelScope.launch { settings.setReaderWide(wide) }
+    }
+
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
         .stateIn(viewModelScope, SharingStarted.Eagerly, SearchEngine.GOOGLE)

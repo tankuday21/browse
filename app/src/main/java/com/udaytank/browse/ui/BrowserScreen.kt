@@ -131,6 +131,7 @@ fun BrowserScreen(
                     )
                 } else if (readerActive) {
                     ReaderOverlay(
+                        viewModel = viewModel,
                         holder = holder,
                         tabId = currentTabId,
                         background = MaterialTheme.colorScheme.surface,

@@ -1,6 +1,7 @@
 package com.udaytank.browse
 
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.reading.ArticleStore
@@ -713,6 +714,25 @@ class BrowserViewModelTest {
         assertEquals(7L, restored.readAt)
         assertNotNull(restored.filePath)
         assertEquals("<p>offline body</p>", File(restored.filePath!!).readText())
+    }
+
+    @Test
+    fun `reader pref setters round-trip through settings`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        advanceUntilIdle()
+
+        vm.onReaderFontScaleChanged(130)
+        vm.onReaderThemeSelected(ReaderTheme.SEPIA)
+        vm.onReaderWideToggled(true)
+        advanceUntilIdle()
+
+        assertEquals(130, settings.readerFontScale.value)
+        assertEquals(130, vm.readerFontScale.value)
+        assertEquals(ReaderTheme.SEPIA, settings.readerTheme.value)
+        assertEquals(ReaderTheme.SEPIA, vm.readerTheme.value)
+        assertTrue(settings.readerWide.value)
+        assertTrue(vm.readerWide.value)
     }
 
     @Test
