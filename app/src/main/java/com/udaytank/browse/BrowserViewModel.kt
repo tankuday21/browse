@@ -32,6 +32,8 @@ import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
+import com.udaytank.browse.data.SiteSettingsDao
+import com.udaytank.browse.data.SiteSettingsEntity
 import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
@@ -112,6 +114,7 @@ class BrowserViewModel(
     private val tabGroupDao: TabGroupDao,
     private val readingListDao: ReadingListDao,
     private val articleStore: ArticleStore,
+    private val siteSettingsDao: SiteSettingsDao,
     private val downloadController: DownloadController,
     /**
      * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
@@ -289,6 +292,58 @@ class BrowserViewModel(
 
     fun onReaderWideToggled(wide: Boolean) {
         viewModelScope.launch { settings.setReaderWide(wide) }
+    }
+
+    // --- per-site display memory (H6) ---
+
+    /**
+     * host -> stored override row. Eager + in-memory so the WebViewHolder's page-start provider
+     * lambda is a plain map lookup — it runs inside onPageStarted and must never block.
+     */
+    val siteSettingsByHost: StateFlow<Map<String, SiteSettingsEntity>> = siteSettingsDao.observeAll()
+        .map { list -> list.associateBy { it.host } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** The stored override row for the active tab's host, or null (drives the site-settings sheet). */
+    val siteSettingsForCurrentSite: StateFlow<SiteSettingsEntity?> = combine(
+        uiState, siteSettingsByHost,
+    ) { state, byHost -> UrlHosts.of(state.currentUrl)?.let { byHost[it] } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** True when the active tab is incognito — site settings must then never touch the DAO. */
+    fun isActiveTabIncognito(): Boolean =
+        tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+
+    /**
+     * Merges the given fields into the current host's override row (null = leave that field as
+     * stored). A row where every field ends up -1 says nothing, so it's deleted rather than kept.
+     *
+     * Incognito guard (critical): a persisted row would leak which sites were visited privately,
+     * so incognito tabs never write — the sheet applies changes to the live WebView only.
+     */
+    fun onSetSiteOverride(textZoom: Int? = null, forceDark: Int? = null, desktopMode: Int? = null) {
+        if (isActiveTabIncognito()) return
+        val host = currentHost() ?: return
+        viewModelScope.launch {
+            val existing = siteSettingsDao.getByHost(host) ?: SiteSettingsEntity(host)
+            val merged = existing.copy(
+                textZoom = textZoom ?: existing.textZoom,
+                forceDark = forceDark ?: existing.forceDark,
+                desktopMode = desktopMode ?: existing.desktopMode,
+            )
+            if (merged.textZoom == -1 && merged.forceDark == -1 && merged.desktopMode == -1) {
+                siteSettingsDao.deleteByHost(host)
+            } else {
+                siteSettingsDao.upsert(merged)
+            }
+        }
+    }
+
+    /** Removes every stored override for the current host. Same incognito guard as [onSetSiteOverride]. */
+    fun onClearSiteOverrides() {
+        if (isActiveTabIncognito()) return
+        val host = currentHost() ?: return
+        viewModelScope.launch { siteSettingsDao.deleteByHost(host) }
     }
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
@@ -886,6 +941,7 @@ class BrowserViewModel(
                     app.database.tabGroupDao(),
                     app.database.readingListDao(),
                     ArticleStore(java.io.File(app.filesDir, "reading_list")),
+                    app.database.siteSettingsDao(),
                     com.udaytank.browse.download.ServiceDownloadController(app),
                     downloadManagerRemover = { id ->
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)

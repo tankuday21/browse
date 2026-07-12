@@ -11,8 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -32,11 +35,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,6 +64,7 @@ import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.ui.components.CommandBar
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.SuggestionsPanel
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +87,7 @@ fun BrowserScreen(
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
+    var siteSheetOpen by remember { mutableStateOf(false) }
     var notificationPermissionAsked by rememberSaveable { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -98,6 +105,8 @@ fun BrowserScreen(
     val currentHost = viewModel.currentHost()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+    val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
+    val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
@@ -312,6 +321,18 @@ fun BrowserScreen(
                             activeTabId?.let { holder.setDesktopMode(it, desktop) }
                             menuOpen = false
                         },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Site settings") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = currentHost != null,
+                        onClick = { siteSheetOpen = true; menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text(if (isBookmarked) "Remove bookmark" else "Add bookmark") },
@@ -529,6 +550,112 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("In 1 hour") }
+            }
+        }
+
+        // ── Site settings sheet (H6) ────────────────────────
+        val sheetHost = currentHost
+        val sheetTabId = activeTabId
+        if (siteSheetOpen && sheetHost != null && sheetTabId != null) {
+            // Drafts mirror the stored override; for incognito (never persisted) they are the
+            // only state, so the sheet still reflects what was applied to the live tab.
+            var draftZoom by remember(siteOverride?.textZoom) {
+                mutableStateOf(siteOverride?.textZoom ?: -1)
+            }
+            var draftForceDark by remember(siteOverride?.forceDark) {
+                mutableStateOf(siteOverride?.forceDark ?: -1)
+            }
+            var draftDesktop by remember(siteOverride?.desktopMode) {
+                mutableStateOf(siteOverride?.desktopMode ?: -1)
+            }
+            val tabDesktopBaseline = sheetTabId in desktopTabs
+            ModalBottomSheet(onDismissRequest = { siteSheetOpen = false }) {
+                Text(
+                    sheetHost,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                if (isIncognito) {
+                    Text(
+                        "Not remembered in incognito",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                Text(
+                    "Text size — ${if (draftZoom > 0) "$draftZoom%" else "Default"}",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                )
+                Slider(
+                    value = (if (draftZoom > 0) draftZoom else 100).toFloat(),
+                    onValueChange = { raw ->
+                        val snapped = (raw / 10f).roundToInt() * 10
+                        draftZoom = snapped
+                        holder.applyTextZoom(sheetTabId, snapped)
+                    },
+                    onValueChangeFinished = {
+                        if (draftZoom > 0) viewModel.onSetSiteOverride(textZoom = draftZoom)
+                    },
+                    valueRange = 50f..200f,
+                    steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                TriStateChipRow(
+                    label = "Force dark",
+                    value = draftForceDark,
+                    onSelect = { value ->
+                        draftForceDark = value
+                        viewModel.onSetSiteOverride(forceDark = value)
+                        holder.applyForceDark(
+                            sheetTabId,
+                            if (value == -1) globalForceDark else value == 1,
+                        )
+                    },
+                )
+                TriStateChipRow(
+                    label = "Desktop site",
+                    value = draftDesktop,
+                    onSelect = { value ->
+                        draftDesktop = value
+                        viewModel.onSetSiteOverride(desktopMode = value)
+                        holder.applyDesktopMode(
+                            sheetTabId,
+                            if (value == -1) tabDesktopBaseline else value == 1,
+                        )
+                    },
+                )
+                TextButton(
+                    onClick = {
+                        viewModel.onClearSiteOverrides()
+                        draftZoom = -1
+                        draftForceDark = -1
+                        draftDesktop = -1
+                        holder.applyTextZoom(sheetTabId, 100)
+                        holder.applyForceDark(sheetTabId, globalForceDark)
+                        holder.applyDesktopMode(sheetTabId, tabDesktopBaseline)
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                ) { Text("Clear for this site") }
+            }
+        }
+    }
+}
+
+/** Default / On / Off chip row for one tri-state site override (-1 / 1 / 0). */
+@Composable
+private fun TriStateChipRow(label: String, value: Int, onSelect: (Int) -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(-1 to "Default", 1 to "On", 0 to "Off").forEach { (chipValue, chipLabel) ->
+                FilterChip(
+                    selected = value == chipValue,
+                    onClick = { onSelect(chipValue) },
+                    label = { Text(chipLabel) },
+                )
             }
         }
     }

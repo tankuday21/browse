@@ -255,6 +255,12 @@ class MainActivity : FragmentActivity() {
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }
 
+                // Page-start site-settings lookup: a plain read of the VM's in-memory host map,
+                // so the WebView client callback never blocks on the database.
+                LaunchedEffect(Unit) {
+                    holder.siteSettingsProvider = { host -> viewModel.siteSettingsByHost.value[host] }
+                }
+
                 val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
                 LaunchedEffect(httpsOnly) { holder.httpsOnly = httpsOnly }
 

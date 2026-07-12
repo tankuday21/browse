@@ -33,11 +33,12 @@ class BrowserViewModelTest {
         tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
         readingListDao: FakeReadingListDao = FakeReadingListDao(),
         articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
+        siteSettingsDao: FakeSiteSettingsDao = FakeSiteSettingsDao(),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
-        readingListDao, articleStore, downloadController, downloadManagerRemover,
+        readingListDao, articleStore, siteSettingsDao, downloadController, downloadManagerRemover,
         ioDispatcher = Dispatchers.Unconfined,
     )
 
@@ -763,5 +764,126 @@ class BrowserViewModelTest {
         assertTrue(vm.backgroundMediaSites.value.isEmpty())
         assertFalse("secret.com" in vm.backgroundMediaSites.value)
         assertFalse(vm.currentSiteBackgroundAllowed.value)
+    }
+
+    // --- per-site display memory (H6) ---
+
+    @Test
+    fun `site override persists for the current host`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://en.wikipedia.org/wiki/Andromeda")
+
+        vm.onSetSiteOverride(textZoom = 150)
+        advanceUntilIdle()
+
+        val row = siteDao.entries.value.single()
+        assertEquals("en.wikipedia.org", row.host)
+        assertEquals(150, row.textZoom)
+        assertEquals(-1, row.forceDark)
+        assertEquals(-1, row.desktopMode)
+    }
+
+    @Test
+    fun `site override merges with the existing row`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+
+        vm.onSetSiteOverride(textZoom = 120)
+        advanceUntilIdle()
+        vm.onSetSiteOverride(forceDark = 1)
+        advanceUntilIdle()
+
+        val row = siteDao.entries.value.single()
+        assertEquals(120, row.textZoom)
+        assertEquals(1, row.forceDark)
+    }
+
+    @Test
+    fun `setting every field back to default deletes the row instead of storing a no-op`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+
+        vm.onSetSiteOverride(forceDark = 1)
+        advanceUntilIdle()
+        vm.onSetSiteOverride(forceDark = -1)
+        advanceUntilIdle()
+
+        assertTrue(siteDao.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `clear site overrides removes the current host's row`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+        vm.onSetSiteOverride(textZoom = 150, desktopMode = 1)
+        advanceUntilIdle()
+
+        vm.onClearSiteOverrides()
+        advanceUntilIdle()
+
+        assertTrue(siteDao.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `incognito tab never writes site settings to the dao`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val incognitoId = vm.activeTabId.value!!
+        assertTrue(incognitoId < 0)
+        vm.onPageStarted(incognitoId, "https://secret.com/page")
+        advanceUntilIdle()
+
+        vm.onSetSiteOverride(textZoom = 150, forceDark = 1, desktopMode = 1)
+        vm.onClearSiteOverrides()
+        advanceUntilIdle()
+
+        assertTrue(siteDao.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `incognito clear never deletes another tab's persisted row`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        // Persist a row from a normal tab first.
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+        vm.onSetSiteOverride(textZoom = 150)
+        advanceUntilIdle()
+
+        // Visit the same host in incognito and try to clear.
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+        vm.onClearSiteOverrides()
+        advanceUntilIdle()
+
+        assertEquals(1, siteDao.entries.value.size)
+    }
+
+    @Test
+    fun `current site override flow tracks the active page's host`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+        vm.onSetSiteOverride(textZoom = 150)
+        advanceUntilIdle()
+
+        assertEquals(150, vm.siteSettingsForCurrentSite.value?.textZoom)
+        assertEquals(150, vm.siteSettingsByHost.value["a.com"]?.textZoom)
+
+        vm.onPageStarted(vm.activeTabId.value!!, "https://other.com/page")
+        advanceUntilIdle()
+        assertNull(vm.siteSettingsForCurrentSite.value)
     }
 }
