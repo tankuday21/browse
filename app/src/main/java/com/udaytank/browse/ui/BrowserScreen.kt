@@ -7,6 +7,12 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -145,8 +151,15 @@ fun BrowserScreen(
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
 
+    // Auto-hiding command bar: the VM's scroll hysteresis says hidden/shown; every state where
+    // the bar must never hide (home, editing, reader, find, bar-anchored menu/sheet open)
+    // simply forces it visible here.
+    val barHidden by viewModel.barHidden.collectAsStateWithLifecycle()
+    val barVisible = !barHidden || isHome || isEditing || readerActive ||
+        menuOpen || siteSheetOpen || state.findQuery != null
+
     LaunchedEffect(isEditing) {
-        if (!isEditing) viewModel.onSuggestionsDismissed()
+        if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
     }
 
     // A6 clipboard chip: the ONE clipboard read per bar-focus event (never polled). A copied
@@ -394,7 +407,15 @@ fun BrowserScreen(
                     },
                 )
             } else {
-                CommandBar(
+                // Slides away on downward page scroll, back on any upward nudge (Chrome-style).
+                // The page content is already full-bleed behind this overlay, so a hidden bar
+                // means the site simply uses the whole height — no blank strip.
+                AnimatedVisibility(
+                    visible = barVisible,
+                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(180)),
+                    exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
+                ) {
+                    CommandBar(
             pageUrl = if (isHome) null else state.currentUrl,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
@@ -639,7 +660,8 @@ fun BrowserScreen(
                         },
                     )
                 },
-                )
+                    )
+                }
             }
         }
 

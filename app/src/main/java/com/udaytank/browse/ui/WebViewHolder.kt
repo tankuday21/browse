@@ -63,6 +63,11 @@ class WebViewHolder(
         fun onTitleUpdated(tabId: Long, url: String, title: String)
         /** [view] on entering fullscreen (e.g. HTML5 video), null when it's dismissed. */
         fun onFullscreenVideo(view: View?)
+        /**
+         * The page scrolled ([dy] = scrollY - oldScrollY, +down / -up). High-frequency —
+         * implementations must stay cheap (drives the auto-hiding command bar).
+         */
+        fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -638,6 +643,11 @@ class WebViewHolder(
 
             setFindListener { ordinal, total, done ->
                 if (done) listener.onFindResult(tabId, if (total == 0) 0 else ordinal + 1, total)
+            }
+
+            // Auto-hiding command bar: forward page scrolls (delta-form) to the UI layer.
+            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                listener.onPageScrolled(tabId, scrollY, scrollY - oldScrollY)
             }
 
             setOnLongClickListener { view ->
