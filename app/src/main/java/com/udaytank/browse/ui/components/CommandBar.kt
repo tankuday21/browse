@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -41,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -86,6 +88,15 @@ fun CommandBar(
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     pageUrl: String? = null,
+    /**
+     * Home-page (Chrome-NTP) mode: the display state renders as a prominent search pill —
+     * search icon + "Search or type URL" + mic (A2 voice) — with no back button. The tab
+     * counter and menu stay, so nothing the bottom bar offered is lost on home. Editing
+     * behavior is untouched: tapping the pill enters the exact same edit state.
+     */
+    homePill: Boolean = false,
+    /** Voice-search result from the home pill's mic; same typed search-or-url path. */
+    onVoiceSubmit: ((String) -> Unit)? = null,
 ) {
     Surface(
         modifier = modifier
@@ -106,8 +117,10 @@ fun CommandBar(
                         onDismiss = { onEditingChanged(false) },
                     )
                 } else {
-                    IconButton(onClick = onBack, enabled = canGoBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    if (!homePill) {
+                        IconButton(onClick = onBack, enabled = canGoBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                     var barMenuOpen by remember { mutableStateOf(false) }
                     Box(modifier = Modifier.weight(1f)) {
@@ -121,8 +134,19 @@ fun CommandBar(
                                     // A5: page actions on long-press; nothing to act on at home.
                                     onLongClick = { if (pageUrl != null) barMenuOpen = true },
                                 )
-                                .padding(horizontal = 10.dp, vertical = 12.dp),
+                                .padding(
+                                    horizontal = if (homePill) 16.dp else 10.dp,
+                                    vertical = if (homePill) 18.dp else 12.dp,
+                                ),
                         ) {
+                            if (homePill) {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                             if (isSecure) {
                                 Icon(
                                     Icons.Filled.Lock,
@@ -141,7 +165,9 @@ fun CommandBar(
                                 },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(start = if (isSecure) 6.dp else 0.dp),
+                                modifier = Modifier.padding(
+                                    start = if (isSecure || homePill) 8.dp else 0.dp,
+                                ),
                             )
                         }
                         if (pageUrl != null) {
@@ -152,6 +178,17 @@ fun CommandBar(
                                 onAddressChange = onAddressChange,
                                 onGo = onGo,
                             )
+                        }
+                    }
+                    if (homePill) {
+                        // A2 voice search from the pill: spoken text takes the exact typed path.
+                        val launchVoice = rememberVoiceSearch { spoken ->
+                            onVoiceSubmit?.invoke(spoken)
+                        }
+                        if (launchVoice != null) {
+                            IconButton(onClick = launchVoice) {
+                                Icon(Icons.Filled.Mic, contentDescription = "Voice search")
+                            }
                         }
                     }
                     IconButton(onClick = onOpenTabs) {
@@ -252,29 +289,12 @@ private fun EditingContent(
         )
     }
 
-    // A2 voice search: only offered when a recognizer activity actually exists (checked once).
-    val context = LocalContext.current
-    val voiceIntent = remember {
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(
-            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-        )
-    }
-    val voiceAvailable = remember {
-        context.packageManager.resolveActivity(voiceIntent, 0) != null
-    }
-    val voiceLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val spoken = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            ?.firstOrNull()
-        if (result.resultCode == Activity.RESULT_OK && !spoken.isNullOrBlank()) {
-            // Same pipeline as typed input: text -> VM address state -> search-or-url submit.
-            onAddressChange(spoken)
-            onGo()
-            onDismiss()
-        }
+    // A2 voice search (shared launcher): same pipeline as typed input —
+    // text -> VM address state -> search-or-url submit.
+    val launchVoice = rememberVoiceSearch { spoken ->
+        onAddressChange(spoken)
+        onGo()
+        onDismiss()
     }
 
     Row(
@@ -302,8 +322,8 @@ private fun EditingContent(
                 .padding(start = 20.dp, top = 16.dp, bottom = 16.dp)
                 .focusRequester(focusRequester),
         )
-        if (voiceAvailable) {
-            IconButton(onClick = { voiceLauncher.launch(voiceIntent) }) {
+        if (launchVoice != null) {
+            IconButton(onClick = launchVoice) {
                 Icon(Icons.Filled.Mic, contentDescription = "Voice search")
             }
         }
@@ -311,4 +331,35 @@ private fun EditingContent(
             Icon(Icons.Filled.Close, contentDescription = "Close editing")
         }
     }
+}
+
+/**
+ * A2 voice search, shared by the edit-state mic and the home pill's mic. Returns a launch
+ * lambda, or null when no recognizer activity exists (checked once, like the original inline
+ * wiring). A RESULT_OK first result is handed to [onSpoken].
+ */
+@Composable
+private fun rememberVoiceSearch(onSpoken: (String) -> Unit): (() -> Unit)? {
+    val context = LocalContext.current
+    val voiceIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+        )
+    }
+    val voiceAvailable = remember {
+        context.packageManager.resolveActivity(voiceIntent, 0) != null
+    }
+    val currentOnSpoken by rememberUpdatedState(onSpoken)
+    val voiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val spoken = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (result.resultCode == Activity.RESULT_OK && !spoken.isNullOrBlank()) {
+            currentOnSpoken(spoken)
+        }
+    }
+    return if (voiceAvailable) ({ voiceLauncher.launch(voiceIntent) }) else null
 }

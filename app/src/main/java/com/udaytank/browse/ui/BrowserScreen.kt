@@ -176,246 +176,18 @@ fun BrowserScreen(
         }
     }
 
-    // Back: close editing first, then page history, then exit.
-    BackHandler(enabled = isEditing) { isEditing = false }
-    BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        // ── Full-bleed content ──────────────────────────────
-        val currentTabId = activeTabId
-        if (currentTabId != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding(),
-            ) {
-                if (isHome) {
-                    HomePage(
-                        shortcuts = homeShortcuts,
-                        isIncognito = isIncognito,
-                        onOpenUrl = viewModel::onOpenUrl,
-                        onAddShortcut = { url, title ->
-                            viewModel.onAddShortcut(url, title) { message ->
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onRemoveShortcut = viewModel::onRemoveShortcut,
-                        onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
-                        modifier = Modifier.fillMaxSize(),
-                        lifetimeBlocked = lifetimeBlocked,
-                    )
-                } else if (readerActive) {
-                    ReaderOverlay(
-                        viewModel = viewModel,
-                        holder = holder,
-                        tabId = currentTabId,
-                        background = MaterialTheme.colorScheme.surface,
-                        onText = MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    TabWebView(
-                        holder = holder,
-                        tabId = currentTabId,
-                        tabUrl = activeTab.url,
-                        incognito = isIncognito,
-                        isLoading = state.isLoading,
-                        pendingCommand = state.pendingCommand,
-                        onCommandConsumed = viewModel::onCommandConsumed,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                state.pageError?.let { errorDescription ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            "🛰️",
-                            style = MaterialTheme.typography.displayMedium,
-                            modifier = Modifier.padding(top = 64.dp, bottom = 16.dp),
-                        )
-                        Text("Lost in space", style = MaterialTheme.typography.headlineSmall)
-                        Text(
-                            "This page couldn't be reached. Check your connection and try again.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 12.dp),
-                        )
-                        Text(
-                            errorDescription,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                        Button(
-                            onClick = viewModel::onRetryPressed,
-                            modifier = Modifier.padding(top = 24.dp),
-                        ) {
-                            Text("Try again")
-                        }
-                        if (isConnectivityError(errorDescription)) {
-                            TextButton(
-                                onClick = { gameOpen = true },
-                                modifier = Modifier.padding(top = 8.dp),
-                            ) {
-                                Text(
-                                    "🚀 Lost in space? Tap to play",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
-                }
-                state.sslWarningUrl?.let { blockedUrl ->
-                    Card(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text(
-                                "Connection not secure",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                            TextButton(onClick = viewModel::onSslWarningDismissed) {
-                                Text("OK")
-                            }
-                        }
-                    }
-                }
-                // ── Safe Browsing interstitial (D1) — replaces the web content ──
-                state.safeBrowsingWarning?.takeIf { it.tabId == currentTabId }?.let { warning ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surface)
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Filled.GppBad,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .padding(top = 64.dp, bottom = 16.dp)
-                                .size(64.dp),
-                        )
-                        Text("This site may be dangerous", style = MaterialTheme.typography.headlineSmall)
-                        Text(
-                            warning.threatLabel,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
-                        Text(
-                            "Google Safe Browsing flagged this page. Attackers here may trick you " +
-                                "into installing harmful software or revealing passwords and card numbers.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 12.dp),
-                        )
-                        Text(
-                            warning.url,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 2,
-                        )
-                        Button(
-                            onClick = {
-                                holder.resolveSafeBrowsing(warning.tabId, proceed = false)
-                                viewModel.onSafeBrowsingResolved()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 24.dp),
-                        ) {
-                            Text("Go back")
-                        }
-                        TextButton(
-                            onClick = {
-                                holder.resolveSafeBrowsing(warning.tabId, proceed = true)
-                                viewModel.onSafeBrowsingResolved()
-                            },
-                            modifier = Modifier.padding(top = 4.dp),
-                        ) {
-                            Text(
-                                "Proceed anyway (not recommended)",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Bottom stack: suggestions above the find bar / Command Bar ──
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(bottom = 12.dp),
-        ) {
-            if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
-                SuggestionsPanel(
-                    suggestions = suggestions,
-                    onPick = {
-                        viewModel.onSuggestionPicked(it)
-                        isEditing = false
-                    },
-                    copiedUrl = copiedUrlSuggestion,
-                    onPickCopied = { url ->
-                        viewModel.onOpenUrl(url)
-                        isEditing = false
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                )
-            }
-            if (state.findQuery != null) {
-                FindBar(
-                    query = state.findQuery ?: "",
-                    active = state.findActive,
-                    total = state.findTotal,
-                    onQueryChange = { query ->
-                        viewModel.onFindQueryChanged(query)
-                        activeTabId?.let { holder.findInPage(it, query) }
-                    },
-                    onPrev = { activeTabId?.let { holder.findNext(it, false) } },
-                    onNext = { activeTabId?.let { holder.findNext(it, true) } },
-                    onClose = {
-                        activeTabId?.let { holder.clearFind(it) }
-                        viewModel.onFindClose()
-                    },
-                )
-            } else {
-                // Slides away on downward page scroll, back on any upward nudge (Chrome-style).
-                // The page content is already full-bleed behind this overlay, so a hidden bar
-                // means the site simply uses the whole height — no blank strip.
-                AnimatedVisibility(
-                    visible = barVisible,
-                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(180)),
-                    exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
-                ) {
-                    CommandBar(
+    // The ONE real CommandBar, shared by two mutually-exclusive call sites: centered on the
+    // home page (Chrome-NTP pill display state, via the HomePage searchBar slot) and
+    // bottom-anchored on web pages and during edit (edit mode always sits at the bottom,
+    // above the keyboard, so the suggestions panel + IME insets keep working unchanged).
+    val commandBar: @Composable () -> Unit = {
+        CommandBar(
+            homePill = isHome,
+            // Voice search from the home pill's mic: identical to the typed path.
+            onVoiceSubmit = { spoken ->
+                viewModel.onAddressBarTextChanged(spoken)
+                viewModel.onGoPressed()
+            },
             pageUrl = if (isHome) null else state.currentUrl,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
@@ -660,7 +432,256 @@ fun BrowserScreen(
                         },
                     )
                 },
+        )
+    }
+
+    // Back: close editing first, then page history, then exit.
+    BackHandler(enabled = isEditing) { isEditing = false }
+    BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        // ── Full-bleed content ──────────────────────────────
+        val currentTabId = activeTabId
+        if (currentTabId != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
+                if (isHome) {
+                    HomePage(
+                        shortcuts = homeShortcuts,
+                        isIncognito = isIncognito,
+                        onOpenUrl = viewModel::onOpenUrl,
+                        onAddShortcut = { url, title ->
+                            viewModel.onAddShortcut(url, title) { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onRemoveShortcut = viewModel::onRemoveShortcut,
+                        onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
+                        modifier = Modifier.fillMaxSize(),
+                        lifetimeBlocked = lifetimeBlocked,
+                        // Chrome-NTP centered search: the real bar, pill display state. While
+                        // editing it renders at the bottom instead (above the keyboard), so
+                        // the centered copy disappears for the duration of the edit.
+                        searchBar = if (isEditing) null else commandBar,
                     )
+                } else if (readerActive) {
+                    ReaderOverlay(
+                        viewModel = viewModel,
+                        holder = holder,
+                        tabId = currentTabId,
+                        background = MaterialTheme.colorScheme.surface,
+                        onText = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    TabWebView(
+                        holder = holder,
+                        tabId = currentTabId,
+                        tabUrl = activeTab.url,
+                        incognito = isIncognito,
+                        isLoading = state.isLoading,
+                        pendingCommand = state.pendingCommand,
+                        onCommandConsumed = viewModel::onCommandConsumed,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                state.pageError?.let { errorDescription ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "🛰️",
+                            style = MaterialTheme.typography.displayMedium,
+                            modifier = Modifier.padding(top = 64.dp, bottom = 16.dp),
+                        )
+                        Text("Lost in space", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "This page couldn't be reached. Check your connection and try again.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                        Text(
+                            errorDescription,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        Button(
+                            onClick = viewModel::onRetryPressed,
+                            modifier = Modifier.padding(top = 24.dp),
+                        ) {
+                            Text("Try again")
+                        }
+                        if (isConnectivityError(errorDescription)) {
+                            TextButton(
+                                onClick = { gameOpen = true },
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                Text(
+                                    "🚀 Lost in space? Tap to play",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                state.sslWarningUrl?.let { blockedUrl ->
+                    Card(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    ) {
+                        Column(modifier = Modifier.padding(20.dp)) {
+                            Text(
+                                "Connection not secure",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                            Text(
+                                "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                            TextButton(onClick = viewModel::onSslWarningDismissed) {
+                                Text("OK")
+                            }
+                        }
+                    }
+                }
+                // ── Safe Browsing interstitial (D1) — replaces the web content ──
+                state.safeBrowsingWarning?.takeIf { it.tabId == currentTabId }?.let { warning ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.GppBad,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .padding(top = 64.dp, bottom = 16.dp)
+                                .size(64.dp),
+                        )
+                        Text("This site may be dangerous", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            warning.threatLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        Text(
+                            "Google Safe Browsing flagged this page. Attackers here may trick you " +
+                                "into installing harmful software or revealing passwords and card numbers.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                        Text(
+                            warning.url,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 2,
+                        )
+                        Button(
+                            onClick = {
+                                holder.resolveSafeBrowsing(warning.tabId, proceed = false)
+                                viewModel.onSafeBrowsingResolved()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                        ) {
+                            Text("Go back")
+                        }
+                        TextButton(
+                            onClick = {
+                                holder.resolveSafeBrowsing(warning.tabId, proceed = true)
+                                viewModel.onSafeBrowsingResolved()
+                            },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(
+                                "Proceed anyway (not recommended)",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Bottom stack: suggestions above the find bar / Command Bar ──
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(bottom = 12.dp),
+        ) {
+            if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
+                SuggestionsPanel(
+                    suggestions = suggestions,
+                    onPick = {
+                        viewModel.onSuggestionPicked(it)
+                        isEditing = false
+                    },
+                    copiedUrl = copiedUrlSuggestion,
+                    onPickCopied = { url ->
+                        viewModel.onOpenUrl(url)
+                        isEditing = false
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                )
+            }
+            if (state.findQuery != null) {
+                FindBar(
+                    query = state.findQuery ?: "",
+                    active = state.findActive,
+                    total = state.findTotal,
+                    onQueryChange = { query ->
+                        viewModel.onFindQueryChanged(query)
+                        activeTabId?.let { holder.findInPage(it, query) }
+                    },
+                    onPrev = { activeTabId?.let { holder.findNext(it, false) } },
+                    onNext = { activeTabId?.let { holder.findNext(it, true) } },
+                    onClose = {
+                        activeTabId?.let { holder.clearFind(it) }
+                        viewModel.onFindClose()
+                    },
+                )
+            } else if (!isHome || isEditing) {
+                // Web pages, and edit mode everywhere (home included): the bar sits at the
+                // bottom. On the home page in display state the bar renders CENTERED inside
+                // HomePage instead (Chrome-NTP), so nothing is emitted here.
+                // Slides away on downward page scroll, back on any upward nudge (Chrome-style).
+                // The page content is already full-bleed behind this overlay, so a hidden bar
+                // means the site simply uses the whole height — no blank strip.
+                AnimatedVisibility(
+                    visible = barVisible,
+                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(180)),
+                    exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
+                ) {
+                    commandBar()
                 }
             }
         }
