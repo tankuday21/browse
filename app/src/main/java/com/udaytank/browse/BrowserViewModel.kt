@@ -10,6 +10,7 @@ import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
 import com.udaytank.browse.browser.SuggestionKind
+import com.udaytank.browse.browser.TabGroupPolicy
 import com.udaytank.browse.browser.TabManager
 import com.udaytank.browse.browser.UrlInput
 import com.udaytank.browse.browser.googleSuggest
@@ -20,6 +21,7 @@ import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.ClosedTabDao
+import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
@@ -28,6 +30,8 @@ import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
 import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
+import com.udaytank.browse.data.TabGroupDao
+import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.data.ThemeMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,16 +63,18 @@ data class BrowserUiState(
     val findTotal: Int = 0,
     val contextMenu: LinkContextMenu? = null,
     val pageError: String? = null,
+    val confirmCloseTabId: Long? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BrowserViewModel(
     private val historyDao: HistoryDao,
     private val bookmarkDao: BookmarkDao,
-    tabDao: TabDao,
+    private val tabDao: TabDao,
     private val settings: SettingsRepository,
     private val downloadDao: DownloadDao,
-    closedTabDao: ClosedTabDao,
+    private val closedTabDao: ClosedTabDao,
+    private val tabGroupDao: TabGroupDao,
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
@@ -115,6 +121,20 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setLockIncognito(enabled) }
     }
 
+    val switcherListLayout: StateFlow<Boolean> = settings.switcherListLayout
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onSwitcherLayoutToggled() {
+        viewModelScope.launch { settings.setSwitcherListLayout(!switcherListLayout.value) }
+    }
+
+    val autoIslands: StateFlow<Boolean> = settings.autoIslands
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun onAutoIslandsToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setAutoIslands(enabled) }
+    }
+
     /** Whether incognito content is currently hidden behind the biometric gate. */
     private val _incognitoLocked = MutableStateFlow(false)
     val incognitoLocked: StateFlow<Boolean> = _incognitoLocked.asStateFlow()
@@ -136,6 +156,12 @@ class BrowserViewModel(
     }
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
+
+    val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val recentlyClosed: StateFlow<List<ClosedTabEntity>> = closedTabDao.observeRecent(100)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -214,7 +240,75 @@ class BrowserViewModel(
     }
 
     fun onCloseTab(id: Long) {
+        val tab = tabs.value.find { it.id == id }
+        if (tab?.locked == true) {
+            _uiState.update { it.copy(confirmCloseTabId = id) }
+            return
+        }
         viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
+    }
+
+    fun onConfirmClose() {
+        val id = _uiState.value.confirmCloseTabId ?: return
+        _uiState.update { it.copy(confirmCloseTabId = null) }
+        viewModelScope.launch { tabManager.closeTab(id, HOME_URL) }
+    }
+
+    fun onCloseCancelled() = _uiState.update { it.copy(confirmCloseTabId = null) }
+
+    /** Closes multiple tabs at once (e.g. "close group"); locked tabs are skipped. */
+    fun onCloseTabs(ids: List<Long>) {
+        val closable = ids.filter { id -> tabs.value.find { it.id == id }?.locked != true }
+        viewModelScope.launch {
+            closable.forEach { tabManager.closeTab(it, HOME_URL) }
+        }
+    }
+
+    fun onReopenClosed(entry: ClosedTabEntity) {
+        viewModelScope.launch {
+            tabManager.newTab(entry.url)
+            closedTabDao.deleteById(entry.id)
+        }
+    }
+
+    // --- tab groups ---
+
+    fun onCreateGroupWithTabs(name: String, tabIds: List<Long>) {
+        viewModelScope.launch {
+            val group = TabGroupEntity(
+                name = name,
+                color = tabGroups.value.size % 6,
+                position = tabGroups.value.size,
+            )
+            val newGroupId = tabGroupDao.insert(group)
+            tabIds.forEach { tabManager.setGroup(it, newGroupId) }
+        }
+    }
+
+    fun onRenameGroup(id: Long, name: String) {
+        viewModelScope.launch { tabGroupDao.rename(id, name) }
+    }
+
+    fun onDeleteGroup(id: Long) {
+        viewModelScope.launch {
+            tabDao.clearGroup(id)
+            tabGroupDao.deleteById(id)
+            tabs.value.filter { it.groupId == id }.forEach { tabManager.setGroup(it.id, null) }
+        }
+    }
+
+    fun onAssignTabToGroup(tabId: Long, groupId: Long?) {
+        viewModelScope.launch { tabManager.setGroup(tabId, groupId) }
+    }
+
+    fun onTogglePinned(tabId: Long) {
+        val pinned = tabs.value.find { it.id == tabId }?.pinned == true
+        viewModelScope.launch { tabManager.setPinned(tabId, !pinned) }
+    }
+
+    fun onToggleLocked(tabId: Long) {
+        val locked = tabs.value.find { it.id == tabId }?.locked == true
+        viewModelScope.launch { tabManager.setLocked(tabId, !locked) }
     }
 
     fun onSwitchTab(id: Long) {
@@ -467,10 +561,12 @@ class BrowserViewModel(
         viewModelScope.launch { downloadDao.deleteById(id) }
     }
 
-    /** New tabs opened from a page inherit that page's incognito mode. */
+    /** New tabs opened from a page inherit that page's incognito mode and, when auto-islands is on, its group. */
     fun onOpenInNewTab(url: String) {
-        val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
-        viewModelScope.launch { tabManager.newTab(url, incognito) }
+        val parent = tabs.value.find { it.id == activeTabId.value }
+        val incognito = parent?.isIncognito == true
+        val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
+        viewModelScope.launch { tabManager.newTab(url, incognito, groupId) }
         onContextMenuDismissed()
     }
 
@@ -501,6 +597,7 @@ class BrowserViewModel(
                     app.settingsRepository,
                     app.database.downloadDao(),
                     app.database.closedTabDao(),
+                    app.database.tabGroupDao(),
                 )
             }
         }
