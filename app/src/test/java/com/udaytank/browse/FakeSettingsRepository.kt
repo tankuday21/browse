@@ -49,4 +49,14 @@ class FakeSettingsRepository : SettingsRepository {
 
     override val lockIncognito = MutableStateFlow(false)
     override suspend fun setLockIncognito(enabled: Boolean) { lockIncognito.value = enabled }
+
+    override val autoIslands = MutableStateFlow(true)
+    override suspend fun setAutoIslands(enabled: Boolean) {
+        autoIslands.value = enabled
+    }
+
+    override val switcherListLayout = MutableStateFlow(false)
+    override suspend fun setSwitcherListLayout(enabled: Boolean) {
+        switcherListLayout.value = enabled
+    }
 }

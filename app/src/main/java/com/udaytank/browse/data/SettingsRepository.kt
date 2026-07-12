@@ -36,6 +36,10 @@ interface SettingsRepository {
     suspend fun setHttpsOnly(enabled: Boolean)
     val lockIncognito: Flow<Boolean>
     suspend fun setLockIncognito(enabled: Boolean)
+    val autoIslands: Flow<Boolean>
+    suspend fun setAutoIslands(enabled: Boolean)
+    val switcherListLayout: Flow<Boolean>
+    suspend fun setSwitcherListLayout(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -78,6 +82,22 @@ class DataStoreSettingsRepository(
     override val lockIncognito: Flow<Boolean> = dataStore.data.map { it[LOCK_INCOGNITO_KEY] ?: false }
     override suspend fun setLockIncognito(enabled: Boolean) {
         dataStore.edit { it[LOCK_INCOGNITO_KEY] = enabled }
+    }
+
+    override val autoIslands: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[AUTO_ISLANDS_KEY] ?: true
+    }
+
+    override suspend fun setAutoIslands(enabled: Boolean) {
+        dataStore.edit { it[AUTO_ISLANDS_KEY] = enabled }
+    }
+
+    override val switcherListLayout: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SWITCHER_LIST_LAYOUT_KEY] ?: false
+    }
+
+    override suspend fun setSwitcherListLayout(enabled: Boolean) {
+        dataStore.edit { it[SWITCHER_LIST_LAYOUT_KEY] = enabled }
     }
 
     override suspend fun setSearchEngine(engine: SearchEngine) {
@@ -126,5 +146,7 @@ class DataStoreSettingsRepository(
         val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
         val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
+        val AUTO_ISLANDS_KEY = booleanPreferencesKey("auto_islands")
+        val SWITCHER_LIST_LAYOUT_KEY = booleanPreferencesKey("switcher_list_layout")
     }
 }
