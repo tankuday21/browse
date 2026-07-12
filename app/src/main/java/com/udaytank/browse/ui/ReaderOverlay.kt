@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 import com.udaytank.browse.browser.ReaderMode
+import com.udaytank.browse.data.ReaderTheme
 import org.json.JSONObject
 
 /**
@@ -38,16 +39,33 @@ fun ReaderOverlay(
                 val unwrapped = JSONObject("{\"v\":$json}").getString("v")
                 val obj = JSONObject(unwrapped)
                 if (obj.optBoolean("ok")) {
-                    ReaderMode.buildReaderHtml(obj.optString("title"), obj.optString("content"), dark)
+                    ReaderMode.buildReaderHtml(
+                        obj.optString("title"),
+                        obj.optString("content"),
+                        ReaderTheme.SYSTEM,
+                        systemDark = dark,
+                        fontScale = 100,
+                        wide = false,
+                    )
                 } else {
                     ReaderMode.buildReaderHtml(
                         "No article found",
                         "<p>This page doesn't have a readable article. Tap reader again to return.</p>",
-                        dark,
+                        ReaderTheme.SYSTEM,
+                        systemDark = dark,
+                        fontScale = 100,
+                        wide = false,
                     )
                 }
             }.getOrElse {
-                ReaderMode.buildReaderHtml("Reader unavailable", "<p>Could not read this page.</p>", dark)
+                ReaderMode.buildReaderHtml(
+                    "Reader unavailable",
+                    "<p>Could not read this page.</p>",
+                    ReaderTheme.SYSTEM,
+                    systemDark = dark,
+                    fontScale = 100,
+                    wide = false,
+                )
             }
         }
     }

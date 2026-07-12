@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -16,6 +17,8 @@ enum class SearchEngine(val label: String, val queryUrl: String) {
 }
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+enum class ReaderTheme { SYSTEM, LIGHT, SEPIA, DARK }
 
 interface SettingsRepository {
     val searchEngine: Flow<SearchEngine>
@@ -46,6 +49,12 @@ interface SettingsRepository {
     suspend fun setBackgroundMedia(enabled: Boolean)
     val backgroundMediaSites: Flow<Set<String>>
     suspend fun setBackgroundMediaSites(sites: Set<String>)
+    val readerFontScale: Flow<Int>
+    suspend fun setReaderFontScale(percent: Int)
+    val readerTheme: Flow<ReaderTheme>
+    suspend fun setReaderTheme(theme: ReaderTheme)
+    val readerWide: Flow<Boolean>
+    suspend fun setReaderWide(wide: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -130,6 +139,32 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[BACKGROUND_MEDIA_SITES_KEY] = sites }
     }
 
+    override val readerFontScale: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[READER_FONT_SCALE_KEY] ?: 100
+    }
+
+    override suspend fun setReaderFontScale(percent: Int) {
+        dataStore.edit { it[READER_FONT_SCALE_KEY] = percent.coerceIn(70, 160) }
+    }
+
+    override val readerTheme: Flow<ReaderTheme> = dataStore.data.map { prefs ->
+        prefs[READER_THEME_KEY]?.let { stored ->
+            ReaderTheme.entries.find { it.name == stored }
+        } ?: ReaderTheme.SYSTEM
+    }
+
+    override suspend fun setReaderTheme(theme: ReaderTheme) {
+        dataStore.edit { it[READER_THEME_KEY] = theme.name }
+    }
+
+    override val readerWide: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[READER_WIDE_KEY] ?: false
+    }
+
+    override suspend fun setReaderWide(wide: Boolean) {
+        dataStore.edit { it[READER_WIDE_KEY] = wide }
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
     }
@@ -181,5 +216,8 @@ class DataStoreSettingsRepository(
         val USE_SYSTEM_DOWNLOADER_KEY = booleanPreferencesKey("use_system_downloader")
         val BACKGROUND_MEDIA_KEY = booleanPreferencesKey("background_media")
         val BACKGROUND_MEDIA_SITES_KEY = stringSetPreferencesKey("background_media_sites")
+        val READER_FONT_SCALE_KEY = intPreferencesKey("reader_font_scale")
+        val READER_THEME_KEY = stringPreferencesKey("reader_theme")
+        val READER_WIDE_KEY = booleanPreferencesKey("reader_wide")
     }
 }
