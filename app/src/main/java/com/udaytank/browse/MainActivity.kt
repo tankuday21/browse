@@ -239,6 +239,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Auto-hiding command bar: convert the 24dp hide hysteresis into real pixels once.
+        viewModel.setBarHideThresholdPx((24 * resources.displayMetrics.density).toInt())
         handleWebIntent(intent)
         // Only a fresh launch acts on a shortcut extra — a recreation (process death restore)
         // still carries the old intent and must not open yet another tab.
@@ -332,6 +334,9 @@ class MainActivity : FragmentActivity() {
                         override fun onFullscreenVideo(view: View?) {
                             fullscreenVideoView = view
                         }
+
+                        override fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) =
+                            viewModel.onPageScrolled(tabId, scrollY, dy)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }

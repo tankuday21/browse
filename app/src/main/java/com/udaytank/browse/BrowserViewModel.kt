@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.udaytank.browse.browser.BarScrollPolicy
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.adblock.FilterLists
@@ -161,10 +162,44 @@ class BrowserViewModel(
 
     fun onToggleReaderMode(): Boolean {
         _readerActive.value = !_readerActive.value
+        onBarShouldShow()
         return _readerActive.value
     }
 
     fun onExitReaderMode() { _readerActive.value = false }
+
+    // ── Auto-hiding command bar (v3-ux) ──────────────────────────────────────────
+    // Scroll hysteresis lives in the pure BarScrollPolicy; this layer only forwards
+    // events for the ACTIVE tab and pushes a state change when visibility actually
+    // flips (scroll events are high-frequency — recompositions must not be).
+
+    private val barScrollPolicy = BarScrollPolicy()
+
+    /** True while the bottom command bar is scrolled away (Chrome-style auto-hide). */
+    private val _barHidden = MutableStateFlow(false)
+    val barHidden: StateFlow<Boolean> = _barHidden.asStateFlow()
+
+    /** Density-corrected hide threshold (≈24dp in px); set once by the UI layer. */
+    fun setBarHideThresholdPx(px: Int) {
+        if (px > 0) barScrollPolicy.hideThresholdPx = px
+    }
+
+    /** High-frequency WebView scroll callback; cheap by contract (see holder Listener docs). */
+    fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) {
+        if (tabId != activeTabId.value) return
+        val visible = barScrollPolicy.onScroll(scrollY, dy)
+        if (_barHidden.value == visible) _barHidden.value = !visible // push only on flips
+    }
+
+    /**
+     * Any bar-revealing event: tab switch, navigation start, edit focus, reader toggle,
+     * find bar, landing on the home tab. Resets the hysteresis so the bar doesn't
+     * instantly re-hide from stale accumulated scroll.
+     */
+    fun onBarShouldShow() {
+        barScrollPolicy.reset()
+        if (_barHidden.value) _barHidden.value = false
+    }
 
     val forceDark: StateFlow<Boolean> = settings.forceDarkWebsites
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
@@ -539,6 +574,11 @@ class BrowserViewModel(
         viewModelScope.launch {
             tabManager.initialize(HOME_URL)
         }
+        // A tab switch always brings the command bar back (auto-hide state is per-moment,
+        // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).
+        viewModelScope.launch {
+            activeTabId.collect { onBarShouldShow() }
+        }
         // Keep the address bar in sync with whichever tab is active.
         viewModelScope.launch {
             combine(tabManager.tabs, tabManager.activeTabId) { tabs, active ->
@@ -765,7 +805,10 @@ class BrowserViewModel(
 
     // --- find in page ---
 
-    fun onFindOpen() = _uiState.update { it.copy(findQuery = "") }
+    fun onFindOpen() {
+        onBarShouldShow()
+        _uiState.update { it.copy(findQuery = "") }
+    }
 
     fun onFindQueryChanged(query: String) = _uiState.update { it.copy(findQuery = query) }
 
@@ -791,6 +834,7 @@ class BrowserViewModel(
      */
     private fun loadInActiveTab(url: String) {
         _readerActive.value = false
+        onBarShouldShow()
         val tab = tabs.value.find { it.id == activeTabId.value }
         if (tab != null && tab.url == HOME_URL) {
             viewModelScope.launch { tabManager.onContentChanged(tab.id, url, url) }
@@ -1082,6 +1126,7 @@ class BrowserViewModel(
             _uiState.update { it.copy(safeBrowsingWarning = null) }
         }
         if (tabId == activeTabId.value) {
+            onBarShouldShow() // navigation start re-reveals the auto-hidden bar
             _uiState.update {
                 it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0, pageError = null)
             }

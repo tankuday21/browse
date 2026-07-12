@@ -31,6 +31,7 @@ import com.udaytank.browse.data.SiteSettingsEntity
 import android.widget.Toast
 import com.udaytank.browse.browser.AdBlockEngine
 import com.udaytank.browse.browser.adblock.RequestTyping
+import com.udaytank.browse.browser.adblock.Scriptlets
 import java.io.ByteArrayInputStream
 import java.util.concurrent.ConcurrentHashMap
 
@@ -62,6 +63,11 @@ class WebViewHolder(
         fun onTitleUpdated(tabId: Long, url: String, title: String)
         /** [view] on entering fullscreen (e.g. HTML5 video), null when it's dismissed. */
         fun onFullscreenVideo(view: View?)
+        /**
+         * The page scrolled ([dy] = scrollY - oldScrollY, +down / -up). High-frequency —
+         * implementations must stay cheap (drives the auto-hiding command bar).
+         */
+        fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -393,6 +399,24 @@ class WebViewHolder(
                 }
             }
 
+            // YouTube ad-block scriptlet: MUST run at document start (it prunes ad data out of
+            // player responses before the player script reads them), so it follows the GPC
+            // shim's registration pattern. Registered only while the ad-block master toggle is
+            // on at tab creation; the per-site allowlist and later toggle flips are handled by
+            // the __andromedaAdblockOff kill switch set at every page start (the script also
+            // self-gates on *.youtube.com hosts, belt and braces to the origin rules here).
+            val ytScriptletAtDocumentStart = adBlock.isActiveFor(null) &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+            if (ytScriptletAtDocumentStart) {
+                runCatching {
+                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                        this,
+                        Scriptlets.YOUTUBE_SCRIPT,
+                        setOf("https://*.youtube.com", "https://youtube.com", "https://music.youtube.com"),
+                    )
+                }
+            }
+
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     Uri.parse(url).host?.let { pageHosts[tabId] = it }
@@ -413,6 +437,20 @@ class WebViewHolder(
                     if (dismissCookieBanners) {
                         val earlyAnnoyCss = annoyance.cosmeticInjectionScript(pageHosts[tabId])
                         if (earlyAnnoyCss.isNotEmpty()) view.evaluateJavascript(earlyAnnoyCss, null)
+                    }
+                    // Scriptlet gating: on hosts that have one, publish the kill switch the
+                    // (already document-start-registered) script re-checks on every hook call
+                    // and watcher tick — the master toggle and per-site ad allowlist thereby
+                    // keep working even though registration happened at tab creation. When
+                    // document-start scripts are unsupported (or ad-block was off at creation),
+                    // fall back to injecting here — later than ideal, best effort.
+                    val scriptlet = Scriptlets.scriptFor(pageHosts[tabId])
+                    if (scriptlet.isNotEmpty()) {
+                        val off = !adBlock.isActiveFor(pageHosts[tabId])
+                        view.evaluateJavascript("window.__andromedaAdblockOff=$off;", null)
+                        if (!off && !ytScriptletAtDocumentStart) {
+                            view.evaluateJavascript(scriptlet, null)
+                        }
                     }
                     listener.onPageStarted(tabId, url)
                 }
@@ -605,6 +643,11 @@ class WebViewHolder(
 
             setFindListener { ordinal, total, done ->
                 if (done) listener.onFindResult(tabId, if (total == 0) 0 else ordinal + 1, total)
+            }
+
+            // Auto-hiding command bar: forward page scrolls (delta-form) to the UI layer.
+            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                listener.onPageScrolled(tabId, scrollY, scrollY - oldScrollY)
             }
 
             setOnLongClickListener { view ->
