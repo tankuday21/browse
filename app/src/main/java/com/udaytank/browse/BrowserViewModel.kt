@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
+import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.ClosedTabDao
@@ -27,6 +28,8 @@ import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.ReadingListDao
+import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
 import com.udaytank.browse.data.TabDao
@@ -34,7 +37,11 @@ import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
 import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.data.ThemeMode
+import com.udaytank.browse.reading.ArticleStore
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -102,6 +109,8 @@ class BrowserViewModel(
     private val downloadDao: DownloadDao,
     private val closedTabDao: ClosedTabDao,
     private val tabGroupDao: TabGroupDao,
+    private val readingListDao: ReadingListDao,
+    private val articleStore: ArticleStore,
     private val downloadController: DownloadController,
     /**
      * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
@@ -110,6 +119,8 @@ class BrowserViewModel(
      */
     private val downloadManagerRemover: (Long) -> Unit = {},
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
+    /** File work (article HTML writes/deletes) runs here; tests swap in Unconfined. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -248,6 +259,14 @@ class BrowserViewModel(
 
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // Eagerly: the menu's unread badge must be right the first time the menu opens.
+    val readingList: StateFlow<List<ReadingListEntry>> = readingListDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val unreadCount: StateFlow<Int> = readingList
+        .map { list -> list.count { it.readAt == null } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
@@ -553,6 +572,72 @@ class BrowserViewModel(
         }
     }
 
+    // --- reading list (save for later) ---
+
+    /**
+     * Saves the active page to the reading list and tries to capture an offline copy.
+     *
+     * [extract] runs [com.udaytank.browse.browser.ReaderMode.EXTRACT_SCRIPT] in the tab's live
+     * WebView and hands back the raw evaluateJavascript payload (the UI passes
+     * `holder::extractReaderContent`; tests pass a fake). It must be invoked on the main
+     * thread — which this is, since the VM's scope runs on Main — while file and DB work hops
+     * to [ioDispatcher]. Extraction failure still saves the row, just without an offline copy.
+     *
+     * Deliberately no incognito guard: saving is an explicit user action (same policy as
+     * downloads), and reading-list rows carry no browsing trace beyond the page the user chose.
+     *
+     * [onFeedback] receives a user-facing message (toast), following [importBookmarksHtml].
+     */
+    fun onSaveForLater(
+        extract: (Long, (String) -> Unit) -> Unit,
+        onFeedback: (String) -> Unit,
+    ) {
+        val tabId = activeTabId.value
+        val url = _uiState.value.currentUrl
+        if (tabId == null || url.isNullOrBlank() || url == HOME_URL) {
+            onFeedback("Nothing to save on this page")
+            return
+        }
+        val tabTitle = tabs.value.find { it.id == tabId }?.title
+        val title = tabTitle?.takeIf { it.isNotBlank() } ?: UrlHosts.of(url) ?: url
+        viewModelScope.launch {
+            if (readingListDao.existsByUrl(url)) {
+                onFeedback("Already in your reading list")
+                return@launch
+            }
+            val rowId = readingListDao.insert(
+                ReadingListEntry(url = url, title = title, addedAt = System.currentTimeMillis())
+            )
+            extract(tabId) { json ->
+                val result = ReaderExtraction.parse(json)
+                viewModelScope.launch(ioDispatcher) {
+                    val message = if (result != null) {
+                        val path = articleStore.save(rowId, result.content)
+                        readingListDao.setFilePath(rowId, path)
+                        "Saved for offline reading"
+                    } else {
+                        "Saved (couldn't make offline copy)"
+                    }
+                    withContext(Dispatchers.Main) { onFeedback(message) }
+                }
+            }
+        }
+    }
+
+    fun onDeleteReadingItem(id: Long) {
+        viewModelScope.launch(ioDispatcher) {
+            val entry = readingListDao.getById(id)
+            articleStore.delete(entry?.filePath)
+            readingListDao.deleteById(id)
+        }
+    }
+
+    fun onMarkRead(id: Long, read: Boolean) {
+        viewModelScope.launch {
+            readingListDao.setReadAt(id, if (read) System.currentTimeMillis() else null)
+        }
+    }
+
     // --- callbacks from the WebViews (any tab) ---
 
     fun onPageStarted(tabId: Long, url: String) {
@@ -742,6 +827,8 @@ class BrowserViewModel(
                     app.database.downloadDao(),
                     app.database.closedTabDao(),
                     app.database.tabGroupDao(),
+                    app.database.readingListDao(),
+                    ArticleStore(java.io.File(app.filesDir, "reading_list")),
                     com.udaytank.browse.download.ServiceDownloadController(app),
                     downloadManagerRemover = { id ->
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)

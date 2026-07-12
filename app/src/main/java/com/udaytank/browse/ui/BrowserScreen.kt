@@ -3,6 +3,7 @@ package com.udaytank.browse.ui
 import android.Manifest
 import android.content.Intent
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
@@ -274,6 +276,23 @@ fun BrowserScreen(
                         text = { Text(if (readerActive) "Exit reader" else "Reader mode") },
                         enabled = !isHome,
                         onClick = { viewModel.onToggleReaderMode(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save for later") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.BookmarkAdd,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = state.currentUrl != null,
+                        onClick = {
+                            viewModel.onSaveForLater(holder::extractReaderContent) { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            menuOpen = false
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("Find in page") },

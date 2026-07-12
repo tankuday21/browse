@@ -1,15 +1,21 @@
 package com.udaytank.browse
 
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
+import com.udaytank.browse.reading.ArticleStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
+import kotlin.io.path.createTempDirectory
 
 class BrowserViewModelTest {
 
@@ -24,11 +30,14 @@ class BrowserViewModelTest {
         downloadDao: FakeDownloadDao = FakeDownloadDao(),
         closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
         tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
+        readingListDao: FakeReadingListDao = FakeReadingListDao(),
+        articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
     ) = BrowserViewModel(
-        historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao, downloadController,
-        downloadManagerRemover,
+        historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
+        readingListDao, articleStore, downloadController, downloadManagerRemover,
+        ioDispatcher = Dispatchers.Unconfined,
     )
 
     @Test
@@ -479,6 +488,171 @@ class BrowserViewModelTest {
         advanceUntilIdle()
         assertFalse("bbc.com" in vm.backgroundMediaSites.value)
         assertFalse(vm.currentSiteBackgroundAllowed.value)
+    }
+
+    // --- reading list (save for later) ---
+
+    /** Re-encodes [inner] the way evaluateJavascript hands script results back: as a JSON string literal. */
+    private fun jsPayload(inner: String): String =
+        "\"" + inner.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+    private val okPayload =
+        jsPayload("""{"ok":true,"title":"A Story","content":"<p>Hello — “world” 🚀</p>"}""")
+
+    @Test
+    fun `save for later stores offline copy when extraction succeeds`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/story")
+        vm.onTitleUpdated(tabId, "https://example.com/story", "A Story")
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onSaveForLater({ _, cb -> cb(okPayload) }) { messages += it }
+        advanceUntilIdle()
+
+        val entry = readingDao.entries.value.single()
+        assertEquals("https://example.com/story", entry.url)
+        assertEquals("A Story", entry.title)
+        assertNull(entry.readAt)
+        assertNotNull(entry.filePath)
+        assertEquals("<p>Hello — “world” 🚀</p>", File(entry.filePath!!).readText())
+        assertEquals(listOf("Saved for offline reading"), messages)
+    }
+
+    @Test
+    fun `save for later dedupes by url`() = runTest {
+        val readingDao = FakeReadingListDao()
+        readingDao.insert(ReadingListEntry(url = "https://example.com/story", title = "A Story", addedAt = 1L))
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/story")
+        advanceUntilIdle()
+
+        var extracted = false
+        val messages = mutableListOf<String>()
+        vm.onSaveForLater({ _, cb -> extracted = true; cb(okPayload) }) { messages += it }
+        advanceUntilIdle()
+
+        assertEquals(1, readingDao.entries.value.size)
+        assertFalse(extracted)
+        assertEquals(listOf("Already in your reading list"), messages)
+    }
+
+    @Test
+    fun `save for later keeps row online-only when extraction fails`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/no-article")
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onSaveForLater({ _, cb -> cb(jsPayload("""{"ok":false}""")) }) { messages += it }
+        advanceUntilIdle()
+
+        val entry = readingDao.entries.value.single()
+        assertEquals("https://example.com/no-article", entry.url)
+        assertNull(entry.filePath)
+        assertEquals(listOf("Saved (couldn't make offline copy)"), messages)
+    }
+
+    @Test
+    fun `save for later survives a malformed extraction payload`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/broken")
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onSaveForLater({ _, cb -> cb("null") }) { messages += it } // WebView returns "null" on script error
+        advanceUntilIdle()
+
+        val entry = readingDao.entries.value.single()
+        assertNull(entry.filePath)
+        assertEquals(listOf("Saved (couldn't make offline copy)"), messages)
+    }
+
+    @Test
+    fun `save for later on a home tab is a no-op with feedback`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+
+        var extracted = false
+        val messages = mutableListOf<String>()
+        vm.onSaveForLater({ _, cb -> extracted = true; cb(okPayload) }) { messages += it }
+        advanceUntilIdle()
+
+        assertTrue(readingDao.entries.value.isEmpty())
+        assertFalse(extracted)
+        assertEquals(listOf("Nothing to save on this page"), messages)
+    }
+
+    @Test
+    fun `save for later works from an incognito tab`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/private-read")
+        advanceUntilIdle()
+
+        vm.onSaveForLater({ _, cb -> cb(okPayload) }) { }
+        advanceUntilIdle()
+
+        assertEquals("https://example.com/private-read", readingDao.entries.value.single().url)
+    }
+
+    @Test
+    fun `delete reading item removes file and row`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://example.com/story")
+        advanceUntilIdle()
+        vm.onSaveForLater({ _, cb -> cb(okPayload) }) { }
+        advanceUntilIdle()
+        val entry = readingDao.entries.value.single()
+        val path = entry.filePath!!
+        assertTrue(File(path).exists())
+
+        vm.onDeleteReadingItem(entry.id)
+        advanceUntilIdle()
+
+        assertTrue(readingDao.entries.value.isEmpty())
+        assertFalse(File(path).exists())
+    }
+
+    @Test
+    fun `mark read toggles readAt and drives unreadCount`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val id1 = readingDao.insert(ReadingListEntry(url = "https://a.com/1", title = "One", addedAt = 1L))
+        readingDao.insert(ReadingListEntry(url = "https://a.com/2", title = "Two", addedAt = 2L))
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+
+        assertEquals(2, vm.readingList.value.size)
+        assertEquals(2, vm.unreadCount.value)
+
+        vm.onMarkRead(id1, true)
+        advanceUntilIdle()
+        assertNotNull(readingDao.entries.value.first { it.id == id1 }.readAt)
+        assertEquals(1, vm.unreadCount.value)
+
+        vm.onMarkRead(id1, false)
+        advanceUntilIdle()
+        assertNull(readingDao.entries.value.first { it.id == id1 }.readAt)
+        assertEquals(2, vm.unreadCount.value)
     }
 
     @Test
