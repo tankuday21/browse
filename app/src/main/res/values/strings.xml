@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Andromeda</string>
+    <string name="shortcut_new_tab_short">New tab</string>
+    <string name="shortcut_new_tab_long">Open a new tab</string>
+    <string name="shortcut_new_incognito_short">Incognito tab</string>
+    <string name="shortcut_new_incognito_long">Open a new incognito tab</string>
 </resources>

@@ -366,6 +366,20 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setReaderWide(wide) }
     }
 
+    /**
+     * First-run gate (J2), tri-state on purpose: null while DataStore hasn't answered yet —
+     * MainActivity then renders a plain background-colored frame (never the browser, so the
+     * real UI can't flash before onboarding), false shows onboarding, true shows the browser.
+     */
+    val onboardingDone: StateFlow<Boolean?> = settings.onboardingDone
+        .map<Boolean, Boolean?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Every onboarding exit path (Skip / Get started / Maybe later) lands here — permanent. */
+    fun onOnboardingFinished() {
+        viewModelScope.launch { settings.setOnboardingDone(true) }
+    }
+
     // --- per-site display memory (H6) ---
 
     /**
