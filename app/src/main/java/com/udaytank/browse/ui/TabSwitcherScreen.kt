@@ -1,6 +1,7 @@
 package com.udaytank.browse.ui
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -25,9 +27,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
@@ -52,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +74,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.TabOrderPolicy
 import com.udaytank.browse.browser.TabSearchFilter
+import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupEntity
@@ -199,14 +206,20 @@ fun TabSwitcherScreen(
                         groupPromptTabIds = selection.toList()
                         groupNameInput = ""
                     }) { Text("Group") }
-                    TextButton(onClick = {
-                        val urls = tabs.filter { it.id in selection }.joinToString("\n") { it.url }
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, urls)
-                        }
-                        context.startActivity(Intent.createChooser(intent, "Share tabs"))
-                    }) { Text("Share") }
+                    // Privacy: incognito tabs never leave the app via bulk share — their urls
+                    // are excluded, and an all-incognito selection has nothing to share at all.
+                    val shareableTabs = tabs.filter { it.id in selection && !it.isIncognito }
+                    TextButton(
+                        enabled = shareableTabs.isNotEmpty(),
+                        onClick = {
+                            val urls = shareableTabs.joinToString("\n") { it.url }
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, urls)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share tabs"))
+                        },
+                    ) { Text("Share") }
                     Box(modifier = Modifier.fillMaxWidth()) {
                         IconButton(
                             onClick = { selection = emptySet() },
@@ -222,7 +235,8 @@ fun TabSwitcherScreen(
         LazyVerticalGrid(
             columns = if (listLayout) GridCells.Fixed(1) else GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize().padding(innerPadding).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // List rows are compact (P6 improve pass) — tighter spacing so ~8+ fit a screen.
+            verticalArrangement = Arrangement.spacedBy(if (listLayout) 8.dp else 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             renderItems.forEach { entry ->
@@ -255,38 +269,64 @@ fun TabSwitcherScreen(
                         val hiddenByCollapse = !tab.pinned && tab.groupId != null && tab.groupId in collapsedGroups
                         if (!hiddenByCollapse) {
                             item(key = tab.id) {
-                                TabCard(
-                                    tab = tab,
-                                    isActive = tab.id == activeTabId,
-                                    isSelected = tab.id in selection,
-                                    selectionMode = selection.isNotEmpty(),
-                                    groups = groups,
-                                    holder = holder,
-                                    onClick = {
-                                        if (selection.isNotEmpty()) {
-                                            selection = if (tab.id in selection) {
-                                                selection - tab.id
-                                            } else {
-                                                selection + tab.id
-                                            }
+                                val onClick = {
+                                    if (selection.isNotEmpty()) {
+                                        selection = if (tab.id in selection) {
+                                            selection - tab.id
                                         } else {
-                                            viewModel.onSwitchTab(tab.id)
-                                            onTabChosen()
+                                            selection + tab.id
                                         }
-                                    },
-                                    onClose = {
-                                        if (!tab.locked) onCloseTabView(tab.id)
-                                        viewModel.onCloseTab(tab.id)
-                                    },
-                                    onStartSelection = { selection = setOf(tab.id) },
-                                    onTogglePinned = { viewModel.onTogglePinned(tab.id) },
-                                    onToggleLocked = { viewModel.onToggleLocked(tab.id) },
-                                    onAssignToGroup = { groupId -> viewModel.onAssignTabToGroup(tab.id, groupId) },
-                                    onRequestNewGroup = {
-                                        groupPromptTabIds = listOf(tab.id)
-                                        groupNameInput = ""
-                                    },
-                                )
+                                    } else {
+                                        viewModel.onSwitchTab(tab.id)
+                                        onTabChosen()
+                                    }
+                                }
+                                val onClose = {
+                                    if (!tab.locked) onCloseTabView(tab.id)
+                                    viewModel.onCloseTab(tab.id)
+                                }
+                                val onStartSelection = { selection = setOf(tab.id) }
+                                val onTogglePinned = { viewModel.onTogglePinned(tab.id) }
+                                val onToggleLocked = { viewModel.onToggleLocked(tab.id) }
+                                val onAssignToGroup =
+                                    { groupId: Long? -> viewModel.onAssignTabToGroup(tab.id, groupId) }
+                                val onRequestNewGroup = {
+                                    groupPromptTabIds = listOf(tab.id)
+                                    groupNameInput = ""
+                                }
+                                if (listLayout) {
+                                    TabListRow(
+                                        tab = tab,
+                                        isActive = tab.id == activeTabId,
+                                        isSelected = tab.id in selection,
+                                        selectionMode = selection.isNotEmpty(),
+                                        groups = groups,
+                                        holder = holder,
+                                        onClick = onClick,
+                                        onClose = onClose,
+                                        onStartSelection = onStartSelection,
+                                        onTogglePinned = onTogglePinned,
+                                        onToggleLocked = onToggleLocked,
+                                        onAssignToGroup = onAssignToGroup,
+                                        onRequestNewGroup = onRequestNewGroup,
+                                    )
+                                } else {
+                                    TabCard(
+                                        tab = tab,
+                                        isActive = tab.id == activeTabId,
+                                        isSelected = tab.id in selection,
+                                        selectionMode = selection.isNotEmpty(),
+                                        groups = groups,
+                                        holder = holder,
+                                        onClick = onClick,
+                                        onClose = onClose,
+                                        onStartSelection = onStartSelection,
+                                        onTogglePinned = onTogglePinned,
+                                        onToggleLocked = onToggleLocked,
+                                        onAssignToGroup = onAssignToGroup,
+                                        onRequestNewGroup = onRequestNewGroup,
+                                    )
+                                }
                             }
                         }
                     }
@@ -336,7 +376,9 @@ fun TabSwitcherScreen(
             confirmButton = {
                 TextButton(onClick = {
                     if (groupNameInput.isNotBlank()) {
-                        viewModel.onCreateGroupWithTabs(groupNameInput.trim(), ids)
+                        viewModel.onCreateGroupWithTabs(groupNameInput.trim(), ids) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
                     }
                     groupPromptTabIds = null
                 }) { Text("Create") }
@@ -464,7 +506,6 @@ private fun TabCard(
         holder.thumbnails.load(tab.id)?.asImageBitmap()
     }
     var showMenu by remember { mutableStateOf(false) }
-    var addToGroupSubmenu by remember { mutableStateOf(false) }
 
     Box {
         Surface(
@@ -519,7 +560,7 @@ private fun TabCard(
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                tab.title.take(1).uppercase(),
+                                placeholderLetter(tab),
                                 style = MaterialTheme.typography.displaySmall,
                                 color = MaterialTheme.colorScheme.onPrimary,
                             )
@@ -608,49 +649,262 @@ private fun TabCard(
             }
         }
 
-        DropdownMenu(
-            expanded = showMenu && !addToGroupSubmenu,
-            onDismissRequest = { showMenu = false },
-        ) {
-            DropdownMenuItem(
-                text = { Text(if (tab.pinned) "Unpin" else "Pin") },
-                leadingIcon = { Icon(Icons.Filled.PushPin, contentDescription = null) },
-                onClick = { onTogglePinned(); showMenu = false },
-            )
-            DropdownMenuItem(
-                text = { Text(if (tab.locked) "Unlock" else "Lock") },
-                leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
-                onClick = { onToggleLocked(); showMenu = false },
-            )
-            DropdownMenuItem(
-                text = { Text("Add to group…") },
-                onClick = { addToGroupSubmenu = true },
-            )
-            if (tab.groupId != null) {
-                DropdownMenuItem(
-                    text = { Text("Remove from group") },
-                    onClick = { onAssignToGroup(null); showMenu = false },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("Select") },
-                onClick = { onStartSelection(); showMenu = false },
-            )
-        }
-        DropdownMenu(
-            expanded = showMenu && addToGroupSubmenu,
-            onDismissRequest = { showMenu = false; addToGroupSubmenu = false },
-        ) {
-            groups.forEach { g ->
-                DropdownMenuItem(
-                    text = { Text(g.name) },
-                    onClick = { onAssignToGroup(g.id); showMenu = false; addToGroupSubmenu = false },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("New group…") },
-                onClick = { onRequestNewGroup(); showMenu = false; addToGroupSubmenu = false },
-            )
-        }
+        TabContextMenu(
+            tab = tab,
+            groups = groups,
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            onTogglePinned = onTogglePinned,
+            onToggleLocked = onToggleLocked,
+            onAssignToGroup = onAssignToGroup,
+            onRequestNewGroup = onRequestNewGroup,
+            onStartSelection = onStartSelection,
+        )
     }
+}
+
+/**
+ * Compact single-column row for the switcher's list layout (P6 improve pass): small thumbnail,
+ * title + host, pin/lock markers, close/selection affordance — ~8+ rows fit a phone screen
+ * where the grid card previously fit ~3. Same gestures and context menu as [TabCard].
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TabListRow(
+    tab: TabEntity,
+    isActive: Boolean,
+    isSelected: Boolean,
+    selectionMode: Boolean,
+    groups: List<TabGroupEntity>,
+    holder: WebViewHolder,
+    onClick: () -> Unit,
+    onClose: () -> Unit,
+    onStartSelection: () -> Unit,
+    onTogglePinned: () -> Unit,
+    onToggleLocked: () -> Unit,
+    onAssignToGroup: (Long?) -> Unit,
+    onRequestNewGroup: () -> Unit,
+) {
+    val thumbnail = remember(tab.id, tab.url) {
+        holder.thumbnails.load(tab.id)?.asImageBitmap()
+    }
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            tonalElevation = 2.dp,
+            modifier = Modifier
+                .clip(MaterialTheme.shapes.small)
+                .then(
+                    if (isActive) {
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+                    } else {
+                        Modifier
+                    }
+                )
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { if (!selectionMode) showMenu = true },
+                ),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .padding(horizontal = 8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(MaterialTheme.shapes.small),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        tab.isIncognito -> Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        )
+
+                        thumbnail != null -> Image(
+                            bitmap = thumbnail,
+                            contentDescription = tab.title,
+                            contentScale = ContentScale.Crop,
+                            alignment = Alignment.TopCenter,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                        else -> Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Orbit.Gradient),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                placeholderLetter(tab),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 10.dp),
+                ) {
+                    Text(
+                        if (tab.isIncognito) "Incognito" else tab.title.ifBlank { tab.url },
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                    )
+                    Text(
+                        if (tab.isIncognito) "Private tab" else UrlHosts.of(tab.url) ?: tab.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+                if (tab.pinned) {
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = "Pinned",
+                        modifier = Modifier.size(16.dp).padding(end = 2.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (tab.locked) {
+                    Icon(
+                        Icons.Filled.Lock,
+                        contentDescription = "Locked",
+                        modifier = Modifier.size(16.dp).padding(end = 2.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (selectionMode) {
+                    if (isSelected) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 12.dp).size(20.dp),
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Close tab",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        TabContextMenu(
+            tab = tab,
+            groups = groups,
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            onTogglePinned = onTogglePinned,
+            onToggleLocked = onToggleLocked,
+            onAssignToGroup = onAssignToGroup,
+            onRequestNewGroup = onRequestNewGroup,
+            onStartSelection = onStartSelection,
+        )
+    }
+}
+
+/**
+ * The long-press context menu shared by [TabCard] and [TabListRow], including the add-to-group
+ * submenu (which checkmarks the tab's CURRENT group — P6 improve pass).
+ */
+@Composable
+private fun TabContextMenu(
+    tab: TabEntity,
+    groups: List<TabGroupEntity>,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onTogglePinned: () -> Unit,
+    onToggleLocked: () -> Unit,
+    onAssignToGroup: (Long?) -> Unit,
+    onRequestNewGroup: () -> Unit,
+    onStartSelection: () -> Unit,
+) {
+    var addToGroupSubmenu by remember { mutableStateOf(false) }
+    LaunchedEffect(expanded) {
+        if (!expanded) addToGroupSubmenu = false
+    }
+    DropdownMenu(
+        expanded = expanded && !addToGroupSubmenu,
+        onDismissRequest = onDismiss,
+    ) {
+        DropdownMenuItem(
+            text = { Text(if (tab.pinned) "Unpin" else "Pin") },
+            leadingIcon = { Icon(Icons.Filled.PushPin, contentDescription = null) },
+            onClick = { onTogglePinned(); onDismiss() },
+        )
+        DropdownMenuItem(
+            text = { Text(if (tab.locked) "Unlock" else "Lock") },
+            leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+            onClick = { onToggleLocked(); onDismiss() },
+        )
+        DropdownMenuItem(
+            text = { Text("Add to group…") },
+            leadingIcon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+            onClick = { addToGroupSubmenu = true },
+        )
+        if (tab.groupId != null) {
+            DropdownMenuItem(
+                text = { Text("Remove from group") },
+                leadingIcon = { Icon(Icons.Filled.FolderOff, contentDescription = null) },
+                onClick = { onAssignToGroup(null); onDismiss() },
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Select") },
+            leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+            onClick = { onStartSelection(); onDismiss() },
+        )
+    }
+    DropdownMenu(
+        expanded = expanded && addToGroupSubmenu,
+        onDismissRequest = onDismiss,
+    ) {
+        groups.forEach { g ->
+            DropdownMenuItem(
+                text = { Text(g.name) },
+                trailingIcon = {
+                    if (tab.groupId == g.id) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Current group",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+                onClick = { onAssignToGroup(g.id); onDismiss() },
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("New group…") },
+            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+            onClick = { onRequestNewGroup(); onDismiss() },
+        )
+    }
+}
+
+/**
+ * Letter for the no-thumbnail placeholder tile. Fresh (e.g. just-reopened) tabs still carry
+ * their url as the title, which would render as "H" for every http page — prefer the host's
+ * first letter in that case so the placeholder says something about the page.
+ */
+private fun placeholderLetter(tab: TabEntity): String {
+    val source = tab.title.takeIf { it.isNotBlank() && it != tab.url }
+        ?: UrlHosts.of(tab.url)?.removePrefix("www.")
+        ?: tab.url
+    return source.trim().firstOrNull()?.uppercase() ?: "•"
 }

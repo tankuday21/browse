@@ -151,6 +151,19 @@ class WebViewHolder(
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
 
+    /** Which tab's WebView owns the current fullscreen [customView]; null when none is showing. */
+    private var customViewTabId: Long? = null
+
+    /**
+     * The tab the UI is currently showing. Written from the compose layer (MainActivity keeps
+     * it in sync with the ViewModel's activeTabId), read on the UI thread in WebChromeClient
+     * callbacks — @Volatile only for the cross-thread write visibility, like the other globals.
+     * Gates [onShowCustomView][WebChromeClient]: a BACKGROUND tab that requests fullscreen
+     * (autoplaying video, scripted abuse) must not hijack the screen.
+     */
+    @Volatile
+    var activeTabId: Long? = null
+
     /**
      * App-initiated exit from fullscreen video (e.g. the user pressed back, or PiP was
      * dismissed). Tells the WebView engine the custom view is gone and clears our state.
@@ -161,6 +174,7 @@ class WebViewHolder(
         if (customView == null && callback == null) return
         customView = null
         customViewCallback = null
+        customViewTabId = null
         listener.onFullscreenVideo(null)
         callback?.onCustomViewHidden()
     }
@@ -534,6 +548,14 @@ class WebViewHolder(
                 }
 
                 override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                    // Only the tab the user is looking at may take over the screen. A
+                    // background tab's request (autoplay video, scripted abuse) is refused
+                    // outright; null activeTabId (startup race) errs on the side of allowing.
+                    val active = activeTabId
+                    if (active != null && active != tabId) {
+                        callback.onCustomViewHidden()
+                        return
+                    }
                     // Chrome-style: if a custom view is already showing (rare - e.g. the page
                     // swapped fullscreen elements without hiding the first one), hide it first.
                     if (customView != null) {
@@ -541,6 +563,7 @@ class WebViewHolder(
                     }
                     customView = view
                     customViewCallback = callback
+                    customViewTabId = tabId
                     listener.onFullscreenVideo(view)
                 }
 
@@ -551,6 +574,7 @@ class WebViewHolder(
                     if (customView == null) return
                     customView = null
                     customViewCallback = null
+                    customViewTabId = null
                     listener.onFullscreenVideo(null)
                 }
             }
@@ -615,6 +639,10 @@ class WebViewHolder(
     }
 
     fun close(tabId: Long) {
+        // If this tab owns the current fullscreen custom view, tear that down first —
+        // destroying the WebView underneath it would leave the UI stuck fullscreen with a
+        // leaked view whose engine callback can never be resolved.
+        if (customViewTabId == tabId) exitFullscreen()
         pageHosts.remove(tabId)
         thumbnails.remove(tabId)
         desktopTabs.remove(tabId)

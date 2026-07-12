@@ -389,6 +389,16 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setTextScale(percent) }
     }
 
+    /** Best asteroid-game score (K1), shown on the game-over overlay. */
+    val asteroidHighScore: StateFlow<Int> = settings.asteroidHighScore
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** End-of-run report from the asteroid game: persists only a new personal best. */
+    fun onAsteroidScore(score: Int) {
+        if (score <= asteroidHighScore.value) return
+        viewModelScope.launch { settings.setAsteroidHighScore(score) }
+    }
+
     // --- per-site display memory (H6) ---
 
     /**
@@ -581,7 +591,18 @@ class BrowserViewModel(
 
     // --- tab groups ---
 
-    fun onCreateGroupWithTabs(name: String, tabIds: List<Long>) {
+    /**
+     * Creates a group and assigns [tabIds] to it. Incognito tabs join in-memory only
+     * ([TabManager] never persists negative ids), so a selection with NO regular tab must not
+     * create the group at all — it would persist an empty group row that outlives the
+     * incognito session. [onFeedback] gets a toastable message on that no-op.
+     */
+    fun onCreateGroupWithTabs(name: String, tabIds: List<Long>, onFeedback: (String) -> Unit = {}) {
+        val hasPersistableTab = tabIds.any { id -> tabs.value.find { it.id == id }?.isIncognito != true }
+        if (!hasPersistableTab) {
+            onFeedback("Incognito tabs can't form a group")
+            return
+        }
         viewModelScope.launch {
             val group = TabGroupEntity(
                 name = name,

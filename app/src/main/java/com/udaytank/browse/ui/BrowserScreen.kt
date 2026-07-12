@@ -23,14 +23,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddHome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Bookmarks
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.GppBad
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -42,6 +57,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -68,6 +84,7 @@ import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.ui.components.CommandBar
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.SuggestionsPanel
+import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,6 +110,12 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var siteSheetOpen by remember { mutableStateOf(false) }
+    // K1: the asteroid game over the connectivity-error page. Closes itself if the error
+    // clears underneath it (e.g. a background retry succeeded).
+    var gameOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(state.pageError) {
+        if (state.pageError == null) gameOpen = false
+    }
     var notificationPermissionAsked by rememberSaveable { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -110,6 +133,11 @@ fun BrowserScreen(
     val currentHost = viewModel.currentHost()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
+    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    // In-flight or queued downloads drive the menu's Downloads badge.
+    val activeDownloadCount = downloads.count {
+        it.state == "RUNNING" || it.state == "PENDING" || it.state == "SCHEDULED"
+    }
     val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
@@ -217,6 +245,18 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 24.dp),
                         ) {
                             Text("Try again")
+                        }
+                        if (isConnectivityError(errorDescription)) {
+                            TextButton(
+                                onClick = { gameOpen = true },
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                Text(
+                                    "🚀 Lost in space? Tap to play",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -375,29 +415,110 @@ fun BrowserScreen(
             onMenuClick = { menuOpen = true },
             menu = {
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    // ── Icon-only action row: the five most-reached page actions plus the
+                    // bookmark star (the star toggle predates the reorg; nothing is lost). ──
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            enabled = state.canGoBack,
+                            onClick = { viewModel.onBackPressed(); menuOpen = false },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                        IconButton(
+                            enabled = state.canGoForward,
+                            onClick = { viewModel.onForwardPressed(); menuOpen = false },
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                        }
+                        IconButton(
+                            onClick = { viewModel.onReloadPressed(); menuOpen = false },
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Reload")
+                        }
+                        IconButton(
+                            enabled = state.currentUrl != null,
+                            onClick = {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, state.currentUrl)
+                                }
+                                context.startActivity(Intent.createChooser(send, "Share page"))
+                                menuOpen = false
+                            },
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share page")
+                        }
+                        IconButton(
+                            enabled = state.currentUrl != null,
+                            onClick = { viewModel.onToggleBookmark(); menuOpen = false },
+                        ) {
+                            Icon(
+                                if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
+                                contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
+                                tint = if (isBookmarked) MaterialTheme.colorScheme.primary
+                                else androidx.compose.material3.LocalContentColor.current,
+                            )
+                        }
+                        IconButton(
+                            enabled = state.currentUrl != null,
+                            onClick = {
+                                viewModel.onAddCurrentPageToHome { message ->
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                }
+                                menuOpen = false
+                            },
+                        ) {
+                            Icon(Icons.Filled.AddHome, contentDescription = "Add to home")
+                        }
+                    }
+                    HorizontalDivider()
+                    // ── New tabs ────────────────────────────────
                     DropdownMenuItem(
-                        text = { Text("Forward") },
-                        enabled = state.canGoForward,
-                        onClick = { viewModel.onForwardPressed(); menuOpen = false },
+                        text = { Text("New tab") },
+                        leadingIcon = { MenuIcon(Icons.Filled.Add) },
+                        onClick = { viewModel.onNewTab(); menuOpen = false },
                     )
                     DropdownMenuItem(
-                        text = { Text("Reload") },
-                        onClick = { viewModel.onReloadPressed(); menuOpen = false },
+                        text = { Text("New incognito tab") },
+                        leadingIcon = { MenuIcon(Icons.Filled.VisibilityOff) },
+                        onClick = { viewModel.onNewIncognitoTab(); menuOpen = false },
+                    )
+                    HorizontalDivider()
+                    // ── Library ─────────────────────────────────
+                    DropdownMenuItem(
+                        text = { Text("Bookmarks") },
+                        leadingIcon = { MenuIcon(Icons.Filled.Bookmarks) },
+                        onClick = { onOpenBookmarks(); menuOpen = false },
                     )
                     DropdownMenuItem(
-                        text = { Text(if (readerActive) "Exit reader" else "Reader mode") },
-                        enabled = !isHome,
-                        onClick = { viewModel.onToggleReaderMode(); menuOpen = false },
+                        text = { Text("History") },
+                        leadingIcon = { MenuIcon(Icons.Filled.History) },
+                        onClick = { onOpenHistory(); menuOpen = false },
                     )
+                    DropdownMenuItem(
+                        text = { Text("Downloads") },
+                        leadingIcon = { MenuIcon(Icons.Filled.Download) },
+                        trailingIcon = {
+                            if (activeDownloadCount > 0) Badge { Text("$activeDownloadCount") }
+                        },
+                        onClick = { onOpenDownloads(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Reading list") },
+                        leadingIcon = { MenuIcon(Icons.AutoMirrored.Filled.MenuBook) },
+                        trailingIcon = {
+                            if (unreadCount > 0) Badge { Text("$unreadCount") }
+                        },
+                        onClick = { onOpenReadingList(); menuOpen = false },
+                    )
+                    HorizontalDivider()
+                    // ── This page ───────────────────────────────
                     DropdownMenuItem(
                         text = { Text("Save for later") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.BookmarkAdd,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
+                        leadingIcon = { MenuIcon(Icons.Filled.BookmarkAdd) },
                         enabled = state.currentUrl != null,
                         onClick = {
                             viewModel.onSaveForLater(holder::extractReaderContent) { message ->
@@ -407,12 +528,22 @@ fun BrowserScreen(
                         },
                     )
                     DropdownMenuItem(
+                        text = { Text(if (readerActive) "Exit reader" else "Reader mode") },
+                        leadingIcon = { MenuIcon(Icons.AutoMirrored.Filled.Article) },
+                        enabled = !isHome,
+                        onClick = { viewModel.onToggleReaderMode(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
                         text = { Text("Find in page") },
+                        leadingIcon = { MenuIcon(Icons.Filled.FindInPage) },
                         enabled = !isHome,
                         onClick = { viewModel.onFindOpen(); menuOpen = false },
                     )
+                    HorizontalDivider()
+                    // ── Site controls ───────────────────────────
                     DropdownMenuItem(
                         text = { Text(if (activeTabId in desktopTabs) "Mobile site" else "Desktop site") },
+                        leadingIcon = { MenuIcon(Icons.Filled.Computer) },
                         enabled = !isHome,
                         onClick = {
                             val desktop = viewModel.onToggleDesktopSite()
@@ -422,90 +553,21 @@ fun BrowserScreen(
                     )
                     DropdownMenuItem(
                         text = { Text("Site settings") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.Tune,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
+                        leadingIcon = { MenuIcon(Icons.Filled.Tune) },
                         enabled = currentHost != null,
                         onClick = { siteSheetOpen = true; menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Print / Save as PDF") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.Print,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
+                        leadingIcon = { MenuIcon(Icons.Filled.Print) },
                         enabled = state.currentUrl != null,
                         onClick = { onPrint(); menuOpen = false },
                     )
-                    DropdownMenuItem(
-                        text = { Text(if (isBookmarked) "Remove bookmark" else "Add bookmark") },
-                        leadingIcon = {
-                            Icon(
-                                if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        enabled = state.currentUrl != null,
-                        onClick = { viewModel.onToggleBookmark(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Add to home") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.AddHome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        enabled = state.currentUrl != null,
-                        onClick = {
-                            viewModel.onAddCurrentPageToHome { message ->
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            }
-                            menuOpen = false
-                        },
-                    )
                     HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("New incognito tab") },
-                        onClick = { viewModel.onNewIncognitoTab(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Bookmarks") },
-                        onClick = { onOpenBookmarks(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("History") },
-                        onClick = { onOpenHistory(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Downloads") },
-                        onClick = { onOpenDownloads(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Reading list") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        trailingIcon = {
-                            if (unreadCount > 0) Badge { Text("$unreadCount") }
-                        },
-                        onClick = { onOpenReadingList(); menuOpen = false },
-                    )
+                    // ── App ─────────────────────────────────────
                     DropdownMenuItem(
                         text = { Text("Settings") },
+                        leadingIcon = { MenuIcon(Icons.Filled.Settings) },
                         onClick = { onOpenSettings(); menuOpen = false },
                     )
                     if (backgroundMedia && currentUrlIsHttp && !isIncognito) {
@@ -516,6 +578,7 @@ fun BrowserScreen(
                                     else "Play in background on this site"
                                 )
                             },
+                            leadingIcon = { MenuIcon(Icons.Filled.MusicNote) },
                             onClick = {
                                 viewModel.onToggleBackgroundMediaForCurrentSite()
                                 menuOpen = false
@@ -541,6 +604,7 @@ fun BrowserScreen(
                                     else "Allow ads on this site"
                                 )
                             },
+                            leadingIcon = { MenuIcon(Icons.Filled.Block) },
                             onClick = {
                                 viewModel.onToggleAllowAdsOnCurrentSite()
                                 viewModel.onReloadPressed()
@@ -768,7 +832,33 @@ fun BrowserScreen(
                 ) { Text("Clear for this site") }
             }
         }
+
+        // ── K1: asteroid game, full-screen over the connectivity-error page ──
+        // Composed last so its BackHandler wins and it draws above everything in this Box.
+        if (gameOpen) {
+            val asteroidHighScore by viewModel.asteroidHighScore.collectAsStateWithLifecycle()
+            AsteroidGame(
+                highScore = asteroidHighScore,
+                onScore = viewModel::onAsteroidScore,
+                onExit = { gameOpen = false },
+            )
+        }
     }
+}
+
+/**
+ * True for connectivity-class page errors (offline, DNS, and other net:: engine failures) —
+ * the only error class that offers the asteroid game (K1).
+ */
+private fun isConnectivityError(description: String): Boolean =
+    description.contains("ERR_INTERNET_DISCONNECTED") ||
+        description.contains("ERR_NAME_NOT_RESOLVED") ||
+        description.contains("net::ERR_")
+
+/** Primary-tinted leading icon shared by every dropdown menu item (consistent icon set). */
+@Composable
+private fun MenuIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
 }
 
 /** Default / On / Off chip row for one tri-state site override (-1 / 1 / 0). */
