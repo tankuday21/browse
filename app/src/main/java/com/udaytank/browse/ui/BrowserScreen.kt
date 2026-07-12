@@ -113,6 +113,7 @@ fun BrowserScreen(
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
+    val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
 
     LaunchedEffect(isEditing) {
         if (!isEditing) viewModel.onSuggestionsDismissed()
@@ -141,6 +142,7 @@ fun BrowserScreen(
                         isIncognito = isIncognito,
                         onOpenUrl = viewModel::onOpenUrl,
                         modifier = Modifier.fillMaxSize(),
+                        lifetimeBlocked = lifetimeBlocked,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(

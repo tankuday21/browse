@@ -304,6 +304,9 @@ class MainActivity : FragmentActivity() {
                 val dismissCookieBanners by viewModel.dismissCookieBanners.collectAsStateWithLifecycle()
                 LaunchedEffect(dismissCookieBanners) { holder.dismissCookieBanners = dismissCookieBanners }
 
+                val gpcEnabled by viewModel.gpcEnabled.collectAsStateWithLifecycle()
+                LaunchedEffect(gpcEnabled) { holder.gpcEnabled = gpcEnabled }
+
                 val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
                 val adAllowedSites by viewModel.adAllowedSites.collectAsStateWithLifecycle()
                 LaunchedEffect(adBlockEnabled, adAllowedSites) {

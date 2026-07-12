@@ -123,6 +123,19 @@ class WebViewHolder(
     var dismissCookieBanners: Boolean = true
 
     /**
+     * Global Privacy Control (D5). Two surfaces, both with honest limits:
+     *  - a `navigator.globalPrivacyControl` JS shim, registered per WebView at [obtain] as a
+     *    document-start script (so toggling takes effect on NEW tabs; existing tabs keep their
+     *    creation-time state — the settings subtitle says so). Fallback for WebViews without
+     *    DOCUMENT_START_SCRIPT: injected at page start, which is later than ideal.
+     *  - a `Sec-GPC: 1` header on navigations WE issue via [loadUrl] (address bar, bookmarks,
+     *    https-upgrade redispatch). In-page link clicks stay engine-driven and don't carry it;
+     *    the JS shim is what sites see there.
+     */
+    @Volatile
+    var gpcEnabled: Boolean = false
+
+    /**
      * Per-site display override lookup (H6). Supplied by the UI layer with a lambda backed by
      * the ViewModel's in-memory host map, so calling it from [onPageStarted][WebViewClient]
      * never blocks. Null until the UI wires it (fresh WebViews then just use the globals).
@@ -265,6 +278,17 @@ class WebViewHolder(
     // page hosts are written on the UI thread in onPageStarted.
     private val pageHosts = ConcurrentHashMap<Long, String>()
 
+    /**
+     * The app's navigation entry point for a tab (address bar / bookmarks / pending commands):
+     * adds the `Sec-GPC: 1` header when GPC is on. No-op when the tab has no live WebView.
+     */
+    fun loadUrl(tabId: Long, url: String) {
+        webViews[tabId]?.loadUrl(url, gpcHeaders())
+    }
+
+    private fun gpcHeaders(): Map<String, String> =
+        if (gpcEnabled) mapOf("Sec-GPC" to "1") else emptyMap()
+
     /** Applies global browsing policy to all live WebViews and future ones. */
     fun applyPolicy(javaScriptEnabled: Boolean, cookiesEnabled: Boolean, safeBrowsing: Boolean) {
         jsEnabled = javaScriptEnabled
@@ -313,12 +337,26 @@ class WebViewHolder(
                 settings.domStorageEnabled = true
             }
 
+            // GPC JS shim (D5): registered once per WebView at creation, before any page loads.
+            val gpcShimAtDocumentStart = gpcEnabled &&
+                WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+            if (gpcShimAtDocumentStart) {
+                runCatching {
+                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(this, GPC_SHIM, setOf("*"))
+                }
+            }
+
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                     Uri.parse(url).host?.let { pageHosts[tabId] = it }
                     // A new navigation supersedes any pending Safe Browsing decision for this
                     // tab; drop the callback so a stale interstitial can never act on it.
                     safeBrowsingResponses.remove(tabId)
+                    // GPC fallback for WebViews without document-start scripts: later than
+                    // ideal (scripts that read the flag before this ran miss it), best effort.
+                    if (gpcEnabled && !gpcShimAtDocumentStart) {
+                        view.evaluateJavascript(GPC_SHIM, null)
+                    }
                     applySiteSettings(tabId, view, url)
                     listener.onPageStarted(tabId, url)
                 }
@@ -346,7 +384,7 @@ class WebViewHolder(
                 ): Boolean {
                     val target = request.url.toString()
                     if (HttpsUpgrade.shouldUpgrade(target, httpsOnly)) {
-                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it); return true }
+                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it, gpcHeaders()); return true }
                     }
                     return false
                 }
@@ -563,6 +601,11 @@ class WebViewHolder(
     private companion object {
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /** Exposes `navigator.globalPrivacyControl === true` to page scripts (D5). */
+        const val GPC_SHIM =
+            "try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl'," +
+                "{get:function(){return true},configurable:true})}catch(e){}"
 
         /** User-facing label for a [WebViewClient] SAFE_BROWSING_THREAT_* code. */
         fun threatLabel(threatType: Int): String = when (threatType) {

@@ -53,6 +53,7 @@ fun SettingsScreen(
     val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
     val safeBrowsing by viewModel.safeBrowsing.collectAsStateWithLifecycle()
     val dismissCookieBanners by viewModel.dismissCookieBanners.collectAsStateWithLifecycle()
+    val gpcEnabled by viewModel.gpcEnabled.collectAsStateWithLifecycle()
     val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
@@ -247,6 +248,19 @@ fun SettingsScreen(
             }
             Text(
                 "Hides consent pop-ups (may affect some sites)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Global Privacy Control", modifier = Modifier.weight(1f))
+                Switch(checked = gpcEnabled, onCheckedChange = viewModel::onGpcToggled)
+            }
+            Text(
+                "Tells sites not to sell or share your data (takes effect on new tabs)",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

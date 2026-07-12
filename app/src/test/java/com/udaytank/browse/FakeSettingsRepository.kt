@@ -44,6 +44,16 @@ class FakeSettingsRepository : SettingsRepository {
         dismissCookieBanners.value = enabled
     }
 
+    override val gpcEnabled = MutableStateFlow(false)
+    override suspend fun setGpcEnabled(enabled: Boolean) {
+        gpcEnabled.value = enabled
+    }
+
+    override val lifetimeBlocked = MutableStateFlow(0L)
+    override suspend fun addBlockedCount(delta: Long) {
+        lifetimeBlocked.value += delta
+    }
+
     override suspend fun toggleAdAllowedSite(host: String) {
         adAllowedSites.value =
             if (host in adAllowedSites.value) adAllowedSites.value - host

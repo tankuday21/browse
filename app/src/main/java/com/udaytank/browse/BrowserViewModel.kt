@@ -383,6 +383,24 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setDismissCookieBanners(enabled) }
     }
 
+    val gpcEnabled: StateFlow<Boolean> = settings.gpcEnabled
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onGpcToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setGpcEnabled(enabled) }
+    }
+
+    /** Persisted lifetime blocked-request count, for the home page stats block (C3). */
+    val lifetimeBlocked: StateFlow<Long> = settings.lifetimeBlocked
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    /**
+     * Blocks not yet flushed to DataStore. Atomic because [onRequestBlocked] arrives on
+     * WebView's background threads. Flushed every [LIFETIME_FLUSH_BATCH] events (a write
+     * per blocked request would be a storm on ad-heavy pages) and in [onCleared].
+     */
+    private val pendingLifetimeBlocked = java.util.concurrent.atomic.AtomicLong(0)
+
     /** Per-tab count of requests blocked on the current page load. */
     private val _blockedCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val blockedCounts: StateFlow<Map<Long, Int>> = _blockedCounts.asStateFlow()
@@ -556,6 +574,24 @@ class BrowserViewModel(
     /** Called from WebView background threads — StateFlow.update is atomic. */
     fun onRequestBlocked(tabId: Long) {
         _blockedCounts.update { it + (tabId to (it[tabId] ?: 0) + 1) }
+        // Lifetime aggregate (C3). Incognito blocks count too: the total is a single number
+        // with no per-site breakdown, so it leaks nothing about what was browsed privately.
+        if (pendingLifetimeBlocked.incrementAndGet() >= LIFETIME_FLUSH_BATCH) {
+            val delta = pendingLifetimeBlocked.getAndSet(0)
+            if (delta > 0) viewModelScope.launch { settings.addBlockedCount(delta) }
+        }
+    }
+
+    override fun onCleared() {
+        // Last flush of the not-yet-persisted remainder. viewModelScope may already be
+        // cancelled at this point, so run the write on an independent, non-cancellable job.
+        val delta = pendingLifetimeBlocked.getAndSet(0)
+        if (delta > 0) {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.NonCancellable + ioDispatcher).launch {
+                settings.addBlockedCount(delta)
+            }
+        }
+        super.onCleared()
     }
 
     // --- events from the UI ---
@@ -973,6 +1009,9 @@ class BrowserViewModel(
 
     companion object {
         const val HOME_URL = "browse://home"
+
+        /** How many blocked requests accumulate before the lifetime counter is persisted. */
+        const val LIFETIME_FLUSH_BATCH = 25
 
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
