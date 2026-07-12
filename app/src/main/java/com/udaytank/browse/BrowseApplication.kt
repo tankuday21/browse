@@ -28,6 +28,14 @@ class BrowseApplication : Application() {
             val text = assets.open("adblock/easylist.txt").bufferedReader().use { it.readText() }
             adBlockEngine.load(FilterListParser.parse(text))
         }
+        appScope.launch {
+            // The download engine lives in this process: at process start no download
+            // can actually be running, so any row still marked RUNNING is an orphan
+            // from a killed process. Flip it to PAUSED so the user can resume it.
+            database.downloadDao().getActive()
+                .filter { it.state == "RUNNING" }
+                .forEach { database.downloadDao().setState(it.id, "PAUSED") }
+        }
     }
     val database: BrowseDatabase by lazy {
         Room.databaseBuilder(this, BrowseDatabase::class.java, "browse.db")
