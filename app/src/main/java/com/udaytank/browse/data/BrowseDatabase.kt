@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TabGroupEntity::class,
         ClosedTabEntity::class,
     ],
-    version = 6,
+    version = 7,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -25,6 +25,21 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun closedTabDao(): ClosedTabDao
 
     companion object {
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `totalBytes` INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `downloadedBytes` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `state` TEXT NOT NULL DEFAULT 'DONE'")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `filePath` TEXT")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `mimeType` TEXT")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `etag` TEXT")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `segments` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `segmentState` TEXT")
+                db.execSQL("ALTER TABLE `downloads` ADD COLUMN `error` TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `tabs` ADD COLUMN `groupId` INTEGER")

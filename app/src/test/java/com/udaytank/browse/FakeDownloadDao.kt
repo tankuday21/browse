@@ -18,4 +18,57 @@ class FakeDownloadDao : DownloadDao {
     override suspend fun deleteById(id: Long) {
         entries.value = entries.value.filterNot { it.id == id }
     }
+
+    override suspend fun getById(id: Long): DownloadEntry? =
+        entries.value.firstOrNull { it.id == id }
+
+    override suspend fun setState(id: Long, state: String, error: String?) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(state = state, error = error) else it
+        }
+    }
+
+    override suspend fun setProgress(id: Long, downloaded: Long, total: Long, segmentState: String?) {
+        entries.value = entries.value.map {
+            if (it.id == id) {
+                it.copy(downloadedBytes = downloaded, totalBytes = total, segmentState = segmentState)
+            } else it
+        }
+    }
+
+    override suspend fun setFileInfo(
+        id: Long,
+        fileName: String,
+        filePath: String?,
+        mimeType: String?,
+        etag: String?,
+        segments: Int,
+    ) {
+        entries.value = entries.value.map {
+            if (it.id == id) {
+                it.copy(fileName = fileName, filePath = filePath, mimeType = mimeType, etag = etag, segments = segments)
+            } else it
+        }
+    }
+
+    override suspend fun insertReturning(entry: DownloadEntry): Long {
+        val id = nextId++
+        entries.value = entries.value + entry.copy(id = id)
+        return id
+    }
+
+    override suspend fun getActive(): List<DownloadEntry> =
+        entries.value.filter { it.state == "RUNNING" || it.state == "PENDING" }
+
+    override suspend fun incrementAttempts(id: Long) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(attempts = it.attempts + 1) else it
+        }
+    }
+
+    override suspend fun resetAttempts(id: Long) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(attempts = 0) else it
+        }
+    }
 }

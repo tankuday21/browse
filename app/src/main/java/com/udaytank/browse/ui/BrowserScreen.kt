@@ -1,7 +1,11 @@
 package com.udaytank.browse.ui
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -36,15 +40,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
+import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.ui.components.CommandBar
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.SuggestionsPanel
@@ -69,6 +76,10 @@ fun BrowserScreen(
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
+    var notificationPermissionAsked by rememberSaveable { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* proceed regardless of grant result */ }
     val activeTab = tabs.find { it.id == activeTabId }
     val isIncognito = activeTab?.isIncognito == true
     val isHome = activeTab == null || activeTab.url == BrowserViewModel.HOME_URL
@@ -80,6 +91,9 @@ fun BrowserScreen(
     val permissionPrompt by viewModel.permissionPrompt.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
+    val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+    val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
+    val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
     LaunchedEffect(isEditing) {
         if (!isEditing) viewModel.onSuggestionsDismissed()
@@ -308,6 +322,20 @@ fun BrowserScreen(
                         text = { Text("Settings") },
                         onClick = { onOpenSettings(); menuOpen = false },
                     )
+                    if (backgroundMedia && currentUrlIsHttp && !isIncognito) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (currentSiteBackgroundAllowed) "Stop background play for this site"
+                                    else "Play in background on this site"
+                                )
+                            },
+                            onClick = {
+                                viewModel.onToggleBackgroundMediaForCurrentSite()
+                                menuOpen = false
+                            },
+                        )
+                    }
                     if (currentHost != null) {
                         HorizontalDivider()
                         DropdownMenuItem(
@@ -420,6 +448,49 @@ fun BrowserScreen(
                         viewModel.onContextMenuDismissed()
                     },
                 )
+            }
+        }
+
+        // ── Download prompt sheet ───────────────────────────
+        state.downloadPrompt?.let { prompt ->
+            ModalBottomSheet(onDismissRequest = viewModel::onDownloadPromptDismissed) {
+                Text(
+                    prompt.fileName,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+                TextButton(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationPermissionAsked) {
+                            notificationPermissionAsked = true
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        viewModel.onStartDownload(
+                            prompt.url, prompt.fileName, prompt.mimeType, prompt.userAgent, DownloadWhen.NOW,
+                        )
+                        viewModel.onDownloadPromptDismissed()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Download now") }
+                TextButton(
+                    onClick = {
+                        viewModel.onStartDownload(
+                            prompt.url, prompt.fileName, prompt.mimeType, prompt.userAgent, DownloadWhen.WIFI,
+                        )
+                        viewModel.onDownloadPromptDismissed()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("On Wi-Fi") }
+                TextButton(
+                    onClick = {
+                        viewModel.onStartDownload(
+                            prompt.url, prompt.fileName, prompt.mimeType, prompt.userAgent, DownloadWhen.LATER_1H,
+                        )
+                        viewModel.onDownloadPromptDismissed()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("In 1 hour") }
             }
         }
     }

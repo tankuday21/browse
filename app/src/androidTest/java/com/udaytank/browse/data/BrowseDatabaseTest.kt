@@ -163,4 +163,51 @@ class BrowseDatabaseTest {
         dao.deleteById(id)
         assertTrue(dao.getAll().isEmpty())
     }
+
+    @Test
+    fun migrate6to7_preservesDownloadsWithDoneState() {
+        helper.createDatabase(DB, 6).apply {
+            execSQL(
+                "INSERT INTO downloads (downloadId, fileName, url, createdAt) " +
+                    "VALUES (42, 'file.pdf', 'https://a.com/file.pdf', 1)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 7, true, BrowseDatabase.MIGRATION_6_7)
+        db.query("SELECT state, downloadedBytes, totalBytes, attempts FROM downloads").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("DONE", c.getString(0))
+            assertEquals(0, c.getLong(1))
+            assertEquals(-1, c.getLong(2))
+            assertEquals(0, c.getInt(3))
+        }
+    }
+
+    @Test
+    fun downloadDao_progressAndStateRoundTrip() = runBlocking {
+        val dao = database.downloadDao()
+        val id = dao.insertReturning(
+            DownloadEntry(fileName = "file.pdf", url = "https://a.com/file.pdf", createdAt = 1, state = "PENDING")
+        )
+        dao.setProgress(id, downloaded = 50, total = 100, segmentState = "{\"0\":50}")
+        dao.setState(id, "RUNNING")
+        val running = dao.getById(id)
+        assertEquals("RUNNING", running?.state)
+        assertEquals(50L, running?.downloadedBytes)
+        assertEquals(100L, running?.totalBytes)
+        assertEquals("{\"0\":50}", running?.segmentState)
+
+        val otherId = dao.insertReturning(
+            DownloadEntry(fileName = "other.pdf", url = "https://a.com/other.pdf", createdAt = 2, state = "DONE")
+        )
+        dao.setState(otherId, "DONE")
+
+        val active = dao.getActive()
+        assertEquals(listOf(id), active.map { it.id })
+
+        dao.setState(id, "FAILED", error = "network error")
+        val failed = dao.getById(id)
+        assertEquals("FAILED", failed?.state)
+        assertEquals("network error", failed?.error)
+    }
 }

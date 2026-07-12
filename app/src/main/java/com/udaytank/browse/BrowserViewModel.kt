@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
 import com.udaytank.browse.browser.SuggestionKind
@@ -49,6 +50,31 @@ import kotlinx.coroutines.launch
 
 data class LinkContextMenu(val url: String, val isImage: Boolean)
 
+/** A download the engine wants user confirmation for before it starts. */
+data class DownloadPrompt(
+    val url: String,
+    val fileName: String,
+    val mimeType: String?,
+    val userAgent: String?,
+)
+
+/** When a requested download should actually run. */
+enum class DownloadWhen { NOW, WIFI, LATER_1H }
+
+/**
+ * Abstracts starting/controlling the download flow so [BrowserViewModel] (a plain [ViewModel],
+ * not an [android.app.Application]-scoped one) never touches Context directly. The production
+ * impl (`ServiceDownloadController`, in `download/`) sends intents to [com.udaytank.browse.download.DownloadService];
+ * tests use a recording fake.
+ */
+interface DownloadController {
+    fun startDownload(id: Long)
+    fun schedule(id: Long, constraint: DownloadWhen)
+    fun pause(id: Long)
+    fun resume(id: Long)
+    fun cancel(id: Long)
+}
+
 data class BrowserUiState(
     val addressBarText: String = "",
     val currentUrl: String? = null,
@@ -64,6 +90,7 @@ data class BrowserUiState(
     val contextMenu: LinkContextMenu? = null,
     val pageError: String? = null,
     val confirmCloseTabId: Long? = null,
+    val downloadPrompt: DownloadPrompt? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -75,6 +102,13 @@ class BrowserViewModel(
     private val downloadDao: DownloadDao,
     private val closedTabDao: ClosedTabDao,
     private val tabGroupDao: TabGroupDao,
+    private val downloadController: DownloadController,
+    /**
+     * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
+     * hidden `useSystemDownloader` (legacy) rows, which have no [DownloadEntry.filePath] of our
+     * own to delete. Defaults to a no-op so most call sites (and most tests) don't need to care.
+     */
+    private val downloadManagerRemover: (Long) -> Unit = {},
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
@@ -112,6 +146,38 @@ class BrowserViewModel(
 
     fun onHttpsOnlyToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setHttpsOnly(enabled) }
+    }
+
+    val useSystemDownloader: StateFlow<Boolean> = settings.useSystemDownloader
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onUseSystemDownloaderToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setUseSystemDownloader(enabled) }
+    }
+
+    /** Global opt-in for the experimental background-media-playback feature. */
+    val backgroundMedia: StateFlow<Boolean> = settings.backgroundMedia
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onBackgroundMediaToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setBackgroundMedia(enabled) }
+    }
+
+    /** Hosts the user has explicitly allowed to keep playing media in the background. */
+    val backgroundMediaSites: StateFlow<Set<String>> = settings.backgroundMediaSites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Toggles the active tab's host in the background-media allowlist. */
+    fun onToggleBackgroundMediaForCurrentSite() {
+        // Incognito hosts must never enter the persisted allowlist - that would leak which
+        // private sites the user visited across sessions.
+        val isIncognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+        if (isIncognito) return
+        val host = currentHost() ?: return
+        viewModelScope.launch {
+            val current = backgroundMediaSites.value
+            settings.setBackgroundMediaSites(if (host in current) current - host else current + host)
+        }
     }
 
     val lockIncognito: StateFlow<Boolean> = settings.lockIncognito
@@ -166,6 +232,14 @@ class BrowserViewModel(
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
+    /** Whether the active tab's current host is in [backgroundMediaSites]. */
+    val currentSiteBackgroundAllowed: StateFlow<Boolean> = combine(
+        uiState, backgroundMediaSites,
+    ) { state, sites ->
+        val host = UrlHosts.of(state.currentUrl)
+        host != null && host in sites
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     val historyEntries: StateFlow<List<HistoryEntry>> = historyDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -173,7 +247,7 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
@@ -347,8 +421,7 @@ class BrowserViewModel(
     }
 
     /** Host of the page in the active tab, or null (home tab / malformed url). */
-    fun currentHost(): String? =
-        _uiState.value.currentUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+    fun currentHost(): String? = UrlHosts.of(_uiState.value.currentUrl)
 
     fun onToggleAllowAdsOnCurrentSite() {
         val host = currentHost() ?: return
@@ -543,7 +616,13 @@ class BrowserViewModel(
 
     fun onContextMenuDismissed() = _uiState.update { it.copy(contextMenu = null) }
 
-    /** Called from the download listener when the system DownloadManager accepts a file. */
+    /**
+     * Called from the download listener when the system DownloadManager accepts a file. This
+     * hidden legacy path has no progress polling, so the row can't be driven through the normal
+     * RUNNING -> DONE lifecycle; it's inserted RUNNING and simply stays that way (the Downloads
+     * screen renders legacy rows, identified by [DownloadEntry.downloadId] > 0, with a "Managed
+     * by system downloader" line and DONE-style actions instead of progress UI).
+     */
     fun onDownloadStarted(downloadId: Long, fileName: String, url: String) {
         viewModelScope.launch {
             downloadDao.insert(
@@ -552,13 +631,78 @@ class BrowserViewModel(
                     fileName = fileName,
                     url = url,
                     createdAt = System.currentTimeMillis(),
+                    state = "RUNNING",
                 )
             )
         }
     }
 
+    /** Called from the download listener when the engine (non-system-downloader path) wants to start a download. */
+    fun onDownloadRequested(url: String, fileName: String, mimeType: String?, userAgent: String?) {
+        _uiState.update { it.copy(downloadPrompt = DownloadPrompt(url, fileName, mimeType, userAgent)) }
+    }
+
+    fun onDownloadPromptDismissed() = _uiState.update { it.copy(downloadPrompt = null) }
+
     fun onDeleteDownload(id: Long) {
-        viewModelScope.launch { downloadDao.deleteById(id) }
+        downloadController.cancel(id)
+        viewModelScope.launch {
+            val entry = downloadDao.getById(id)
+            val path = entry?.filePath
+            if (path != null) {
+                runCatching { java.io.File(path).delete() }
+            } else if (entry != null && entry.downloadId > 0) {
+                // Legacy system-downloader row: we never got a filePath, so the only way to
+                // clean up is to ask the system DownloadManager to remove it by its own id.
+                runCatching { downloadManagerRemover(entry.downloadId) }
+            }
+            downloadDao.deleteById(id)
+        }
+    }
+
+    /**
+     * Requests a new engine-backed download. [userAgent] isn't persisted yet — [DownloadEntry]
+     * has no column for it — so a fresh service-driven start currently probes without one; wiring
+     * it through is left for whenever that column lands.
+     */
+    fun onStartDownload(
+        url: String,
+        suggestedName: String,
+        mimeType: String?,
+        userAgent: String?,
+        constraint: DownloadWhen,
+    ) {
+        viewModelScope.launch {
+            val state = if (constraint == DownloadWhen.NOW) "PENDING" else "SCHEDULED"
+            val id = downloadDao.insertReturning(
+                DownloadEntry(
+                    fileName = suggestedName,
+                    url = url,
+                    createdAt = System.currentTimeMillis(),
+                    mimeType = mimeType,
+                    state = state,
+                )
+            )
+            if (constraint == DownloadWhen.NOW) {
+                downloadController.startDownload(id)
+            } else {
+                downloadController.schedule(id, constraint)
+            }
+        }
+    }
+
+    fun onPauseDownload(id: Long) = downloadController.pause(id)
+
+    fun onResumeDownload(id: Long) = downloadController.resume(id)
+
+    fun onCancelDownload(id: Long) = downloadController.cancel(id)
+
+    fun onRetryDownload(id: Long) {
+        viewModelScope.launch {
+            downloadDao.resetAttempts(id)
+            downloadDao.setState(id, "PENDING")
+            downloadController.startDownload(id)
+        }
     }
 
     /** New tabs opened from a page inherit that page's incognito mode and, when auto-islands is on, its group. */
@@ -598,6 +742,11 @@ class BrowserViewModel(
                     app.database.downloadDao(),
                     app.database.closedTabDao(),
                     app.database.tabGroupDao(),
+                    com.udaytank.browse.download.ServiceDownloadController(app),
+                    downloadManagerRemover = { id ->
+                        (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
+                            .remove(id)
+                    },
                 )
             }
         }

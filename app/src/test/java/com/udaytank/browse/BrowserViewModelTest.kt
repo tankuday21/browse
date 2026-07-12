@@ -24,7 +24,12 @@ class BrowserViewModelTest {
         downloadDao: FakeDownloadDao = FakeDownloadDao(),
         closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
         tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao)
+        downloadController: RecordingDownloadController = RecordingDownloadController(),
+        downloadManagerRemover: (Long) -> Unit = {},
+    ) = BrowserViewModel(
+        historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao, downloadController,
+        downloadManagerRemover,
+    )
 
     @Test
     fun `started downloads are recorded`() {
@@ -33,6 +38,7 @@ class BrowserViewModelTest {
         vm.onDownloadStarted(42, "file.pdf", "https://a.com/file.pdf")
         assertEquals(1, downloads.entries.value.size)
         assertEquals(42L, downloads.entries.value.first().downloadId)
+        assertEquals("RUNNING", downloads.entries.value.first().state)
     }
 
     @Test
@@ -288,5 +294,208 @@ class BrowserViewModelTest {
         vm.onReopenClosed(entry); advanceUntilIdle()
         assertTrue(vm.tabs.value.any { it.url == "https://gone.com" })
         assertTrue(vm.recentlyClosed.value.none { it.id == entry.id })
+    }
+
+    // --- downloads ---
+
+    @Test
+    fun `onDownloadRequested sets prompt`() {
+        val vm = vm()
+        vm.onDownloadRequested("https://a.com/file.zip", "file.zip", "application/zip", "ua")
+        val prompt = vm.uiState.value.downloadPrompt
+        assertEquals("https://a.com/file.zip", prompt?.url)
+        assertEquals("file.zip", prompt?.fileName)
+        assertEquals("application/zip", prompt?.mimeType)
+        assertEquals("ua", prompt?.userAgent)
+    }
+
+    @Test
+    fun `dismiss clears prompt`() {
+        val vm = vm()
+        vm.onDownloadRequested("https://a.com/file.zip", "file.zip", null, null)
+        vm.onDownloadPromptDismissed()
+        assertNull(vm.uiState.value.downloadPrompt)
+    }
+
+    @Test
+    fun `onStartDownload NOW inserts PENDING row and starts controller`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onStartDownload(
+            url = "https://a.com/file.zip",
+            suggestedName = "file.zip",
+            mimeType = "application/zip",
+            userAgent = "ua",
+            constraint = DownloadWhen.NOW,
+        )
+        advanceUntilIdle()
+
+        val row = downloadDao.entries.value.single()
+        assertEquals("PENDING", row.state)
+        assertEquals("file.zip", row.fileName)
+        assertEquals("https://a.com/file.zip", row.url)
+        assertEquals(listOf(row.id), controller.started)
+        assertTrue(controller.scheduled.isEmpty())
+    }
+
+    @Test
+    fun `onStartDownload WIFI inserts SCHEDULED and schedules`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onStartDownload(
+            url = "https://a.com/file.zip",
+            suggestedName = "file.zip",
+            mimeType = null,
+            userAgent = null,
+            constraint = DownloadWhen.WIFI,
+        )
+        advanceUntilIdle()
+
+        val row = downloadDao.entries.value.single()
+        assertEquals("SCHEDULED", row.state)
+        assertEquals(listOf(row.id to DownloadWhen.WIFI), controller.scheduled)
+        assertTrue(controller.started.isEmpty())
+    }
+
+    @Test
+    fun `onRetryDownload flips FAILED to PENDING and starts`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "FAILED",
+            )
+        )
+
+        vm.onRetryDownload(id)
+        advanceUntilIdle()
+
+        assertEquals("PENDING", downloadDao.entries.value.first { it.id == id }.state)
+        assertEquals(listOf(id), controller.started)
+    }
+
+    @Test
+    fun `onCancelDownload delegates to controller`() = runTest {
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onCancelDownload(7L)
+
+        assertEquals(listOf(7L), controller.cancelled)
+    }
+
+    @Test
+    fun `onDeleteDownload cancels scheduled work before deleting the row`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "SCHEDULED",
+            )
+        )
+
+        vm.onDeleteDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(id), controller.cancelled)
+        assertTrue(downloadDao.entries.value.none { it.id == id })
+    }
+
+    @Test
+    fun `onRetryDownload resets attempts before starting`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "FAILED",
+                attempts = 2,
+            )
+        )
+
+        vm.onRetryDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(0, downloadDao.entries.value.first { it.id == id }.attempts)
+        assertEquals(listOf(id), controller.started)
+    }
+
+    @Test
+    fun `delete of legacy system row removes via download manager`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val removedIds = mutableListOf<Long>()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller, downloadManagerRemover = { id -> removedIds += id })
+        advanceUntilIdle()
+
+        vm.onDownloadStarted(99L, "legacy.pdf", "https://a.com/legacy.pdf")
+        advanceUntilIdle()
+        val id = downloadDao.entries.value.single { it.downloadId == 99L }.id
+
+        vm.onDeleteDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(99L), removedIds)
+        assertTrue(downloadDao.entries.value.none { it.id == id })
+    }
+
+    @Test
+    fun `onToggleBackgroundMediaForCurrentSite adds then removes host`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com/news")
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+        assertTrue("bbc.com" in vm.backgroundMediaSites.value)
+        assertTrue(vm.currentSiteBackgroundAllowed.value)
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+        assertFalse("bbc.com" in vm.backgroundMediaSites.value)
+        assertFalse(vm.currentSiteBackgroundAllowed.value)
+    }
+
+    @Test
+    fun `incognito tab cannot add background media site`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://secret.com/video")
+        advanceUntilIdle()
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+
+        assertTrue(vm.backgroundMediaSites.value.isEmpty())
+        assertFalse("secret.com" in vm.backgroundMediaSites.value)
+        assertFalse(vm.currentSiteBackgroundAllowed.value)
     }
 }
