@@ -6,11 +6,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
@@ -23,8 +24,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLongArray
 
 /**
- * Core segmented download engine. One [Job] tracked per download [id] so pause/cancel/double-start
- * can be guarded and cooperative-cancelled.
+ * Core segmented download engine. One [Generation] (job + its own stop reason) tracked per
+ * download [id] so pause/cancel/double-start can be guarded and cooperative-cancelled without
+ * a later generation's stop reason ever leaking into an earlier one still unwinding.
  */
 class DownloadEngine(
     private val scope: CoroutineScope,
@@ -38,10 +40,20 @@ class DownloadEngine(
 
     private enum class StopReason { PAUSE, CANCEL }
 
-    private val jobs = ConcurrentHashMap<Long, Job>()
-    private val stopReasons = ConcurrentHashMap<Long, StopReason>()
+    /**
+     * One instance per start() call. The download coroutine captures its OWN [Generation]
+     * reference directly (passed as a parameter) rather than looking itself up by [id] in a
+     * shared map, so a later generation (e.g. resume after pause) can never have its stop reason
+     * clobbered by, or clobber, an earlier generation that is still unwinding after cancellation.
+     */
+    private class Generation {
+        @Volatile var job: Job? = null
+        @Volatile var stopReason: StopReason? = null
+    }
 
-    fun isActive(id: Long): Boolean = jobs[id]?.isActive == true
+    private val generations = ConcurrentHashMap<Long, Generation>()
+
+    fun isActive(id: Long): Boolean = generations[id]?.job?.isActive == true
 
     fun start(
         id: Long,
@@ -53,22 +65,26 @@ class DownloadEngine(
         priorSegmentState: String?,
         listener: Listener,
     ) {
-        if (isActive(id)) return // double-start guard
+        if (isActive(id)) return // double-start guard, checked against the CURRENT generation
 
+        val gen = Generation()
         val job = scope.launch(io) {
-            runDownload(id, url, destFile, userAgent, priorEtag, priorTotal, priorSegmentState, listener)
+            runDownload(id, url, destFile, userAgent, priorEtag, priorTotal, priorSegmentState, listener, gen)
         }
-        jobs[id] = job
+        gen.job = job
+        generations[id] = gen
     }
 
     fun pause(id: Long) {
-        stopReasons[id] = StopReason.PAUSE
-        jobs[id]?.cancel()
+        val gen = generations[id] ?: return
+        gen.stopReason = StopReason.PAUSE
+        gen.job?.cancel()
     }
 
     fun cancel(id: Long) {
-        stopReasons[id] = StopReason.CANCEL
-        jobs[id]?.cancel()
+        val gen = generations[id] ?: return
+        gen.stopReason = StopReason.CANCEL
+        gen.job?.cancel()
     }
 
     private suspend fun runDownload(
@@ -80,6 +96,7 @@ class DownloadEngine(
         priorTotal: Long,
         priorSegmentState: String?,
         listener: Listener,
+        gen: Generation,
     ) {
         try {
             listener.onStateChanged(id, "RUNNING")
@@ -98,6 +115,14 @@ class DownloadEngine(
             val segments = if (canResume) DownloadPlanner.decodeState(priorSegmentState, planned) else planned
 
             listener.onFileInfo(id, destFile.name, serverTotal, etag, segments.size)
+
+            // Starting from scratch (no valid resume, unknown total, or nothing was actually
+            // downloaded yet) must truncate any pre-existing file first, otherwise stale trailing
+            // bytes from a previous unrelated download can survive past the new file's end.
+            val startsFromScratch = !canResume || serverTotal <= 0 || segments.all { it.downloaded == 0L }
+            if (startsFromScratch) {
+                RandomAccessFile(destFile, "rw").use { it.setLength(0) }
+            }
 
             if (serverTotal > 0) {
                 // Idempotent: setLength to the same size preserves already-written bytes on resume.
@@ -124,14 +149,20 @@ class DownloadEngine(
                     deferreds.awaitAll()
                 }
             } finally {
-                tickerJob.cancel()
+                // NonCancellable: this coroutine may already be cancelling (pause/cancel path),
+                // in which case a plain suspend call here would throw immediately instead of
+                // actually waiting for the ticker to stop. Must fully join BEFORE any terminal
+                // onStateChanged below, or a lagging onProgress can land after it.
+                withContext(NonCancellable) {
+                    tickerJob.cancelAndJoin()
+                }
             }
 
             // Final snapshot so listeners observe 100% before the terminal DONE callback.
             emitProgress(id, segments, progress, segmentLengths, serverTotal, listener)
             listener.onStateChanged(id, "DONE")
         } catch (e: CancellationException) {
-            when (stopReasons.remove(id)) {
+            when (gen.stopReason) {
                 StopReason.CANCEL -> {
                     if (destFile.exists()) destFile.delete()
                     listener.onStateChanged(id, "CANCELLED")
@@ -143,9 +174,9 @@ class DownloadEngine(
         } catch (e: Exception) {
             listener.onStateChanged(id, "FAILED", e.message ?: e.toString())
         } finally {
-            // Two-arg remove: only clear the map entry if it still points at *this* job, so a
-            // fresh start() that already replaced it (e.g. immediate resume after pause) is safe.
-            jobs.remove(id, coroutineContext.job)
+            // Two-arg remove: only clear the map entry if it still points at *this* generation, so
+            // a fresh start() that already replaced it (e.g. immediate resume after pause) is safe.
+            generations.remove(id, gen)
         }
     }
 
@@ -180,8 +211,11 @@ class DownloadEngine(
 
             val etag = connection.getHeaderField("ETag")
             return if (connection.responseCode == HttpURLConnection.HTTP_PARTIAL) {
-                val total = parseTotalFromContentRange(connection.getHeaderField("Content-Range"))
-                    ?: connection.contentLengthLong
+                // For a 206 probe, the connection's own contentLength is the 1-byte probe body,
+                // NOT the resource size - never fall back to it. Total is either parsed from a
+                // well-formed "bytes 0-0/<digits>" Content-Range, or unknown (-1) when the
+                // suffix is "*" or the header is missing/unparseable.
+                val total = parseTotalFromContentRange(connection.getHeaderField("Content-Range")) ?: -1L
                 ProbeResult(total = total, etag = etag, acceptsRanges = true)
             } else {
                 ProbeResult(total = connection.contentLengthLong, etag = etag, acceptsRanges = false)

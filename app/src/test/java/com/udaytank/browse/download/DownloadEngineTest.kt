@@ -262,4 +262,119 @@ class DownloadEngineTest {
         assertEquals("CANCELLED", finalState)
         assertFalse(dest.exists())
     }
+
+    @Test
+    fun `restart from scratch truncates preexisting junk file`() = runBlocking {
+        server.dispatcher = noRangeDispatcher()
+        server.start()
+
+        val dest = File.createTempFile("dl_restart", ".bin")
+        destFile = dest
+        // Pre-fill with 5MB of junk, larger than the 3MB payload, so stale trailing bytes
+        // would survive past the payload's end unless the engine truncates before writing.
+        dest.writeBytes(ByteArray(5_000_000) { 0x7f })
+
+        val scope = CoroutineScope(Dispatchers.IO)
+        val engine = DownloadEngine(scope, Dispatchers.IO)
+        val listener = TestListener()
+
+        engine.start(
+            id = 5L,
+            url = server.url("/file").toString(),
+            destFile = dest,
+            userAgent = null,
+            priorEtag = "stale",
+            priorTotal = 5_000_000L,
+            priorSegmentState = "0:5000000",
+            listener = listener,
+        )
+
+        val finalState = withTimeout(60_000) { listener.terminal.await() }
+        assertEquals("DONE", finalState)
+        assertEquals(payload.size.toLong(), dest.length())
+        assertEquals(sha256(payload), sha256(dest))
+    }
+
+    @Test
+    fun `cancel of resumed generation deletes file and reports cancelled`() = runBlocking {
+        val servedRanges = CopyOnWriteArrayList<Pair<Long, Long>>()
+        server.dispatcher = rangeAwareDispatcher(servedRanges, throttle = true)
+        server.start()
+
+        val dest = File.createTempFile("dl_resume_cancel", ".bin")
+        destFile = dest
+
+        val scope = CoroutineScope(Dispatchers.IO)
+        val engine = DownloadEngine(scope, Dispatchers.IO)
+
+        // Simple per-generation listener that records every terminal state it ever sees.
+        class RecordingListener : DownloadEngine.Listener {
+            val terminal = CompletableDeferred<String>()
+            val firstProgress = CompletableDeferred<Unit>()
+            var lastSegmentState: String = ""
+            val statesSeen = CopyOnWriteArrayList<String>()
+
+            override fun onProgress(id: Long, downloaded: Long, total: Long, segmentState: String) {
+                lastSegmentState = segmentState
+                if (!firstProgress.isCompleted) firstProgress.complete(Unit)
+            }
+
+            override fun onStateChanged(id: Long, state: String, error: String?) {
+                if (state == "DONE" || state == "FAILED" || state == "CANCELLED" || state == "PAUSED") {
+                    statesSeen.add(state)
+                    if (!terminal.isCompleted) terminal.complete(state)
+                }
+            }
+
+            override fun onFileInfo(id: Long, fileName: String, total: Long, etag: String?, segments: Int) {
+                // no-op for tests
+            }
+        }
+
+        val listener1 = RecordingListener()
+        engine.start(
+            id = 6L,
+            url = server.url("/file").toString(),
+            destFile = dest,
+            userAgent = null,
+            priorEtag = null,
+            priorTotal = 0L,
+            priorSegmentState = null,
+            listener = listener1,
+        )
+
+        withTimeout(60_000) { listener1.firstProgress.await() }
+        engine.pause(6L)
+        val pausedState = withTimeout(60_000) { listener1.terminal.await() }
+        assertEquals("PAUSED", pausedState)
+        // Exactly one terminal callback for this generation, and it must be PAUSED - never
+        // CANCELLED, since the generation-1 stop reason must not be hijacked by a later cancel().
+        assertEquals(listOf("PAUSED"), listener1.statesSeen)
+
+        val segmentStateAtPause = listener1.lastSegmentState
+        assertTrue(segmentStateAtPause.isNotEmpty())
+
+        val listener2 = RecordingListener()
+        engine.start(
+            id = 6L,
+            url = server.url("/file").toString(),
+            destFile = dest,
+            userAgent = null,
+            priorEtag = "v1",
+            priorTotal = payload.size.toLong(),
+            priorSegmentState = segmentStateAtPause,
+            listener = listener2,
+        )
+
+        withTimeout(60_000) { listener2.firstProgress.await() }
+        engine.cancel(6L)
+        val finalState = withTimeout(60_000) { listener2.terminal.await() }
+        assertEquals("CANCELLED", finalState)
+        assertFalse(dest.exists())
+
+        // Exactly one terminal per generation; generation 1 never saw CANCELLED, generation 2
+        // never saw PAUSED.
+        assertEquals(listOf("PAUSED"), listener1.statesSeen)
+        assertEquals(listOf("CANCELLED"), listener2.statesSeen)
+    }
 }
