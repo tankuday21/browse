@@ -34,6 +34,16 @@ class FakeSettingsRepository : SettingsRepository {
         adBlockEnabled.value = enabled
     }
 
+    override val safeBrowsing = MutableStateFlow(true)
+    override suspend fun setSafeBrowsing(enabled: Boolean) {
+        safeBrowsing.value = enabled
+    }
+
+    override val dismissCookieBanners = MutableStateFlow(true)
+    override suspend fun setDismissCookieBanners(enabled: Boolean) {
+        dismissCookieBanners.value = enabled
+    }
+
     override suspend fun toggleAdAllowedSite(host: String) {
         adAllowedSites.value =
             if (host in adAllowedSites.value) adAllowedSites.value - host

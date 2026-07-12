@@ -27,6 +27,12 @@ interface SettingsRepository {
     val cookiesEnabled: Flow<Boolean>
     val adBlockEnabled: Flow<Boolean>
     val adAllowedSites: Flow<Set<String>>
+    /** Google Safe Browsing checks inside WebView (D1). Default ON. */
+    val safeBrowsing: Flow<Boolean>
+    suspend fun setSafeBrowsing(enabled: Boolean)
+    /** Cookie-consent banner auto-dismiss via the annoyance filter list (D2). Default ON. */
+    val dismissCookieBanners: Flow<Boolean>
+    suspend fun setDismissCookieBanners(enabled: Boolean)
     suspend fun setSearchEngine(engine: SearchEngine)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setJavaScriptEnabled(enabled: Boolean)
@@ -177,6 +183,22 @@ class DataStoreSettingsRepository(
         prefs[AD_ALLOWED_SITES_KEY] ?: emptySet()
     }
 
+    override val safeBrowsing: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SAFE_BROWSING_KEY] ?: true
+    }
+
+    override suspend fun setSafeBrowsing(enabled: Boolean) {
+        dataStore.edit { it[SAFE_BROWSING_KEY] = enabled }
+    }
+
+    override val dismissCookieBanners: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[DISMISS_COOKIE_BANNERS_KEY] ?: true
+    }
+
+    override suspend fun setDismissCookieBanners(enabled: Boolean) {
+        dataStore.edit { it[DISMISS_COOKIE_BANNERS_KEY] = enabled }
+    }
+
     override suspend fun setAdBlockEnabled(enabled: Boolean) {
         dataStore.edit { it[AD_BLOCK_KEY] = enabled }
     }
@@ -207,6 +229,8 @@ class DataStoreSettingsRepository(
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
         val COOKIES_KEY = booleanPreferencesKey("cookies_enabled")
         val AD_BLOCK_KEY = booleanPreferencesKey("ad_block_enabled")
+        val SAFE_BROWSING_KEY = booleanPreferencesKey("safe_browsing")
+        val DISMISS_COOKIE_BANNERS_KEY = booleanPreferencesKey("dismiss_cookie_banners")
         val FORCE_DARK_KEY = booleanPreferencesKey("force_dark_websites")
         val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
         val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")

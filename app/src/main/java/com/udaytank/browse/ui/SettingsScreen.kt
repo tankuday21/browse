@@ -51,6 +51,8 @@ fun SettingsScreen(
     val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
     val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
     val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
+    val safeBrowsing by viewModel.safeBrowsing.collectAsStateWithLifecycle()
+    val dismissCookieBanners by viewModel.dismissCookieBanners.collectAsStateWithLifecycle()
     val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
@@ -223,6 +225,32 @@ fun SettingsScreen(
                 Text("Block ads", modifier = Modifier.weight(1f))
                 Switch(checked = adBlockEnabled, onCheckedChange = viewModel::onAdBlockToggled)
             }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Safe Browsing", modifier = Modifier.weight(1f))
+                Switch(checked = safeBrowsing, onCheckedChange = viewModel::onSafeBrowsingToggled)
+            }
+            Text(
+                "Warns you before phishing and malware sites (Google Safe Browsing)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Auto-dismiss cookie banners", modifier = Modifier.weight(1f))
+                Switch(checked = dismissCookieBanners, onCheckedChange = viewModel::onDismissCookieBannersToggled)
+            }
+            Text(
+                "Hides consent pop-ups (may affect some sites)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),

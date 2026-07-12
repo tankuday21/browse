@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -215,6 +217,69 @@ fun BrowserScreen(
                             TextButton(onClick = viewModel::onSslWarningDismissed) {
                                 Text("OK")
                             }
+                        }
+                    }
+                }
+                // ── Safe Browsing interstitial (D1) — replaces the web content ──
+                state.safeBrowsingWarning?.takeIf { it.tabId == currentTabId }?.let { warning ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.GppBad,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .padding(top = 64.dp, bottom = 16.dp)
+                                .size(64.dp),
+                        )
+                        Text("This site may be dangerous", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            warning.threatLabel,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        Text(
+                            "Google Safe Browsing flagged this page. Attackers here may trick you " +
+                                "into installing harmful software or revealing passwords and card numbers.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                        Text(
+                            warning.url,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 2,
+                        )
+                        Button(
+                            onClick = {
+                                holder.resolveSafeBrowsing(warning.tabId, proceed = false)
+                                viewModel.onSafeBrowsingResolved()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 24.dp),
+                        ) {
+                            Text("Go back")
+                        }
+                        TextButton(
+                            onClick = {
+                                holder.resolveSafeBrowsing(warning.tabId, proceed = true)
+                                viewModel.onSafeBrowsingResolved()
+                            },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text(
+                                "Proceed anyway (not recommended)",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
