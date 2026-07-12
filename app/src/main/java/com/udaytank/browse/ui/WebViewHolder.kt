@@ -99,7 +99,8 @@ class WebViewHolder(
      * continues over the lock screen. We never call the process-global pauseTimers() — that would
      * freeze the kept-alive tab too.
      */
-    private val keepAliveTabs = mutableSetOf<Long>()
+    // Read from a WebView binder thread (MediaJsBridge) as well as the UI thread, so keep it concurrent.
+    private val keepAliveTabs = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
 
     fun setKeepAlive(tabId: Long, keep: Boolean) {
         if (keep) keepAliveTabs.add(tabId) else keepAliveTabs.remove(tabId)
@@ -149,15 +150,15 @@ class WebViewHolder(
      * @JavascriptInterface-annotated, exposing nothing sensitive; minSdk 26 makes the pre-17
      * addJavascriptInterface vuln irrelevant. Never attached to incognito tabs.
      */
-    private inner class MediaJsBridge {
+    private inner class MediaJsBridge(private val tabId: Long) {
         @android.webkit.JavascriptInterface
         fun onMediaState(title: String?, playing: Boolean) {
-            mediaStateListener?.invoke(title ?: "", playing)
+            if (tabId in keepAliveTabs) mediaStateListener?.invoke(title ?: "", playing)
         }
 
         @android.webkit.JavascriptInterface
         fun onEnded() {
-            mediaEndedListener?.invoke()
+            if (tabId in keepAliveTabs) mediaEndedListener?.invoke()
         }
     }
 
@@ -446,7 +447,7 @@ class WebViewHolder(
                 // exposed and it stays inert until MainActivity sets the listeners for an opted-in
                 // foreground media tab. NEVER attached to incognito tabs — a private page must not
                 // report titles/state to the media session/notification.
-                addJavascriptInterface(MediaJsBridge(), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
+                addJavascriptInterface(MediaJsBridge(tabId), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
             }
 
             // GPC JS shim (D5): registered once per WebView at creation, before any page loads.
