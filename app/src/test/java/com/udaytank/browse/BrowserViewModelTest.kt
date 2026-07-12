@@ -2,6 +2,8 @@ package com.udaytank.browse
 
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.data.SearchEngine
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -20,7 +22,9 @@ class BrowserViewModelTest {
         tabDao: FakeTabDao = FakeTabDao(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
         downloadDao: FakeDownloadDao = FakeDownloadDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao)
+        closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
+        tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao)
 
     @Test
     fun `started downloads are recorded`() {
@@ -236,5 +240,53 @@ class BrowserViewModelTest {
         vm.onNewTab()
         vm.onSwitchTab(first)
         assertEquals("https://a.com", vm.uiState.value.addressBarText)
+    }
+
+    @Test
+    fun `closing a locked tab asks for confirmation first`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val id = vm.tabs.value.first().id
+        vm.onToggleLocked(id); advanceUntilIdle()
+        vm.onCloseTab(id); advanceUntilIdle()
+        assertEquals(id, vm.uiState.value.confirmCloseTabId)
+        assertTrue(vm.tabs.value.any { it.id == id }) // still open
+        vm.onConfirmClose(); advanceUntilIdle()
+        assertNull(vm.uiState.value.confirmCloseTabId)
+        assertTrue(vm.tabs.value.none { it.id == id })
+    }
+
+    @Test
+    fun `create group with tabs assigns and colors it`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewTab(); advanceUntilIdle()
+        val ids = vm.tabs.value.map { it.id }
+        vm.onCreateGroupWithTabs("Research", ids); advanceUntilIdle()
+        val group = vm.tabGroups.value.single()
+        assertEquals("Research", group.name)
+        assertTrue(vm.tabs.value.all { it.groupId == group.id })
+    }
+
+    @Test
+    fun `open-in-new-tab joins parent group when auto-islands on`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        val parentId = vm.tabs.value.first().id
+        vm.onCreateGroupWithTabs("Island", listOf(parentId)); advanceUntilIdle()
+        vm.onOpenInNewTab("https://child.com"); advanceUntilIdle()
+        val group = vm.tabGroups.value.single()
+        val child = vm.tabs.value.first { it.url == "https://child.com" }
+        assertEquals(group.id, child.groupId)
+    }
+
+    @Test
+    fun `reopen closed tab restores url and removes ring entry`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onOpenInNewTab("https://gone.com"); advanceUntilIdle()
+        val id = vm.tabs.value.first { it.url == "https://gone.com" }.id
+        vm.onCloseTab(id); advanceUntilIdle()
+        val entry = vm.recentlyClosed.value.first()
+        vm.onReopenClosed(entry); advanceUntilIdle()
+        assertTrue(vm.tabs.value.any { it.url == "https://gone.com" })
+        assertTrue(vm.recentlyClosed.value.none { it.id == entry.id })
     }
 }

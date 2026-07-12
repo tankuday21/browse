@@ -21,4 +21,16 @@ interface TabDao {
 
     @Query("UPDATE tabs SET url = :url, title = :title WHERE id = :id")
     suspend fun updateContent(id: Long, url: String, title: String)
+
+    @Query("UPDATE tabs SET groupId = :groupId WHERE id = :id")
+    suspend fun setGroup(id: Long, groupId: Long?)
+
+    @Query("UPDATE tabs SET pinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean)
+
+    @Query("UPDATE tabs SET locked = :locked WHERE id = :id")
+    suspend fun setLocked(id: Long, locked: Boolean)
+
+    @Query("UPDATE tabs SET groupId = NULL WHERE groupId = :groupId")
+    suspend fun clearGroup(groupId: Long)
 }

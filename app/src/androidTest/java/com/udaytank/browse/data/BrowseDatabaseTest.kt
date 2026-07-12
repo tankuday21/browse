@@ -1,8 +1,10 @@
 package com.udaytank.browse.data
 
 import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -10,13 +12,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+
+private const val DB = "migration-test"
 
 @RunWith(AndroidJUnit4::class)
 class BrowseDatabaseTest {
 
+    @get:Rule
+    val helper: MigrationTestHelper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        BrowseDatabase::class.java
+    )
+
     private lateinit var db: BrowseDatabase
+    private val database get() = db
 
     @Before
     fun setup() {
@@ -110,5 +122,45 @@ class BrowseDatabaseTest {
         assertTrue(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
         db.bookmarkDao().deleteByUrl("https://a.com")
         assertFalse(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
+    }
+
+    @Test
+    fun migrate5to6_preservesTabsAndAddsGroupTables() {
+        helper.createDatabase(DB, 5).apply {
+            execSQL(
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 6, true, BrowseDatabase.MIGRATION_5_6)
+        db.query("SELECT groupId, pinned, locked FROM tabs").use { c ->
+            assertTrue(c.moveToFirst())
+            assertTrue(c.isNull(0))
+            assertEquals(0, c.getInt(1))
+            assertEquals(0, c.getInt(2))
+        }
+        db.query("SELECT COUNT(*) FROM tab_groups").use { c -> c.moveToFirst() } // table exists
+        db.query("SELECT COUNT(*) FROM closed_tabs").use { c -> c.moveToFirst() } // table exists
+    }
+
+    @Test
+    fun closedTabDao_trimsToCap() = runBlocking {
+        val dao = database.closedTabDao()
+        repeat(105) { dao.insert(ClosedTabEntity(url = "https://x$it.com", title = "x$it", closedAt = it.toLong())) }
+        dao.trimTo(100)
+        val recent = dao.observeRecent(200).first()
+        assertEquals(100, recent.size)
+        assertEquals("x104", recent.first().title) // newest kept, ordered newest-first
+    }
+
+    @Test
+    fun tabGroupDao_roundTrip() = runBlocking {
+        val dao = database.tabGroupDao()
+        val id = dao.insert(TabGroupEntity(name = "Trip", color = 2, position = 0))
+        dao.rename(id, "Holiday")
+        assertEquals("Holiday", dao.getAll().single().name)
+        dao.deleteById(id)
+        assertTrue(dao.getAll().isEmpty())
     }
 }
