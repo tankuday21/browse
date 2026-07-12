@@ -40,6 +40,8 @@ interface SettingsRepository {
     suspend fun setAutoIslands(enabled: Boolean)
     val switcherListLayout: Flow<Boolean>
     suspend fun setSwitcherListLayout(enabled: Boolean)
+    val useSystemDownloader: Flow<Boolean>
+    suspend fun setUseSystemDownloader(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -100,6 +102,14 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[SWITCHER_LIST_LAYOUT_KEY] = enabled }
     }
 
+    override val useSystemDownloader: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[USE_SYSTEM_DOWNLOADER_KEY] ?: false
+    }
+
+    override suspend fun setUseSystemDownloader(enabled: Boolean) {
+        dataStore.edit { it[USE_SYSTEM_DOWNLOADER_KEY] = enabled }
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
     }
@@ -148,5 +158,6 @@ class DataStoreSettingsRepository(
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
         val AUTO_ISLANDS_KEY = booleanPreferencesKey("auto_islands")
         val SWITCHER_LIST_LAYOUT_KEY = booleanPreferencesKey("switcher_list_layout")
+        val USE_SYSTEM_DOWNLOADER_KEY = booleanPreferencesKey("use_system_downloader")
     }
 }

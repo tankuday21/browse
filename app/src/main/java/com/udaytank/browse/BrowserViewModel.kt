@@ -49,6 +49,23 @@ import kotlinx.coroutines.launch
 
 data class LinkContextMenu(val url: String, val isImage: Boolean)
 
+/** When a requested download should actually run. */
+enum class DownloadWhen { NOW, WIFI, LATER_1H }
+
+/**
+ * Abstracts starting/controlling the download flow so [BrowserViewModel] (a plain [ViewModel],
+ * not an [android.app.Application]-scoped one) never touches Context directly. The production
+ * impl (`ServiceDownloadController`, in `download/`) sends intents to [com.udaytank.browse.download.DownloadService];
+ * tests use a recording fake.
+ */
+interface DownloadController {
+    fun startDownload(id: Long)
+    fun schedule(id: Long, constraint: DownloadWhen)
+    fun pause(id: Long)
+    fun resume(id: Long)
+    fun cancel(id: Long)
+}
+
 data class BrowserUiState(
     val addressBarText: String = "",
     val currentUrl: String? = null,
@@ -75,6 +92,7 @@ class BrowserViewModel(
     private val downloadDao: DownloadDao,
     private val closedTabDao: ClosedTabDao,
     private val tabGroupDao: TabGroupDao,
+    private val downloadController: DownloadController,
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
@@ -173,7 +191,7 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
@@ -558,7 +576,56 @@ class BrowserViewModel(
     }
 
     fun onDeleteDownload(id: Long) {
-        viewModelScope.launch { downloadDao.deleteById(id) }
+        viewModelScope.launch {
+            downloadDao.getById(id)?.filePath?.let { path ->
+                runCatching { java.io.File(path).delete() }
+            }
+            downloadDao.deleteById(id)
+        }
+    }
+
+    /**
+     * Requests a new engine-backed download. [userAgent] isn't persisted yet — [DownloadEntry]
+     * has no column for it — so a fresh service-driven start currently probes without one; wiring
+     * it through is left for whenever that column lands.
+     */
+    fun onStartDownload(
+        url: String,
+        suggestedName: String,
+        mimeType: String?,
+        userAgent: String?,
+        constraint: DownloadWhen,
+    ) {
+        viewModelScope.launch {
+            val state = if (constraint == DownloadWhen.NOW) "PENDING" else "SCHEDULED"
+            val id = downloadDao.insertReturning(
+                DownloadEntry(
+                    fileName = suggestedName,
+                    url = url,
+                    createdAt = System.currentTimeMillis(),
+                    mimeType = mimeType,
+                    state = state,
+                )
+            )
+            if (constraint == DownloadWhen.NOW) {
+                downloadController.startDownload(id)
+            } else {
+                downloadController.schedule(id, constraint)
+            }
+        }
+    }
+
+    fun onPauseDownload(id: Long) = downloadController.pause(id)
+
+    fun onResumeDownload(id: Long) = downloadController.resume(id)
+
+    fun onCancelDownload(id: Long) = downloadController.cancel(id)
+
+    fun onRetryDownload(id: Long) {
+        viewModelScope.launch {
+            downloadDao.setState(id, "PENDING")
+            downloadController.startDownload(id)
+        }
     }
 
     /** New tabs opened from a page inherit that page's incognito mode and, when auto-islands is on, its group. */
@@ -598,6 +665,7 @@ class BrowserViewModel(
                     app.database.downloadDao(),
                     app.database.closedTabDao(),
                     app.database.tabGroupDao(),
+                    com.udaytank.browse.download.ServiceDownloadController(app),
                 )
             }
         }

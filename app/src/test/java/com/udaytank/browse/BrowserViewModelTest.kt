@@ -24,7 +24,10 @@ class BrowserViewModelTest {
         downloadDao: FakeDownloadDao = FakeDownloadDao(),
         closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
         tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao)
+        downloadController: RecordingDownloadController = RecordingDownloadController(),
+    ) = BrowserViewModel(
+        historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao, downloadController,
+    )
 
     @Test
     fun `started downloads are recorded`() {
@@ -288,5 +291,87 @@ class BrowserViewModelTest {
         vm.onReopenClosed(entry); advanceUntilIdle()
         assertTrue(vm.tabs.value.any { it.url == "https://gone.com" })
         assertTrue(vm.recentlyClosed.value.none { it.id == entry.id })
+    }
+
+    // --- downloads ---
+
+    @Test
+    fun `onStartDownload NOW inserts PENDING row and starts controller`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onStartDownload(
+            url = "https://a.com/file.zip",
+            suggestedName = "file.zip",
+            mimeType = "application/zip",
+            userAgent = "ua",
+            constraint = DownloadWhen.NOW,
+        )
+        advanceUntilIdle()
+
+        val row = downloadDao.entries.value.single()
+        assertEquals("PENDING", row.state)
+        assertEquals("file.zip", row.fileName)
+        assertEquals("https://a.com/file.zip", row.url)
+        assertEquals(listOf(row.id), controller.started)
+        assertTrue(controller.scheduled.isEmpty())
+    }
+
+    @Test
+    fun `onStartDownload WIFI inserts SCHEDULED and schedules`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onStartDownload(
+            url = "https://a.com/file.zip",
+            suggestedName = "file.zip",
+            mimeType = null,
+            userAgent = null,
+            constraint = DownloadWhen.WIFI,
+        )
+        advanceUntilIdle()
+
+        val row = downloadDao.entries.value.single()
+        assertEquals("SCHEDULED", row.state)
+        assertEquals(listOf(row.id to DownloadWhen.WIFI), controller.scheduled)
+        assertTrue(controller.started.isEmpty())
+    }
+
+    @Test
+    fun `onRetryDownload flips FAILED to PENDING and starts`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "FAILED",
+            )
+        )
+
+        vm.onRetryDownload(id)
+        advanceUntilIdle()
+
+        assertEquals("PENDING", downloadDao.entries.value.first { it.id == id }.state)
+        assertEquals(listOf(id), controller.started)
+    }
+
+    @Test
+    fun `onCancelDownload delegates to controller`() = runTest {
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadController = controller)
+        advanceUntilIdle()
+
+        vm.onCancelDownload(7L)
+
+        assertEquals(listOf(7L), controller.cancelled)
     }
 }

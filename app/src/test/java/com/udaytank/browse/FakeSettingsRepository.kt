@@ -59,4 +59,9 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setSwitcherListLayout(enabled: Boolean) {
         switcherListLayout.value = enabled
     }
+
+    override val useSystemDownloader = MutableStateFlow(false)
+    override suspend fun setUseSystemDownloader(enabled: Boolean) {
+        useSystemDownloader.value = enabled
+    }
 }
