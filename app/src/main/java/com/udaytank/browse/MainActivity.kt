@@ -174,6 +174,25 @@ class MainActivity : FragmentActivity() {
         prompt.authenticate(info)
     }
 
+    /**
+     * Hands the active tab's page to the system print service (H5) — its dialog includes
+     * Save-as-PDF. The adapter is null when no live WebView exists (home page), which the menu
+     * already disables for; the toast covers any race where the page vanished in between.
+     */
+    private fun printCurrentPage(holder: WebViewHolder) {
+        val tabId = viewModel.activeTabId.value
+        val adapter = tabId?.let { holder.printAdapter(it) }
+        if (adapter == null) {
+            android.widget.Toast.makeText(this, "Nothing to print on this page", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val title = viewModel.tabs.value.find { it.id == tabId }?.title?.takeIf { it.isNotBlank() }
+            ?: viewModel.currentHost()
+            ?: "page"
+        val printManager = getSystemService(PRINT_SERVICE) as android.print.PrintManager
+        printManager.print("Andromeda - $title", adapter, android.print.PrintAttributes.Builder().build())
+    }
+
     private fun handleWebIntent(intent: Intent?) {
         val url = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
         if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -308,6 +327,7 @@ class MainActivity : FragmentActivity() {
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },
                             onOpenReadingList = { navController.navigate("reading") },
+                            onPrint = { printCurrentPage(holder) },
                         )
                     }
                     composable("downloads") {

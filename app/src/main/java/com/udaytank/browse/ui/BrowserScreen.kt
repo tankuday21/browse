@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tune
@@ -77,6 +78,7 @@ fun BrowserScreen(
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenReadingList: () -> Unit,
+    onPrint: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
@@ -333,6 +335,18 @@ fun BrowserScreen(
                         },
                         enabled = currentHost != null,
                         onClick = { siteSheetOpen = true; menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Print / Save as PDF") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Print,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = state.currentUrl != null,
+                        onClick = { onPrint(); menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text(if (isBookmarked) "Remove bookmark" else "Add bookmark") },

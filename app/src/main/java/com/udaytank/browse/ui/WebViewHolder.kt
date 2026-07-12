@@ -222,6 +222,13 @@ class WebViewHolder(
         if (applyDesktopUa(tabId, desktop)) webViews[tabId]?.reload()
     }
 
+    /**
+     * Print adapter for the tab's current page (H5), fed to the system PrintManager whose
+     * dialog includes Save-as-PDF. Null when the tab has no live WebView (e.g. the home page).
+     */
+    fun printAdapter(tabId: Long): android.print.PrintDocumentAdapter? =
+        webViews[tabId]?.createPrintDocumentAdapter("Andromeda")
+
     // shouldInterceptRequest runs on WebView's background threads;
     // page hosts are written on the UI thread in onPageStarted.
     private val pageHosts = ConcurrentHashMap<Long, String>()
