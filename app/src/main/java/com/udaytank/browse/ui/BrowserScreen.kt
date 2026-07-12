@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,6 +70,7 @@ fun BrowserScreen(
     onOpenTabs: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenReadingList: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
@@ -94,6 +97,7 @@ fun BrowserScreen(
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+    val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
@@ -336,6 +340,20 @@ fun BrowserScreen(
                     DropdownMenuItem(
                         text = { Text("Downloads") },
                         onClick = { onOpenDownloads(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Reading list") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        trailingIcon = {
+                            if (unreadCount > 0) Badge { Text("$unreadCount") }
+                        },
+                        onClick = { onOpenReadingList(); menuOpen = false },
                     )
                     DropdownMenuItem(
                         text = { Text("Settings") },

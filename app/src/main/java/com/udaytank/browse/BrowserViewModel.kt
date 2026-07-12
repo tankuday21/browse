@@ -36,6 +36,7 @@ import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
 import com.udaytank.browse.data.TabGroupEntity
+import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.reading.ArticleStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -267,6 +268,16 @@ class BrowserViewModel(
     val unreadCount: StateFlow<Int> = readingList
         .map { list -> list.count { it.readAt == null } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    // Reader display prefs — shared by the live reader overlay and the saved-article reader.
+    val readerFontScale: StateFlow<Int> = settings.readerFontScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 100)
+
+    val readerTheme: StateFlow<ReaderTheme> = settings.readerTheme
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ReaderTheme.SYSTEM)
+
+    val readerWide: StateFlow<Boolean> = settings.readerWide
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // Eagerly: searchEngine.value must be fresh the moment Go is pressed.
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
@@ -624,13 +635,47 @@ class BrowserViewModel(
         }
     }
 
+    /** The last deleted row plus its offline HTML, held so the undo snackbar can restore both. */
+    private var lastDeletedReadingItem: Pair<ReadingListEntry, String?>? = null
+
     fun onDeleteReadingItem(id: Long) {
         viewModelScope.launch(ioDispatcher) {
-            val entry = readingListDao.getById(id)
-            articleStore.delete(entry?.filePath)
+            val entry = readingListDao.getById(id) ?: return@launch
+            lastDeletedReadingItem = entry to entry.filePath?.let { articleStore.load(it) }
+            articleStore.delete(entry.filePath)
             readingListDao.deleteById(id)
         }
     }
+
+    /**
+     * Undo for [onDeleteReadingItem]: re-inserts the last deleted row with its original fields
+     * (addedAt, readAt) and re-saves the offline copy captured before the delete, so an undone
+     * article stays readable offline.
+     */
+    fun onReopenReadingItem() {
+        val (entry, offlineHtml) = lastDeletedReadingItem ?: return
+        lastDeletedReadingItem = null
+        viewModelScope.launch(ioDispatcher) {
+            val rowId = readingListDao.insert(entry.copy(id = 0, filePath = null))
+            if (offlineHtml != null) {
+                readingListDao.setFilePath(rowId, articleStore.save(rowId, offlineHtml))
+            }
+        }
+    }
+
+    /**
+     * Opening an item marks it read. Online-only rows (no offline copy) also navigate the
+     * active tab to the original url; offline rows render in the saved-article reader, which
+     * the reading-list screen drives itself.
+     */
+    fun onOpenReadingItem(entry: ReadingListEntry) {
+        onMarkRead(entry.id, true)
+        if (entry.filePath == null) onOpenUrl(entry.url)
+    }
+
+    /** Loads a saved article's content HTML off the main thread; null when the file is gone. */
+    suspend fun loadSavedArticle(path: String): String? =
+        withContext(ioDispatcher) { articleStore.load(path) }
 
     fun onMarkRead(id: Long, read: Boolean) {
         viewModelScope.launch {

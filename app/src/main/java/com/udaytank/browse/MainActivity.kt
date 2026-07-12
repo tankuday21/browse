@@ -47,6 +47,7 @@ import com.udaytank.browse.ui.BrowserScreen
 import com.udaytank.browse.ui.DownloadsScreen
 import com.udaytank.browse.ui.HistoryScreen
 import com.udaytank.browse.ui.IncognitoLockScreen
+import com.udaytank.browse.ui.ReadingListScreen
 import com.udaytank.browse.ui.TabSwitcherScreen
 import com.udaytank.browse.ui.WebViewHolder
 import com.udaytank.browse.ui.theme.BrowseTheme
@@ -300,10 +301,17 @@ class MainActivity : FragmentActivity() {
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },
+                            onOpenReadingList = { navController.navigate("reading") },
                         )
                     }
                     composable("downloads") {
                         DownloadsScreen(
+                            viewModel = viewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable("reading") {
+                        ReadingListScreen(
                             viewModel = viewModel,
                             onBack = { navController.popBackStack() },
                         )

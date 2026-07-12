@@ -656,6 +656,78 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `opening an online-only reading item marks it read and navigates`() = runTest {
+        val readingDao = FakeReadingListDao()
+        readingDao.insert(ReadingListEntry(url = "https://a.com/story", title = "Story", addedAt = 1L))
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+
+        vm.onOpenReadingItem(readingDao.entries.value.single())
+        advanceUntilIdle()
+
+        assertNotNull(readingDao.entries.value.single().readAt)
+        assertEquals("https://a.com/story", vm.tabs.value.first().url)
+    }
+
+    @Test
+    fun `opening an offline reading item marks it read without navigating`() = runTest {
+        val readingDao = FakeReadingListDao()
+        readingDao.insert(
+            ReadingListEntry(url = "https://a.com/story", title = "Story", addedAt = 1L, filePath = "/x/1.html")
+        )
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+
+        vm.onOpenReadingItem(readingDao.entries.value.single())
+        advanceUntilIdle()
+
+        assertNotNull(readingDao.entries.value.single().readAt)
+        assertEquals(BrowserViewModel.HOME_URL, vm.tabs.value.first().url)
+        assertNull(vm.uiState.value.pendingCommand)
+    }
+
+    @Test
+    fun `undo after delete restores row fields and offline copy`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val store = ArticleStore(createTempDirectory("reading").toFile())
+        val vm = vm(readingListDao = readingDao, articleStore = store)
+        advanceUntilIdle()
+
+        val path = store.save(1L, "<p>offline body</p>")
+        val id = readingDao.insert(
+            ReadingListEntry(url = "https://a.com/x", title = "X", addedAt = 42L, readAt = 7L)
+        )
+        readingDao.setFilePath(id, path)
+
+        vm.onDeleteReadingItem(id)
+        advanceUntilIdle()
+        assertTrue(readingDao.entries.value.isEmpty())
+        assertFalse(File(path).exists())
+
+        vm.onReopenReadingItem()
+        advanceUntilIdle()
+        val restored = readingDao.entries.value.single()
+        assertEquals("https://a.com/x", restored.url)
+        assertEquals("X", restored.title)
+        assertEquals(42L, restored.addedAt)
+        assertEquals(7L, restored.readAt)
+        assertNotNull(restored.filePath)
+        assertEquals("<p>offline body</p>", File(restored.filePath!!).readText())
+    }
+
+    @Test
+    fun `undo with nothing deleted is a no-op`() = runTest {
+        val readingDao = FakeReadingListDao()
+        val vm = vm(readingListDao = readingDao)
+        advanceUntilIdle()
+
+        vm.onReopenReadingItem()
+        advanceUntilIdle()
+
+        assertTrue(readingDao.entries.value.isEmpty())
+    }
+
+    @Test
     fun `incognito tab cannot add background media site`() = runTest {
         val settings = FakeSettingsRepository()
         val vm = vm(settings = settings)
