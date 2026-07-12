@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.udaytank.browse.browser.adblock.FilterLists
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -28,6 +29,12 @@ interface SettingsRepository {
     val cookiesEnabled: Flow<Boolean>
     val adBlockEnabled: Flow<Boolean>
     val adAllowedSites: Flow<Set<String>>
+    /** Ids of the enabled ad/tracker filter lists (see FilterLists.ADS). Default: all of them. */
+    val adBlockLists: Flow<Set<String>>
+    suspend fun toggleAdBlockList(id: String)
+    /** Epoch millis of the last successful filter-list update; 0 = never updated. */
+    val adBlockLastUpdated: Flow<Long>
+    suspend fun setAdBlockLastUpdated(timestamp: Long)
     /** Google Safe Browsing checks inside WebView (D1). Default ON. */
     val safeBrowsing: Flow<Boolean>
     suspend fun setSafeBrowsing(enabled: Boolean)
@@ -223,6 +230,25 @@ class DataStoreSettingsRepository(
         prefs[AD_ALLOWED_SITES_KEY] ?: emptySet()
     }
 
+    override val adBlockLists: Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[AD_BLOCK_LISTS_KEY] ?: FilterLists.DEFAULT_ENABLED_IDS
+    }
+
+    override suspend fun toggleAdBlockList(id: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[AD_BLOCK_LISTS_KEY] ?: FilterLists.DEFAULT_ENABLED_IDS
+            prefs[AD_BLOCK_LISTS_KEY] = if (id in current) current - id else current + id
+        }
+    }
+
+    override val adBlockLastUpdated: Flow<Long> = dataStore.data.map { prefs ->
+        prefs[AD_BLOCK_LAST_UPDATED_KEY] ?: 0L
+    }
+
+    override suspend fun setAdBlockLastUpdated(timestamp: Long) {
+        dataStore.edit { it[AD_BLOCK_LAST_UPDATED_KEY] = timestamp }
+    }
+
     override val safeBrowsing: Flow<Boolean> = dataStore.data.map { prefs ->
         prefs[SAFE_BROWSING_KEY] ?: true
     }
@@ -293,6 +319,8 @@ class DataStoreSettingsRepository(
         val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
         val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
+        val AD_BLOCK_LISTS_KEY = stringSetPreferencesKey("ad_block_lists")
+        val AD_BLOCK_LAST_UPDATED_KEY = longPreferencesKey("ad_block_last_updated")
         val AUTO_ISLANDS_KEY = booleanPreferencesKey("auto_islands")
         val SWITCHER_LIST_LAYOUT_KEY = booleanPreferencesKey("switcher_list_layout")
         val USE_SYSTEM_DOWNLOADER_KEY = booleanPreferencesKey("use_system_downloader")

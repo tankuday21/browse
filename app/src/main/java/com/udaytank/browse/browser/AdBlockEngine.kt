@@ -1,8 +1,18 @@
 package com.udaytank.browse.browser
 
+import com.udaytank.browse.browser.adblock.AdBlockCore
+import com.udaytank.browse.browser.adblock.DomainChains
+import com.udaytank.browse.browser.adblock.ParsedList
+import com.udaytank.browse.browser.adblock.RegistrableDomain
+import com.udaytank.browse.browser.adblock.RequestContext
+import com.udaytank.browse.browser.adblock.ResourceType
+
 /**
  * Answers one question for every network request a page makes:
  * should this request be blocked?
+ *
+ * v2: wraps the token-indexed [AdBlockCore] (full ABP syntax) while keeping the v1 surface
+ * that WebViewHolder/MainActivity already use.
  *
  * Thread-safety: shouldBlock is called from WebView's background threads.
  * All state is immutable-after-write behind @Volatile references.
@@ -10,7 +20,7 @@ package com.udaytank.browse.browser
 class AdBlockEngine {
 
     @Volatile
-    private var blockList: BlockList = BlockList.EMPTY
+    private var core: AdBlockCore = AdBlockCore.EMPTY
 
     @Volatile
     private var enabled: Boolean = true
@@ -18,28 +28,11 @@ class AdBlockEngine {
     @Volatile
     private var siteAllowlist: Set<String> = emptySet()
 
-    @Volatile
-    private var cosmeticCss: String = ""
+    fun load(list: ParsedList) = load(listOf(list))
 
-    fun load(list: BlockList) {
-        blockList = list
-        // Precompute the CSS once: hide every generic selector.
-        cosmeticCss = if (list.cosmeticSelectors.isEmpty()) {
-            ""
-        } else {
-            list.cosmeticSelectors.joinToString(",") + "{display:none!important;}"
-        }
-    }
-
-    /** JS that injects a <style> hiding cosmetic-filter elements; empty when disabled. */
-    fun cosmeticInjectionScript(pageHost: String?): String {
-        if (!enabled) return ""
-        if (pageHost != null && matchesDomainChain(pageHost.lowercase(), siteAllowlist)) return ""
-        val css = cosmeticCss
-        if (css.isEmpty()) return ""
-        val escaped = css.replace("\\", "\\\\").replace("'", "\\'")
-        return "(function(){var s=document.createElement('style');" +
-            "s.textContent='$escaped';document.documentElement.appendChild(s);})();"
+    /** Builds a fresh immutable core from all lists and swaps it in atomically. */
+    fun load(lists: List<ParsedList>) {
+        core = AdBlockCore(lists)
     }
 
     fun updatePolicy(enabled: Boolean, siteAllowlist: Set<String>) {
@@ -47,28 +40,56 @@ class AdBlockEngine {
         this.siteAllowlist = siteAllowlist.map { it.lowercase() }.toSet()
     }
 
+    /**
+     * v1-compatible overload: host-only decision (no URL/type information). Kept so existing
+     * call sites work unchanged; new code should prefer the full-context overload.
+     */
     fun shouldBlock(requestHost: String?, pageHost: String?): Boolean {
-        if (!enabled) return false
         val host = requestHost?.lowercase() ?: return false
-        if (pageHost != null && matchesDomainChain(pageHost.lowercase(), siteAllowlist)) return false
-        if (matchesDomainChain(host, blockList.allowedDomains)) return false
-        return matchesDomainChain(host, blockList.blockedDomains)
+        return shouldBlock(
+            url = "https://$host/",
+            requestHost = host,
+            pageHost = pageHost,
+            type = ResourceType.OTHER,
+            mainFrame = false,
+        )
     }
 
-    /**
-     * Walks the domain upward label by label:
-     * stats.g.doubleclick.net -> g.doubleclick.net -> doubleclick.net
-     * so a rule for a domain also covers all its subdomains — but a
-     * lookalike suffix (evildoubleclick.net) never matches.
-     */
-    private fun matchesDomainChain(host: String, domains: Set<String>): Boolean {
-        if (domains.isEmpty()) return false
-        var current = host
-        while (true) {
-            if (current in domains) return true
-            val dot = current.indexOf('.')
-            if (dot == -1) return false
-            current = current.substring(dot + 1)
-        }
+    /** Full-context decision. Main-frame documents are never blocked (deliberate UX choice). */
+    fun shouldBlock(
+        url: String,
+        requestHost: String?,
+        pageHost: String?,
+        type: ResourceType,
+        mainFrame: Boolean,
+    ): Boolean {
+        if (!enabled || mainFrame) return false
+        val host = requestHost?.lowercase() ?: return false
+        val page = pageHost?.lowercase()
+        if (page != null && DomainChains.matches(page, siteAllowlist)) return false
+        val ctx = RequestContext(
+            url = url,
+            urlLower = url.lowercase(),
+            requestHost = host,
+            pageHost = page,
+            type = type,
+            thirdParty = RegistrableDomain.isThirdParty(host, page),
+        )
+        return core.decide(ctx)
+    }
+
+    /** JS that injects a <style> hiding cosmetic-filter elements; empty when disabled. */
+    fun cosmeticInjectionScript(pageHost: String?): String {
+        if (!enabled) return ""
+        val page = pageHost?.lowercase()
+        if (page != null && DomainChains.matches(page, siteAllowlist)) return ""
+        val css = core.cssFor(page ?: "")
+        if (css.isEmpty()) return ""
+        val escaped = css.replace("\\", "\\\\").replace("'", "\\'")
+        // documentElement can still be null when this runs at onPageStarted (very early in
+        // the load); skipping is fine — the onPageFinished pass re-injects unconditionally.
+        return "(function(){if(!document.documentElement)return;" +
+            "var s=document.createElement('style');" +
+            "s.textContent='$escaped';document.documentElement.appendChild(s);})();"
     }
 }

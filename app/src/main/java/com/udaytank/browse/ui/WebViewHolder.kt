@@ -30,6 +30,7 @@ import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.SiteSettingsEntity
 import android.widget.Toast
 import com.udaytank.browse.browser.AdBlockEngine
+import com.udaytank.browse.browser.adblock.RequestTyping
 import java.io.ByteArrayInputStream
 import java.util.concurrent.ConcurrentHashMap
 
@@ -404,6 +405,15 @@ class WebViewHolder(
                         view.evaluateJavascript(GPC_SHIM, null)
                     }
                     applySiteSettings(tabId, view, url)
+                    // Early cosmetic pass: hide ad/banner elements before first paint when
+                    // possible. The scripts guard against a still-null documentElement, and
+                    // onPageFinished repeats the injection as the reliable late pass.
+                    val earlyCss = adBlock.cosmeticInjectionScript(pageHosts[tabId])
+                    if (earlyCss.isNotEmpty()) view.evaluateJavascript(earlyCss, null)
+                    if (dismissCookieBanners) {
+                        val earlyAnnoyCss = annoyance.cosmeticInjectionScript(pageHosts[tabId])
+                        if (earlyAnnoyCss.isNotEmpty()) view.evaluateJavascript(earlyAnnoyCss, null)
+                    }
                     listener.onPageStarted(tabId, url)
                 }
 
@@ -439,10 +449,20 @@ class WebViewHolder(
                     view: WebView,
                     request: WebResourceRequest,
                 ): WebResourceResponse? {
+                    // Main-frame documents are never blocked (deliberate UX choice — the
+                    // engine would refuse too, but skipping here avoids all the work).
+                    if (request.isForMainFrame) return null
+                    val url = request.url.toString()
+                    val headers = request.requestHeaders ?: emptyMap()
+                    val type = RequestTyping.infer(request.url.path, headers, mainFrame = false)
+                    val pageHost = pageHosts[tabId]
                     // Ads first (respects the per-site ad allowlist), then cookie-consent
                     // scripts (global toggle only — the ad allowlist doesn't exempt these).
-                    val blocked = adBlock.shouldBlock(request.url.host, pageHosts[tabId]) ||
-                        (dismissCookieBanners && annoyance.shouldBlock(request.url.host, null))
+                    val blocked = adBlock.shouldBlock(url, request.url.host, pageHost, type, mainFrame = false) ||
+                        (
+                            dismissCookieBanners &&
+                                annoyance.shouldBlock(url, request.url.host, pageHost, type, mainFrame = false)
+                            )
                     return if (blocked) {
                         listener.onRequestBlocked(tabId)
                         WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))

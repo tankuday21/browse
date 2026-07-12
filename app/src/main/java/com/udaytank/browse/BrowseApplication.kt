@@ -5,14 +5,20 @@ import android.content.Context
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.udaytank.browse.browser.AdBlockEngine
-import com.udaytank.browse.browser.FilterListParser
+import com.udaytank.browse.browser.adblock.AbpParser
+import com.udaytank.browse.browser.adblock.FilterListDef
+import com.udaytank.browse.browser.adblock.FilterListUpdater
+import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.BrowseDatabase
 import com.udaytank.browse.data.DataStoreSettingsRepository
 import com.udaytank.browse.data.SettingsRepository
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val Context.settingsDataStore by preferencesDataStore(name = "settings")
 
@@ -32,14 +38,8 @@ class BrowseApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        appScope.launch {
-            val text = assets.open("adblock/easylist.txt").bufferedReader().use { it.readText() }
-            adBlockEngine.load(FilterListParser.parse(text))
-        }
-        appScope.launch {
-            val text = assets.open("adblock/annoyance-cookies.txt").bufferedReader().use { it.readText() }
-            annoyanceEngine.load(FilterListParser.parse(text))
-        }
+        appScope.launch { reloadAdblock() }
+        FilterListUpdater.schedulePeriodic(this)
         appScope.launch {
             // The download engine lives in this process: at process start no download
             // can actually be running, so any row still marked RUNNING is an orphan
@@ -49,6 +49,29 @@ class BrowseApplication : Application() {
                 .forEach { database.downloadDao().setState(it.id, "PAUSED") }
         }
     }
+
+    /**
+     * (Re)builds both engines from every enabled filter list, entirely off-main. Each list is
+     * read from filesDir/adblock/<id>.txt (a downloaded update) when present, else from the
+     * bundled asset snapshot. Called at app start, after a [FilterListUpdater] run, and after
+     * a per-list toggle in Settings.
+     */
+    suspend fun reloadAdblock() = withContext(Dispatchers.Default) {
+        val enabledIds = settingsRepository.adBlockLists.first()
+        val parsed = FilterLists.ADS
+            .filter { it.id in enabledIds }
+            .mapNotNull { def -> readListText(def)?.let { AbpParser.parse(it) } }
+        adBlockEngine.load(parsed)
+        readListText(FilterLists.ANNOYANCE)?.let { annoyanceEngine.load(AbpParser.parse(it)) }
+    }
+
+    /** Downloaded snapshot if present, else the bundled asset; null only if both fail. */
+    private fun readListText(def: FilterListDef): String? = runCatching {
+        val updated = File(filesDir, "adblock/${def.id}.txt")
+        if (updated.exists()) updated.readText()
+        else assets.open(def.assetPath).bufferedReader().use { it.readText() }
+    }.getOrNull()
+
     val database: BrowseDatabase by lazy {
         Room.databaseBuilder(this, BrowseDatabase::class.java, "browse.db")
             .addMigrations(

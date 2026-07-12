@@ -1,5 +1,6 @@
 package com.udaytank.browse
 
+import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
@@ -58,6 +59,18 @@ class FakeSettingsRepository : SettingsRepository {
         adAllowedSites.value =
             if (host in adAllowedSites.value) adAllowedSites.value - host
             else adAllowedSites.value + host
+    }
+
+    override val adBlockLists = MutableStateFlow(FilterLists.DEFAULT_ENABLED_IDS)
+    override suspend fun toggleAdBlockList(id: String) {
+        adBlockLists.value =
+            if (id in adBlockLists.value) adBlockLists.value - id
+            else adBlockLists.value + id
+    }
+
+    override val adBlockLastUpdated = MutableStateFlow(0L)
+    override suspend fun setAdBlockLastUpdated(timestamp: Long) {
+        adBlockLastUpdated.value = timestamp
     }
 
     override val forceDarkWebsites = MutableStateFlow(false)

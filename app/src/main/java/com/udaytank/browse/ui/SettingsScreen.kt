@@ -31,12 +31,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
+import com.udaytank.browse.browser.adblock.FilterListUpdater
+import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ThemeMode
 import kotlin.math.roundToInt
@@ -53,6 +56,8 @@ fun SettingsScreen(
     val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
     val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()
     val adBlockEnabled by viewModel.adBlockEnabled.collectAsStateWithLifecycle()
+    val adBlockLists by viewModel.adBlockLists.collectAsStateWithLifecycle()
+    val adBlockLastUpdated by viewModel.adBlockLastUpdated.collectAsStateWithLifecycle()
     val safeBrowsing by viewModel.safeBrowsing.collectAsStateWithLifecycle()
     val dismissCookieBanners by viewModel.dismissCookieBanners.collectAsStateWithLifecycle()
     val gpcEnabled by viewModel.gpcEnabled.collectAsStateWithLifecycle()
@@ -294,6 +299,50 @@ fun SettingsScreen(
                 Text("Block ads", modifier = Modifier.weight(1f))
                 Switch(checked = adBlockEnabled, onCheckedChange = viewModel::onAdBlockToggled)
             }
+            FilterLists.ADS.forEach { def ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 32.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(def.label)
+                        Text(
+                            def.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = def.id in adBlockLists,
+                        enabled = adBlockEnabled,
+                        onCheckedChange = { viewModel.onAdBlockListToggled(def.id) },
+                    )
+                }
+            }
+            TextButton(
+                onClick = {
+                    FilterListUpdater.updateNow(context)
+                    Toast.makeText(context, "Updating filter lists…", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Update filter lists")
+            }
+            Text(
+                if (adBlockLastUpdated == 0L) {
+                    "Using bundled lists — never updated"
+                } else {
+                    "Updated " + DateUtils.getRelativeTimeSpanString(
+                        adBlockLastUpdated,
+                        System.currentTimeMillis(),
+                        DateUtils.MINUTE_IN_MILLIS,
+                    )
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
