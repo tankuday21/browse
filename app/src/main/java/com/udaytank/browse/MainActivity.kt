@@ -376,13 +376,17 @@ class MainActivity : FragmentActivity() {
                             .fillMaxSize()
                             .background(Color.Black)
                     ) {
-                        AndroidView(
-                            factory = {
-                                (fullscreenView.parent as? ViewGroup)?.removeView(fullscreenView)
-                                fullscreenView
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        // key() forces the AndroidView node to be recreated when the engine
+                        // swaps custom views without an intervening hide (chained fullscreen videos).
+                        androidx.compose.runtime.key(fullscreenView) {
+                            AndroidView(
+                                factory = {
+                                    (fullscreenView.parent as? ViewGroup)?.removeView(fullscreenView)
+                                    fullscreenView
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }
