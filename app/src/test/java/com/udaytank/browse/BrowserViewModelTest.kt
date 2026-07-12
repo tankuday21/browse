@@ -25,8 +25,10 @@ class BrowserViewModelTest {
         closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
         tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
+        downloadManagerRemover: (Long) -> Unit = {},
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao, downloadController,
+        downloadManagerRemover,
     )
 
     @Test
@@ -36,6 +38,7 @@ class BrowserViewModelTest {
         vm.onDownloadStarted(42, "file.pdf", "https://a.com/file.pdf")
         assertEquals(1, downloads.entries.value.size)
         assertEquals(42L, downloads.entries.value.first().downloadId)
+        assertEquals("RUNNING", downloads.entries.value.first().state)
     }
 
     @Test
@@ -439,5 +442,24 @@ class BrowserViewModelTest {
 
         assertEquals(0, downloadDao.entries.value.first { it.id == id }.attempts)
         assertEquals(listOf(id), controller.started)
+    }
+
+    @Test
+    fun `delete of legacy system row removes via download manager`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val removedIds = mutableListOf<Long>()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller, downloadManagerRemover = { id -> removedIds += id })
+        advanceUntilIdle()
+
+        vm.onDownloadStarted(99L, "legacy.pdf", "https://a.com/legacy.pdf")
+        advanceUntilIdle()
+        val id = downloadDao.entries.value.single { it.downloadId == 99L }.id
+
+        vm.onDeleteDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(99L), removedIds)
+        assertTrue(downloadDao.entries.value.none { it.id == id })
     }
 }

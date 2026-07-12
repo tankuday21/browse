@@ -102,6 +102,12 @@ class BrowserViewModel(
     private val closedTabDao: ClosedTabDao,
     private val tabGroupDao: TabGroupDao,
     private val downloadController: DownloadController,
+    /**
+     * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
+     * hidden `useSystemDownloader` (legacy) rows, which have no [DownloadEntry.filePath] of our
+     * own to delete. Defaults to a no-op so most call sites (and most tests) don't need to care.
+     */
+    private val downloadManagerRemover: (Long) -> Unit = {},
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
@@ -577,7 +583,13 @@ class BrowserViewModel(
 
     fun onContextMenuDismissed() = _uiState.update { it.copy(contextMenu = null) }
 
-    /** Called from the download listener when the system DownloadManager accepts a file. */
+    /**
+     * Called from the download listener when the system DownloadManager accepts a file. This
+     * hidden legacy path has no progress polling, so the row can't be driven through the normal
+     * RUNNING -> DONE lifecycle; it's inserted RUNNING and simply stays that way (the Downloads
+     * screen renders legacy rows, identified by [DownloadEntry.downloadId] > 0, with a "Managed
+     * by system downloader" line and DONE-style actions instead of progress UI).
+     */
     fun onDownloadStarted(downloadId: Long, fileName: String, url: String) {
         viewModelScope.launch {
             downloadDao.insert(
@@ -586,6 +598,7 @@ class BrowserViewModel(
                     fileName = fileName,
                     url = url,
                     createdAt = System.currentTimeMillis(),
+                    state = "RUNNING",
                 )
             )
         }
@@ -601,8 +614,14 @@ class BrowserViewModel(
     fun onDeleteDownload(id: Long) {
         downloadController.cancel(id)
         viewModelScope.launch {
-            downloadDao.getById(id)?.filePath?.let { path ->
+            val entry = downloadDao.getById(id)
+            val path = entry?.filePath
+            if (path != null) {
                 runCatching { java.io.File(path).delete() }
+            } else if (entry != null && entry.downloadId > 0) {
+                // Legacy system-downloader row: we never got a filePath, so the only way to
+                // clean up is to ask the system DownloadManager to remove it by its own id.
+                runCatching { downloadManagerRemover(entry.downloadId) }
             }
             downloadDao.deleteById(id)
         }
@@ -691,6 +710,10 @@ class BrowserViewModel(
                     app.database.closedTabDao(),
                     app.database.tabGroupDao(),
                     com.udaytank.browse.download.ServiceDownloadController(app),
+                    downloadManagerRemover = { id ->
+                        (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
+                            .remove(id)
+                    },
                 )
             }
         }
