@@ -86,7 +86,10 @@ class AdBlockEngine {
         val css = core.cssFor(page ?: "")
         if (css.isEmpty()) return ""
         val escaped = css.replace("\\", "\\\\").replace("'", "\\'")
-        return "(function(){var s=document.createElement('style');" +
+        // documentElement can still be null when this runs at onPageStarted (very early in
+        // the load); skipping is fine — the onPageFinished pass re-injects unconditionally.
+        return "(function(){if(!document.documentElement)return;" +
+            "var s=document.createElement('style');" +
             "s.textContent='$escaped';document.documentElement.appendChild(s);})();"
     }
 }

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlHosts
+import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
 import com.udaytank.browse.browser.SuggestionKind
@@ -135,6 +136,12 @@ class BrowserViewModel(
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
     /** File work (article HTML writes/deletes) runs here; tests swap in Unconfined. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /**
+     * Rebuilds the ad-block engines from the currently enabled filter lists
+     * ([com.udaytank.browse.BrowseApplication.reloadAdblock] in production). A lambda so this
+     * plain ViewModel never touches the Application; tests keep the no-op default.
+     */
+    private val reloadAdblock: suspend () -> Unit = {},
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -469,6 +476,22 @@ class BrowserViewModel(
 
     val adAllowedSites: StateFlow<Set<String>> = settings.adAllowedSites
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Ids of the enabled ad/tracker filter lists (Settings > per-list toggles). */
+    val adBlockLists: StateFlow<Set<String>> = settings.adBlockLists
+        .stateIn(viewModelScope, SharingStarted.Eagerly, FilterLists.DEFAULT_ENABLED_IDS)
+
+    /** Epoch millis of the last successful filter-list update; 0 = never. */
+    val adBlockLastUpdated: StateFlow<Long> = settings.adBlockLastUpdated
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    /** Persists the per-list toggle, then rebuilds the engines from what's now enabled. */
+    fun onAdBlockListToggled(id: String) {
+        viewModelScope.launch {
+            settings.toggleAdBlockList(id)
+            reloadAdblock()
+        }
+    }
 
     val safeBrowsing: StateFlow<Boolean> = settings.safeBrowsing
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
@@ -1267,6 +1290,7 @@ class BrowserViewModel(
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
                             .remove(id)
                     },
+                    reloadAdblock = { app.reloadAdblock() },
                 )
             }
         }
