@@ -1,10 +1,16 @@
 package com.udaytank.browse.ui.components
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,7 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -41,6 +50,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,7 +62,11 @@ import com.udaytank.browse.ui.theme.Orbit
 /**
  * Orbit's signature component: a floating pill that drives the browser.
  * Collapsed = glanceable address + navigation; editing = full URL field.
+ *
+ * [pageUrl] is the active tab's real page URL (null on the home page) — it feeds the
+ * long-press menu (A5: Copy URL / Paste and go / Share), which only exists when a page is up.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CommandBar(
     displayHost: String?,
@@ -69,6 +85,7 @@ fun CommandBar(
     onMenuClick: () -> Unit,
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    pageUrl: String? = null,
 ) {
     Surface(
         modifier = modifier
@@ -92,34 +109,50 @@ fun CommandBar(
                     IconButton(onClick = onBack, enabled = canGoBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(CircleShape)
-                            .clickable { onEditingChanged(true) }
-                            .padding(horizontal = 10.dp, vertical = 12.dp),
-                    ) {
-                        if (isSecure) {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = "Secure connection",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp),
+                    var barMenuOpen by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(CircleShape)
+                                .combinedClickable(
+                                    onClick = { onEditingChanged(true) },
+                                    // A5: page actions on long-press; nothing to act on at home.
+                                    onLongClick = { if (pageUrl != null) barMenuOpen = true },
+                                )
+                                .padding(horizontal = 10.dp, vertical = 12.dp),
+                        ) {
+                            if (isSecure) {
+                                Icon(
+                                    Icons.Filled.Lock,
+                                    contentDescription = "Secure connection",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                            Text(
+                                text = displayHost ?: "Search or type URL",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (displayHost != null) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = if (isSecure) 6.dp else 0.dp),
                             )
                         }
-                        Text(
-                            text = displayHost ?: "Search or type URL",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (displayHost != null) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = if (isSecure) 6.dp else 0.dp),
-                        )
+                        if (pageUrl != null) {
+                            BarLongPressMenu(
+                                expanded = barMenuOpen,
+                                onDismiss = { barMenuOpen = false },
+                                pageUrl = pageUrl,
+                                onAddressChange = onAddressChange,
+                                onGo = onGo,
+                            )
+                        }
                     }
                     IconButton(onClick = onOpenTabs) {
                         Text(
@@ -152,6 +185,56 @@ fun CommandBar(
     }
 }
 
+/**
+ * A5 long-press menu. "Paste and go" submits through the exact typed-input path
+ * (onAddressChange + onGo = the VM's search-or-url pipeline); the clipboard is only READ at
+ * the moment that item is tapped — the enabled check uses hasText(), which looks at the clip
+ * description without touching its content.
+ */
+@Composable
+private fun BarLongPressMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    pageUrl: String,
+    onAddressChange: (String) -> Unit,
+    onGo: () -> Unit,
+) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text("Copy URL") },
+            onClick = {
+                clipboard.setText(AnnotatedString(pageUrl))
+                onDismiss()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("Paste and go") },
+            enabled = clipboard.hasText(),
+            onClick = {
+                val copied = clipboard.getText()?.text?.trim()
+                if (!copied.isNullOrBlank()) {
+                    onAddressChange(copied)
+                    onGo()
+                }
+                onDismiss()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("Share") },
+            onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, pageUrl)
+                }
+                context.startActivity(Intent.createChooser(send, "Share link"))
+                onDismiss()
+            },
+        )
+    }
+}
+
 @Composable
 private fun EditingContent(
     addressBarText: String,
@@ -167,6 +250,31 @@ private fun EditingContent(
         mutableStateOf(
             TextFieldValue(addressBarText, selection = TextRange(0, addressBarText.length))
         )
+    }
+
+    // A2 voice search: only offered when a recognizer activity actually exists (checked once).
+    val context = LocalContext.current
+    val voiceIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+        )
+    }
+    val voiceAvailable = remember {
+        context.packageManager.resolveActivity(voiceIntent, 0) != null
+    }
+    val voiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val spoken = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (result.resultCode == Activity.RESULT_OK && !spoken.isNullOrBlank()) {
+            // Same pipeline as typed input: text -> VM address state -> search-or-url submit.
+            onAddressChange(spoken)
+            onGo()
+            onDismiss()
+        }
     }
 
     Row(
@@ -194,6 +302,11 @@ private fun EditingContent(
                 .padding(start = 20.dp, top = 16.dp, bottom = 16.dp)
                 .focusRequester(focusRequester),
         )
+        if (voiceAvailable) {
+            IconButton(onClick = { voiceLauncher.launch(voiceIntent) }) {
+                Icon(Icons.Filled.Mic, contentDescription = "Voice search")
+            }
+        }
         IconButton(onClick = onDismiss) {
             Icon(Icons.Filled.Close, contentDescription = "Close editing")
         }

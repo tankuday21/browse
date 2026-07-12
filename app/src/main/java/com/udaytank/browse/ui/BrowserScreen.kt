@@ -120,6 +120,20 @@ fun BrowserScreen(
         if (!isEditing) viewModel.onSuggestionsDismissed()
     }
 
+    // A6 clipboard chip: the ONE clipboard read per bar-focus event (never polled). A copied
+    // URL that isn't the page already showing becomes a "Go to copied link" suggestion row.
+    var copiedUrlSuggestion by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isEditing) {
+        copiedUrlSuggestion = if (isEditing) {
+            clipboard.getText()?.text?.trim()
+                ?.takeIf { com.udaytank.browse.browser.UrlInput.isUrlLike(it) }
+                ?.let { com.udaytank.browse.browser.UrlInput.toLoadableUrl(it) }
+                ?.takeIf { it != state.currentUrl }
+        } else {
+            null
+        }
+    }
+
     // Back: close editing first, then page history, then exit.
     BackHandler(enabled = isEditing) { isEditing = false }
     BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
@@ -305,11 +319,16 @@ fun BrowserScreen(
                 .imePadding()
                 .padding(bottom = 12.dp),
         ) {
-            if (isEditing && suggestions.isNotEmpty()) {
+            if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
                 SuggestionsPanel(
                     suggestions = suggestions,
                     onPick = {
                         viewModel.onSuggestionPicked(it)
+                        isEditing = false
+                    },
+                    copiedUrl = copiedUrlSuggestion,
+                    onPickCopied = { url ->
+                        viewModel.onOpenUrl(url)
                         isEditing = false
                     },
                     modifier = Modifier
@@ -335,6 +354,7 @@ fun BrowserScreen(
                 )
             } else {
                 CommandBar(
+            pageUrl = if (isHome) null else state.currentUrl,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
             isSecure = state.currentUrl?.startsWith("https://") == true,
