@@ -174,11 +174,12 @@ class BrowseDatabaseTest {
             close()
         }
         val db = helper.runMigrationsAndValidate(DB, 7, true, BrowseDatabase.MIGRATION_6_7)
-        db.query("SELECT state, downloadedBytes, totalBytes FROM downloads").use { c ->
+        db.query("SELECT state, downloadedBytes, totalBytes, attempts FROM downloads").use { c ->
             assertTrue(c.moveToFirst())
             assertEquals("DONE", c.getString(0))
             assertEquals(0, c.getLong(1))
             assertEquals(-1, c.getLong(2))
+            assertEquals(0, c.getInt(3))
         }
     }
 

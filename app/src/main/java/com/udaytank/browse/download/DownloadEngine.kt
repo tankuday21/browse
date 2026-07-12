@@ -170,7 +170,7 @@ class DownloadEngine(
                 else -> listener.onStateChanged(id, "PAUSED")
             }
         } catch (e: IOException) {
-            listener.onStateChanged(id, "FAILED", e.message ?: "IO error")
+            listener.onStateChanged(id, "FAILED", "${e.javaClass.simpleName}: ${e.message}")
         } catch (e: Exception) {
             listener.onStateChanged(id, "FAILED", e.message ?: e.toString())
         } finally {

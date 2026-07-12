@@ -38,11 +38,17 @@ object DownloadScheduler {
         )
     }
 
-    /** Auto-resumes a download that FAILed with a network error, once connectivity returns. */
-    fun enqueueRetryOnReconnect(context: Context, downloadId: Long) {
+    /**
+     * Auto-resumes a download that FAILed with a transient (network) error, once connectivity
+     * returns. [attempts] (the count already recorded on the row, post-increment) drives a
+     * 30s/60s/120s backoff ladder so a flaky-but-still-connected network can't spin this in a
+     * tight loop - CONNECTED alone is satisfied immediately whenever the device is online.
+     */
+    fun enqueueRetryOnReconnect(context: Context, downloadId: Long, attempts: Int) {
         val request = OneTimeWorkRequestBuilder<StartDownloadWorker>()
             .setInputData(workDataOf(ID_KEY to downloadId))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setInitialDelay(30L * (1L shl attempts.coerceAtMost(3)), TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             "download-$downloadId",
@@ -61,6 +67,7 @@ object DownloadScheduler {
             if (id == -1L) return Result.failure()
 
             val dao = (applicationContext as BrowseApplication).database.downloadDao()
+            if (dao.getById(id) == null) return Result.success() // row deleted/cancelled - nothing to start
             dao.setState(id, "PENDING")
             applicationContext.startForegroundService(
                 DownloadService.intentFor(applicationContext, DownloadService.ACTION_START, id),

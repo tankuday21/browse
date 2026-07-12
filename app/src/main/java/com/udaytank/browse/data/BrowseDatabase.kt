@@ -36,6 +36,7 @@ abstract class BrowseDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `downloads` ADD COLUMN `segments` INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE `downloads` ADD COLUMN `segmentState` TEXT")
                 db.execSQL("ALTER TABLE `downloads` ADD COLUMN `error` TEXT")
+                db.execSQL("ALTER TABLE downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
             }
         }
 

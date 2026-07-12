@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +76,7 @@ fun BrowserScreen(
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
-    var notificationPermissionAsked by remember { mutableStateOf(false) }
+    var notificationPermissionAsked by rememberSaveable { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* proceed regardless of grant result */ }

@@ -393,4 +393,51 @@ class BrowserViewModelTest {
 
         assertEquals(listOf(7L), controller.cancelled)
     }
+
+    @Test
+    fun `onDeleteDownload cancels scheduled work before deleting the row`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "SCHEDULED",
+            )
+        )
+
+        vm.onDeleteDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(listOf(id), controller.cancelled)
+        assertTrue(downloadDao.entries.value.none { it.id == id })
+    }
+
+    @Test
+    fun `onRetryDownload resets attempts before starting`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "file.zip",
+                url = "https://a.com/file.zip",
+                createdAt = 0L,
+                state = "FAILED",
+                attempts = 2,
+            )
+        )
+
+        vm.onRetryDownload(id)
+        advanceUntilIdle()
+
+        assertEquals(0, downloadDao.entries.value.first { it.id == id }.attempts)
+        assertEquals(listOf(id), controller.started)
+    }
 }

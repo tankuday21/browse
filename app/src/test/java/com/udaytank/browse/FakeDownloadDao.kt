@@ -59,4 +59,16 @@ class FakeDownloadDao : DownloadDao {
 
     override suspend fun getActive(): List<DownloadEntry> =
         entries.value.filter { it.state == "RUNNING" || it.state == "PENDING" }
+
+    override suspend fun incrementAttempts(id: Long) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(attempts = it.attempts + 1) else it
+        }
+    }
+
+    override suspend fun resetAttempts(id: Long) {
+        entries.value = entries.value.map {
+            if (it.id == id) it.copy(attempts = 0) else it
+        }
+    }
 }

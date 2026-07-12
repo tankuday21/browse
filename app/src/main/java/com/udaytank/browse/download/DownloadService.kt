@@ -165,8 +165,17 @@ class DownloadService : Service() {
                         stopIfIdle()
                     }
                 }
-                if (state == "FAILED") {
-                    DownloadScheduler.enqueueRetryOnReconnect(applicationContext, id)
+                when (state) {
+                    "DONE" -> dao.resetAttempts(id)
+                    "FAILED" -> {
+                        dao.incrementAttempts(id)
+                        val entry = dao.getById(id)
+                        val attempts = entry?.attempts ?: Int.MAX_VALUE
+                        val transient = error != null && TRANSIENT_ERROR_PREFIXES.any { error.startsWith(it) }
+                        if (attempts < 3 && transient) {
+                            DownloadScheduler.enqueueRetryOnReconnect(applicationContext, id, attempts)
+                        }
+                    }
                 }
             }
         }
@@ -283,6 +292,20 @@ class DownloadService : Service() {
         const val EXTRA_ID = "com.udaytank.browse.download.extra.ID"
         private const val CHANNEL_ID = "downloads"
         private const val SUMMARY_NOTIFICATION_ID = Int.MAX_VALUE
+
+        /**
+         * Error simpleName prefixes (see DownloadEngine's "SimpleName: message" FAILED payload)
+         * that indicate a transient network problem worth auto-retrying on reconnect. Anything
+         * else (404, disk-full IOException, etc.) is treated as permanent - retrying it in a
+         * loop every time CONNECTED is satisfied would never succeed.
+         */
+        private val TRANSIENT_ERROR_PREFIXES = listOf(
+            "UnknownHostException",
+            "SocketTimeoutException",
+            "ConnectException",
+            "SocketException",
+            "NoRouteToHostException",
+        )
 
         fun intentFor(context: Context, action: String, id: Long): Intent =
             Intent(context, DownloadService::class.java).apply {

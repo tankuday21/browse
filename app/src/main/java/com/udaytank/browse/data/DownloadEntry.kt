@@ -20,4 +20,5 @@ data class DownloadEntry(
     val segments: Int = 1,
     val segmentState: String? = null,   // JSON: per-segment downloaded bytes
     val error: String? = null,
+    val attempts: Int = 0,
 )

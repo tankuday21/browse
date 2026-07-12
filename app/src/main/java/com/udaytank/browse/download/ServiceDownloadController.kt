@@ -1,6 +1,7 @@
 package com.udaytank.browse.download
 
 import android.content.Context
+import androidx.work.WorkManager
 import com.udaytank.browse.DownloadController
 import com.udaytank.browse.DownloadWhen
 
@@ -24,6 +25,10 @@ class ServiceDownloadController(private val context: Context) : DownloadControll
     }
 
     override fun cancel(id: Long) {
+        // Cancel any WorkManager-scheduled start/retry for this id first - otherwise a
+        // Wi-Fi/delayed schedule or a retry-on-reconnect can fire after the row (and its file)
+        // are gone, resurrecting a "cancelled" download.
+        WorkManager.getInstance(context).cancelUniqueWork("download-$id")
         context.startService(DownloadService.intentFor(context, DownloadService.ACTION_CANCEL, id))
     }
 }

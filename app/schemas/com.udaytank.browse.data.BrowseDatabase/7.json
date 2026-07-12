@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 7,
-    "identityHash": "22a942bf0ecaa2228294985515199f83",
+    "identityHash": "71855a096779f5daac26fcfb8041aada",
     "entities": [
       {
         "tableName": "history",
@@ -166,7 +166,7 @@
       },
       {
         "tableName": "downloads",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `downloadId` INTEGER NOT NULL, `fileName` TEXT NOT NULL, `url` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `downloadedBytes` INTEGER NOT NULL, `state` TEXT NOT NULL, `filePath` TEXT, `mimeType` TEXT, `etag` TEXT, `segments` INTEGER NOT NULL, `segmentState` TEXT, `error` TEXT)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `downloadId` INTEGER NOT NULL, `fileName` TEXT NOT NULL, `url` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `totalBytes` INTEGER NOT NULL, `downloadedBytes` INTEGER NOT NULL, `state` TEXT NOT NULL, `filePath` TEXT, `mimeType` TEXT, `etag` TEXT, `segments` INTEGER NOT NULL, `segmentState` TEXT, `error` TEXT, `attempts` INTEGER NOT NULL)",
         "fields": [
           {
             "fieldPath": "id",
@@ -251,6 +251,12 @@
             "columnName": "error",
             "affinity": "TEXT",
             "notNull": false
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -342,7 +348,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '22a942bf0ecaa2228294985515199f83')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '71855a096779f5daac26fcfb8041aada')"
     ]
   }
 }

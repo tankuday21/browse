@@ -599,6 +599,7 @@ class BrowserViewModel(
     fun onDownloadPromptDismissed() = _uiState.update { it.copy(downloadPrompt = null) }
 
     fun onDeleteDownload(id: Long) {
+        downloadController.cancel(id)
         viewModelScope.launch {
             downloadDao.getById(id)?.filePath?.let { path ->
                 runCatching { java.io.File(path).delete() }
@@ -646,6 +647,7 @@ class BrowserViewModel(
 
     fun onRetryDownload(id: Long) {
         viewModelScope.launch {
+            downloadDao.resetAttempts(id)
             downloadDao.setState(id, "PENDING")
             downloadController.startDownload(id)
         }

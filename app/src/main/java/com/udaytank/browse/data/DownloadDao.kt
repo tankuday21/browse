@@ -33,4 +33,10 @@ interface DownloadDao {
 
     @Query("SELECT * FROM downloads WHERE state IN ('RUNNING','PENDING')")
     suspend fun getActive(): List<DownloadEntry>
+
+    @Query("UPDATE downloads SET attempts = attempts + 1 WHERE id = :id")
+    suspend fun incrementAttempts(id: Long)
+
+    @Query("UPDATE downloads SET attempts = 0 WHERE id = :id")
+    suspend fun resetAttempts(id: Long)
 }
