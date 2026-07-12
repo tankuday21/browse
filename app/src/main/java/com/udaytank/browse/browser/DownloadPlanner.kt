@@ -11,13 +11,13 @@ object DownloadPlanner {
     }
 
     fun plan(totalBytes: Long, count: Int): List<Segment> {
-        val safeCount = if (count < 1) 1 else count
+        val effective = minOf(count.coerceAtLeast(1).toLong(), totalBytes.coerceAtLeast(1)).toInt()
         val lastByte = totalBytes - 1
-        val baseSize = totalBytes / safeCount
+        val baseSize = totalBytes / effective
         val segments = mutableListOf<Segment>()
         var start = 0L
-        for (i in 0 until safeCount) {
-            val end = if (i == safeCount - 1) lastByte else start + baseSize - 1
+        for (i in 0 until effective) {
+            val end = if (i == effective - 1) lastByte else start + baseSize - 1
             segments.add(Segment(index = i, start = start, endInclusive = end))
             start = end + 1
         }

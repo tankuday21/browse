@@ -38,4 +38,20 @@ class DownloadPlannerTest {
         assertEquals(listOf(0L, 0L, 0L), DownloadPlanner.decodeState("garbage", planned).map { it.downloaded })
         assertEquals(listOf(0L, 0L, 0L), DownloadPlanner.decodeState(null, planned).map { it.downloaded })
     }
+
+    @Test fun `plan clamps segment count to total bytes`() {
+        val segs = DownloadPlanner.plan(3, 6)
+        assertEquals(3, segs.size)
+        assertTrue(segs.all { it.start <= it.endInclusive })
+        assertEquals(0, segs.first().start)
+        assertEquals(2, segs.last().endInclusive)
+    }
+
+    @Test fun `decode clamps overflowing downloaded to segment length`() {
+        val planned = DownloadPlanner.plan(300, 3)
+        val decoded = DownloadPlanner.decodeState("0:999999,1:5,2:0", planned)
+        val seg0Len = planned[0].endInclusive - planned[0].start + 1
+        assertEquals(seg0Len, decoded[0].downloaded)
+        assertEquals(5L, decoded[1].downloaded)
+    }
 }
