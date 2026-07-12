@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.udaytank.browse.browser.TabBadge
 import com.udaytank.browse.ui.theme.Orbit
 
 /**
@@ -122,7 +123,7 @@ fun CommandBar(
                     }
                     IconButton(onClick = onOpenTabs) {
                         Text(
-                            text = "$tabCount",
+                            text = TabBadge.label(tabCount),
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier
                                 .border(1.5.dp, LocalContentColor.current, RoundedCornerShape(6.dp))
