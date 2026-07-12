@@ -1,7 +1,12 @@
 package com.udaytank.browse.ui
 
+import android.Manifest
+import android.os.Build
 import android.webkit.WebView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,10 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -42,6 +50,7 @@ import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.data.ReaderTheme
+import com.udaytank.browse.reading.ReadAloudService
 
 /**
  * A distraction-free reader: extracts the active tab's article and renders
@@ -102,18 +111,76 @@ fun ReaderOverlay(
                     }
                 },
             )
-            ReaderControls(
-                fontScale = fontScale,
-                theme = theme,
-                wide = wide,
-                onFontScale = viewModel::onReaderFontScaleChanged,
-                onTheme = viewModel::onReaderThemeSelected,
-                onWide = viewModel::onReaderWideToggled,
+            val context = LocalContext.current
+            val ensureNotificationPermission = rememberNotificationPermissionRequest()
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 // Clear of the floating command bar at the bottom of the browser screen.
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 120.dp),
-            )
+            ) {
+                if (current != null) {
+                    ListenPill(onClick = {
+                        ensureNotificationPermission()
+                        // Live-page read-aloud (incognito included: explicit user action;
+                        // the notification only ever names this title). Content is handed
+                        // over via the service's read-once static holder - no DB row.
+                        ReadAloudService.playPending(context, current.title, current.content)
+                    })
+                }
+                ReaderControls(
+                    fontScale = fontScale,
+                    theme = theme,
+                    wide = wide,
+                    onFontScale = viewModel::onReaderFontScaleChanged,
+                    onTheme = viewModel::onReaderThemeSelected,
+                    onWide = viewModel::onReaderWideToggled,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Floating "Listen" pill starting [ReadAloudService]. Shared by the live
+ * reader overlay (pending-content handoff) and the reading list's
+ * saved-article reader (by row id).
+ */
+@Composable
+fun ListenPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shadowElevation = 4.dp,
+        modifier = modifier,
+    ) {
+        Icon(
+            Icons.Filled.Headphones,
+            contentDescription = "Listen",
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        )
+    }
+}
+
+/**
+ * One-shot POST_NOTIFICATIONS ask (same pattern as the download prompt in
+ * BrowserScreen): returns a callback to invoke right before starting a
+ * foreground service. Denial is fine - the service runs regardless, the
+ * media notification just stays hidden.
+ */
+@Composable
+fun rememberNotificationPermissionRequest(): () -> Unit {
+    var asked by rememberSaveable { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* proceed regardless of grant result */ }
+    return {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !asked) {
+            asked = true
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }

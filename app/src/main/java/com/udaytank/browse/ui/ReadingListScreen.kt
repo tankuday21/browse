@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OfflinePin
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -61,6 +63,7 @@ import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ReadingListEntry
+import com.udaytank.browse.reading.ReadAloudService
 import kotlinx.coroutines.launch
 
 /** "Just now", "5 min. ago", "Yesterday"… via the framework's relative formatter. */
@@ -83,6 +86,8 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
         return
     }
 
+    val context = LocalContext.current
+    val ensureNotificationPermission = rememberNotificationPermissionRequest()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -90,6 +95,20 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // Podcast mode: read every unread article aloud, oldest first.
+                    if (entries.any { it.readAt == null }) {
+                        IconButton(onClick = {
+                            ensureNotificationPermission()
+                            ReadAloudService.playAllUnread(context)
+                        }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistPlay,
+                                contentDescription = "Play all unread",
+                            )
+                        }
                     }
                 },
             )
@@ -316,17 +335,29 @@ private fun SavedArticleReader(
                     }
                 },
             )
-            ReaderControls(
-                fontScale = fontScale,
-                theme = theme,
-                wide = wide,
-                onFontScale = viewModel::onReaderFontScaleChanged,
-                onTheme = viewModel::onReaderThemeSelected,
-                onWide = viewModel::onReaderWideToggled,
+            val context = LocalContext.current
+            val ensureNotificationPermission = rememberNotificationPermissionRequest()
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(16.dp),
-            )
+            ) {
+                if (content != null) {
+                    ListenPill(onClick = {
+                        ensureNotificationPermission()
+                        ReadAloudService.playArticle(context, entry.id)
+                    })
+                }
+                ReaderControls(
+                    fontScale = fontScale,
+                    theme = theme,
+                    wide = wide,
+                    onFontScale = viewModel::onReaderFontScaleChanged,
+                    onTheme = viewModel::onReaderThemeSelected,
+                    onWide = viewModel::onReaderWideToggled,
+                )
+            }
         }
     }
 }
