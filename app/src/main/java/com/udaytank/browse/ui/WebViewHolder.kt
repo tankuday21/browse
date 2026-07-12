@@ -55,6 +55,24 @@ class WebViewHolder(
     private val webViews = mutableMapOf<Long, WebView>()
     private var jsEnabled = true
 
+    /**
+     * Tabs exempted from the background-media-playback opt-in from being paused when the app
+     * backgrounds. Nothing in this holder currently pauses WebViews on its own (Activity lifecycle
+     * changes don't call WebView.onPause/onResume anywhere in this codebase) - this set exists so
+     * MainActivity's background-media wiring (see MainActivity.onStop) has a place to record which
+     * tab must keep running, and any future pause-all path added here can consult it.
+     */
+    private val keepAliveTabs = mutableSetOf<Long>()
+
+    fun setKeepAlive(tabId: Long, keep: Boolean) {
+        if (keep) keepAliveTabs.add(tabId) else keepAliveTabs.remove(tabId)
+    }
+
+    fun isKeptAlive(tabId: Long): Boolean = tabId in keepAliveTabs
+
+    /** The live WebView for [tabId], if one has been created via [obtain]. */
+    fun activeWebView(tabId: Long): WebView? = webViews[tabId]
+
     val thumbnails = ThumbnailStore(context)
 
     @Volatile

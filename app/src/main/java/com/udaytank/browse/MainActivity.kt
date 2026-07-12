@@ -37,6 +37,10 @@ class MainActivity : FragmentActivity() {
 
     private val viewModel: BrowserViewModel by viewModels { BrowserViewModel.Factory }
 
+    /** Set once the composable creates its [WebViewHolder]; used from onStop/onStart, which run
+     *  outside the compose tree. */
+    private var webViewHolder: WebViewHolder? = null
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleWebIntent(intent)
@@ -48,6 +52,46 @@ class MainActivity : FragmentActivity() {
         if (viewModel.lockIncognito.value && viewModel.tabs.value.any { it.isIncognito }) {
             viewModel.onIncognitoLocked()
         }
+        maybeKeepBackgroundMediaAlive()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        com.udaytank.browse.media.MediaHoldService.stop(this)
+        val tabId = viewModel.activeTabId.value
+        if (tabId != null) webViewHolder?.setKeepAlive(tabId, false)
+    }
+
+    /**
+     * Experimental background media playback (per-site opt-in, G3). Honest limits: this only
+     * gives the OS a foreground-service reason to keep the process around and gives the user a
+     * visible notification/control surface - an OEM battery manager (or the OS under memory
+     * pressure) can still kill the process regardless. There is no existing "pause all WebViews
+     * on background" path in this app (Activity lifecycle changes never call WebView.onPause), so
+     * there is nothing to skip here beyond marking the tab exempt for if/when such a path is added.
+     */
+    private fun maybeKeepBackgroundMediaAlive() {
+        if (!viewModel.backgroundMedia.value) return
+        val tabId = viewModel.activeTabId.value ?: return
+        val url = viewModel.uiState.value.currentUrl ?: return
+        if (!(url.startsWith("http://") || url.startsWith("https://"))) return
+        val host = android.net.Uri.parse(url).host ?: return
+        if (host !in viewModel.backgroundMediaSites.value) return
+        val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        if (!audioManager.isMusicActive) return
+        val holder = webViewHolder ?: return
+
+        holder.setKeepAlive(tabId, true)
+        com.udaytank.browse.media.MediaHoldService.controller = {
+            holder.activeWebView(tabId)?.evaluateJavascript(
+                "document.querySelectorAll('video,audio').forEach(m=>m.paused?m.play():m.pause())",
+                null,
+            )
+        }
+        com.udaytank.browse.media.MediaHoldService.onStopped = {
+            holder.setKeepAlive(tabId, false)
+        }
+        com.udaytank.browse.media.MediaHoldService.start(this, tabId, host)
     }
 
     fun promptBiometricUnlock() {
@@ -142,7 +186,7 @@ class MainActivity : FragmentActivity() {
 
                         override fun onTitleUpdated(tabId: Long, url: String, title: String) =
                             viewModel.onTitleUpdated(tabId, url, title)
-                    }).also { holderRef[0] = it }
+                    }).also { holderRef[0] = it; webViewHolder = it }
                 }
                 DisposableEffect(Unit) {
                     onDispose { holder.destroyAll() }

@@ -154,6 +154,27 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setUseSystemDownloader(enabled) }
     }
 
+    /** Global opt-in for the experimental background-media-playback feature. */
+    val backgroundMedia: StateFlow<Boolean> = settings.backgroundMedia
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onBackgroundMediaToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setBackgroundMedia(enabled) }
+    }
+
+    /** Hosts the user has explicitly allowed to keep playing media in the background. */
+    val backgroundMediaSites: StateFlow<Set<String>> = settings.backgroundMediaSites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Toggles the active tab's host in the background-media allowlist. */
+    fun onToggleBackgroundMediaForCurrentSite() {
+        val host = currentHost() ?: return
+        viewModelScope.launch {
+            val current = backgroundMediaSites.value
+            settings.setBackgroundMediaSites(if (host in current) current - host else current + host)
+        }
+    }
+
     val lockIncognito: StateFlow<Boolean> = settings.lockIncognito
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -205,6 +226,14 @@ class BrowserViewModel(
 
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
+
+    /** Whether the active tab's current host is in [backgroundMediaSites]. */
+    val currentSiteBackgroundAllowed: StateFlow<Boolean> = combine(
+        uiState, backgroundMediaSites,
+    ) { state, sites ->
+        val host = state.currentUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+        host != null && host in sites
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val historyEntries: StateFlow<List<HistoryEntry>> = historyDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

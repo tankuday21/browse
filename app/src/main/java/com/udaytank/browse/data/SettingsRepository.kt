@@ -42,6 +42,10 @@ interface SettingsRepository {
     suspend fun setSwitcherListLayout(enabled: Boolean)
     val useSystemDownloader: Flow<Boolean>
     suspend fun setUseSystemDownloader(enabled: Boolean)
+    val backgroundMedia: Flow<Boolean>
+    suspend fun setBackgroundMedia(enabled: Boolean)
+    val backgroundMediaSites: Flow<Set<String>>
+    suspend fun setBackgroundMediaSites(sites: Set<String>)
 }
 
 class DataStoreSettingsRepository(
@@ -110,6 +114,22 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[USE_SYSTEM_DOWNLOADER_KEY] = enabled }
     }
 
+    override val backgroundMedia: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[BACKGROUND_MEDIA_KEY] ?: false
+    }
+
+    override suspend fun setBackgroundMedia(enabled: Boolean) {
+        dataStore.edit { it[BACKGROUND_MEDIA_KEY] = enabled }
+    }
+
+    override val backgroundMediaSites: Flow<Set<String>> = dataStore.data.map { prefs ->
+        prefs[BACKGROUND_MEDIA_SITES_KEY] ?: emptySet()
+    }
+
+    override suspend fun setBackgroundMediaSites(sites: Set<String>) {
+        dataStore.edit { it[BACKGROUND_MEDIA_SITES_KEY] = sites }
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
     }
@@ -159,5 +179,7 @@ class DataStoreSettingsRepository(
         val AUTO_ISLANDS_KEY = booleanPreferencesKey("auto_islands")
         val SWITCHER_LIST_LAYOUT_KEY = booleanPreferencesKey("switcher_list_layout")
         val USE_SYSTEM_DOWNLOADER_KEY = booleanPreferencesKey("use_system_downloader")
+        val BACKGROUND_MEDIA_KEY = booleanPreferencesKey("background_media")
+        val BACKGROUND_MEDIA_SITES_KEY = stringSetPreferencesKey("background_media_sites")
     }
 }

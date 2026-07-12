@@ -462,4 +462,22 @@ class BrowserViewModelTest {
         assertEquals(listOf(99L), removedIds)
         assertTrue(downloadDao.entries.value.none { it.id == id })
     }
+
+    @Test
+    fun `onToggleBackgroundMediaForCurrentSite adds then removes host`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://bbc.com/news")
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+        assertTrue("bbc.com" in vm.backgroundMediaSites.value)
+        assertTrue(vm.currentSiteBackgroundAllowed.value)
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+        assertFalse("bbc.com" in vm.backgroundMediaSites.value)
+        assertFalse(vm.currentSiteBackgroundAllowed.value)
+    }
 }

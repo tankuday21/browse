@@ -55,6 +55,7 @@ fun SettingsScreen(
     val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
+    val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -188,6 +189,26 @@ fun SettingsScreen(
                 Text("Group tabs opened from links", modifier = Modifier.weight(1f))
                 Switch(checked = autoIslands, onCheckedChange = viewModel::onAutoIslandsToggled)
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Media",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Background playback (experimental)", modifier = Modifier.weight(1f))
+                Switch(checked = backgroundMedia, onCheckedChange = viewModel::onBackgroundMediaToggled)
+            }
+            Text(
+                "Allow per site from the page menu. May be stopped by battery savers.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 "Privacy",

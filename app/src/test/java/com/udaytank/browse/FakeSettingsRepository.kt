@@ -64,4 +64,14 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setUseSystemDownloader(enabled: Boolean) {
         useSystemDownloader.value = enabled
     }
+
+    override val backgroundMedia = MutableStateFlow(false)
+    override suspend fun setBackgroundMedia(enabled: Boolean) {
+        backgroundMedia.value = enabled
+    }
+
+    override val backgroundMediaSites = MutableStateFlow<Set<String>>(emptySet())
+    override suspend fun setBackgroundMediaSites(sites: Set<String>) {
+        backgroundMediaSites.value = sites
+    }
 }

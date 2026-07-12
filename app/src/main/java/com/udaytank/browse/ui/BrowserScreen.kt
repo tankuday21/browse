@@ -91,6 +91,9 @@ fun BrowserScreen(
     val permissionPrompt by viewModel.permissionPrompt.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
+    val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+    val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
+    val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
 
     LaunchedEffect(isEditing) {
         if (!isEditing) viewModel.onSuggestionsDismissed()
@@ -319,6 +322,20 @@ fun BrowserScreen(
                         text = { Text("Settings") },
                         onClick = { onOpenSettings(); menuOpen = false },
                     )
+                    if (backgroundMedia && currentUrlIsHttp) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (currentSiteBackgroundAllowed) "Stop background play for this site"
+                                    else "Play in background on this site"
+                                )
+                            },
+                            onClick = {
+                                viewModel.onToggleBackgroundMediaForCurrentSite()
+                                menuOpen = false
+                            },
+                        )
+                    }
                     if (currentHost != null) {
                         HorizontalDivider()
                         DropdownMenuItem(
