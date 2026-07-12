@@ -26,4 +26,20 @@ class FakeTabDao : TabDao {
     override suspend fun updateContent(id: Long, url: String, title: String) {
         stored.replaceAll { if (it.id == id) it.copy(url = url, title = title) else it }
     }
+
+    override suspend fun setGroup(id: Long, groupId: Long?) {
+        stored.replaceAll { if (it.id == id) it.copy(groupId = groupId) else it }
+    }
+
+    override suspend fun setPinned(id: Long, pinned: Boolean) {
+        stored.replaceAll { if (it.id == id) it.copy(pinned = pinned) else it }
+    }
+
+    override suspend fun setLocked(id: Long, locked: Boolean) {
+        stored.replaceAll { if (it.id == id) it.copy(locked = locked) else it }
+    }
+
+    override suspend fun clearGroup(groupId: Long) {
+        stored.replaceAll { if (it.groupId == groupId) it.copy(groupId = null) else it }
+    }
 }
