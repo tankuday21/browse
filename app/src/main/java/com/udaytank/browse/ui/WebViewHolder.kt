@@ -18,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.View
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.udaytank.browse.browser.HttpsUpgrade
@@ -50,6 +51,8 @@ class WebViewHolder(
         fun onFindResult(tabId: Long, ordinal: Int, total: Int)
         fun onPermissionRequest(request: PermissionRequestInfo)
         fun onTitleUpdated(tabId: Long, url: String, title: String)
+        /** [view] on entering fullscreen (e.g. HTML5 video), null when it's dismissed. */
+        fun onFullscreenVideo(view: View?)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -86,6 +89,25 @@ class WebViewHolder(
 
     /** Hosts the user has granted a given permission for this session. */
     private val grantedPermissions = HashSet<String>()
+
+    // Fullscreen video (HTML5 <video> fullscreen / WebChromeClient custom view). Only one tab
+    // can be in fullscreen at a time, so this lives on the holder rather than per-WebView.
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
+    /**
+     * App-initiated exit from fullscreen video (e.g. the user pressed back, or PiP was
+     * dismissed). Tells the WebView engine the custom view is gone and clears our state.
+     * Safe to call when nothing is in fullscreen (no-op).
+     */
+    fun exitFullscreen() {
+        val callback = customViewCallback
+        if (customView == null && callback == null) return
+        customView = null
+        customViewCallback = null
+        listener.onFullscreenVideo(null)
+        callback?.onCustomViewHidden()
+    }
 
     fun rememberPermissionGrant(host: String, resource: String) {
         grantedPermissions.add("$host|$resource")
@@ -283,6 +305,27 @@ class WebViewHolder(
                             deny = { callback.invoke(origin, false, false) },
                         )
                     )
+                }
+
+                override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                    // Chrome-style: if a custom view is already showing (rare - e.g. the page
+                    // swapped fullscreen elements without hiding the first one), hide it first.
+                    if (customView != null) {
+                        customViewCallback?.onCustomViewHidden()
+                    }
+                    customView = view
+                    customViewCallback = callback
+                    listener.onFullscreenVideo(view)
+                }
+
+                override fun onHideCustomView() {
+                    // Engine-initiated hide (e.g. the page itself exited fullscreen, or
+                    // navigated away). Mirrors exitFullscreen()'s bookkeeping but without
+                    // re-invoking the callback, which the engine has already consumed.
+                    if (customView == null) return
+                    customView = null
+                    customViewCallback = null
+                    listener.onFullscreenVideo(null)
                 }
             }
 

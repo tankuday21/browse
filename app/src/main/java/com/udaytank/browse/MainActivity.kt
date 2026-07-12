@@ -1,9 +1,15 @@
 package com.udaytank.browse
 
+import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
+import android.util.Rational
+import android.view.View
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.fragment.app.FragmentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -12,12 +18,24 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import com.udaytank.browse.ui.theme.Orbit
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.ui.SettingsScreen
@@ -40,6 +58,40 @@ class MainActivity : FragmentActivity() {
     /** Set once the composable creates its [WebViewHolder]; used from onStop/onStart, which run
      *  outside the compose tree. */
     private var webViewHolder: WebViewHolder? = null
+
+    /** Non-null while an HTML5 video (or other WebChromeClient custom view) is fullscreen.
+     *  Activity-scoped (not per-composition) state so the Compose tree, [onUserLeaveHint] and
+     *  [onPictureInPictureModeChanged] all see the same value. */
+    private var fullscreenVideoView by mutableStateOf<View?>(null)
+
+    /**
+     * Video went fullscreen while the user is leaving the app (e.g. Home button, recents) -
+     * enter Picture-in-Picture instead of just pausing/backgrounding the WebView.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (fullscreenVideoView != null) {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+            )
+        }
+    }
+
+    /**
+     * When PiP closes because the user dismissed the PiP window (swiped it away) rather than
+     * tapping back into the app, the activity won't be RESUMED again on its own - treat that as
+     * "the user is done with this video" and drop out of fullscreen. If they instead tapped the
+     * PiP window to expand back to the full app, the activity is resumed and we leave the video
+     * playing fullscreen as before.
+     */
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (!isInPictureInPictureMode && !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            webViewHolder?.exitFullscreen()
+        }
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -189,6 +241,10 @@ class MainActivity : FragmentActivity() {
 
                         override fun onTitleUpdated(tabId: Long, url: String, title: String) =
                             viewModel.onTitleUpdated(tabId, url, title)
+
+                        override fun onFullscreenVideo(view: View?) {
+                            fullscreenVideoView = view
+                        }
                     }).also { holderRef[0] = it; webViewHolder = it }
                 }
                 DisposableEffect(Unit) {
@@ -297,6 +353,37 @@ class MainActivity : FragmentActivity() {
                 val activeIsIncognito = tabs.find { it.id == activeId }?.isIncognito == true
                 if (locked && activeIsIncognito) {
                     IncognitoLockScreen(onUnlock = { promptBiometricUnlock() })
+                }
+
+                // Fullscreen HTML5 video (WebChromeClient custom view) - drawn above everything
+                // else, including the incognito lock screen, since it's the topmost content the
+                // user was already looking at.
+                val fullscreenView = fullscreenVideoView
+                LaunchedEffect(fullscreenView) {
+                    val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                    if (fullscreenView != null) {
+                        insetsController.systemBarsBehavior =
+                            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                    } else {
+                        insetsController.show(WindowInsetsCompat.Type.systemBars())
+                    }
+                }
+                if (fullscreenView != null) {
+                    BackHandler { holder.exitFullscreen() }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    ) {
+                        AndroidView(
+                            factory = {
+                                (fullscreenView.parent as? ViewGroup)?.removeView(fullscreenView)
+                                fullscreenView
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
