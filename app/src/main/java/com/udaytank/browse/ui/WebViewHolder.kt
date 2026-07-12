@@ -93,11 +93,11 @@ class WebViewHolder(
     }
 
     /**
-     * Tabs exempted from the background-media-playback opt-in from being paused when the app
-     * backgrounds. Nothing in this holder currently pauses WebViews on its own (Activity lifecycle
-     * changes don't call WebView.onPause/onResume anywhere in this codebase) - this set exists so
-     * MainActivity's background-media wiring (see MainActivity.onStop) has a place to record which
-     * tab must keep running, and any future pause-all path added here can consult it.
+     * Tabs exempted from being paused when the app backgrounds (the background-media-playback
+     * opt-in). [pauseAllExceptKeptAlive] pauses every OTHER tab's WebView on background so their
+     * media/JS stops (battery + correctness), while a kept-alive tab keeps running so its audio
+     * continues over the lock screen. We never call the process-global pauseTimers() — that would
+     * freeze the kept-alive tab too.
      */
     private val keepAliveTabs = mutableSetOf<Long>()
 
@@ -106,6 +106,60 @@ class WebViewHolder(
     }
 
     fun isKeptAlive(tabId: Long): Boolean = tabId in keepAliveTabs
+
+    /**
+     * App backgrounding / screen lock: pause every tab except those the user opted into
+     * background playback. A non-opted tab therefore stops on lock (matching the pre-feature
+     * expectation), while the opted-in tab plays on. Per-view onPause only — never the global
+     * pauseTimers().
+     */
+    fun pauseAllExceptKeptAlive() {
+        webViews.forEach { (tabId, webView) -> if (tabId !in keepAliveTabs) webView.onPause() }
+    }
+
+    /** Foreground again: resume every tab (onResume is a no-op on ones that were never paused). */
+    fun resumeAll() {
+        webViews.values.forEach { it.onResume() }
+    }
+
+    /**
+     * Bridge for the lock-screen media feature: the page's injected [MediaControl.MONITOR] calls
+     * these (on a WebView binder thread) to report playback state and track-ended. Set by
+     * MainActivity while a foreground media tab is active, nulled when it stops — so the JS
+     * interface (attached to every non-incognito tab) is inert unless the feature is running.
+     */
+    @Volatile
+    var mediaStateListener: ((title: String, playing: Boolean) -> Unit)? = null
+
+    @Volatile
+    var mediaEndedListener: (() -> Unit)? = null
+
+    /** Injects the one-time media monitor into a tab (opted-in, non-incognito; UI thread). */
+    fun startMediaMonitor(tabId: Long) {
+        webViews[tabId]?.evaluateJavascript(com.udaytank.browse.browser.MediaControl.MONITOR, null)
+    }
+
+    /** Runs a [MediaControl] transport snippet (play/pause/next/prev) on a tab (UI thread). */
+    fun runMediaCommand(tabId: Long, js: String) {
+        webViews[tabId]?.evaluateJavascript(js, null)
+    }
+
+    /**
+     * The JavascriptInterface the monitor reports through. Only our own methods, both
+     * @JavascriptInterface-annotated, exposing nothing sensitive; minSdk 26 makes the pre-17
+     * addJavascriptInterface vuln irrelevant. Never attached to incognito tabs.
+     */
+    private inner class MediaJsBridge {
+        @android.webkit.JavascriptInterface
+        fun onMediaState(title: String?, playing: Boolean) {
+            mediaStateListener?.invoke(title ?: "", playing)
+        }
+
+        @android.webkit.JavascriptInterface
+        fun onEnded() {
+            mediaEndedListener?.invoke()
+        }
+    }
 
     /** The live WebView for [tabId], if one has been created via [obtain]. */
     fun activeWebView(tabId: Long): WebView? = webViews[tabId]
@@ -388,6 +442,11 @@ class WebViewHolder(
                 }
             } else {
                 settings.domStorageEnabled = true
+                // Lock-screen media bridge (see MediaJsBridge). Only our own annotated methods are
+                // exposed and it stays inert until MainActivity sets the listeners for an opted-in
+                // foreground media tab. NEVER attached to incognito tabs — a private page must not
+                // report titles/state to the media session/notification.
+                addJavascriptInterface(MediaJsBridge(), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
             }
 
             // GPC JS shim (D5): registered once per WebView at creation, before any page loads.

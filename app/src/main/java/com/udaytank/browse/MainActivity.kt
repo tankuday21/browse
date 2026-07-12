@@ -113,29 +113,39 @@ class MainActivity : FragmentActivity() {
         if (viewModel.lockIncognito.value && viewModel.tabs.value.any { it.isIncognito }) {
             viewModel.onIncognitoLocked()
         }
+        // Marks the opted-in tab keep-alive (and starts the media session) BEFORE pausing the
+        // rest, so the tab we want to keep playing is already exempt when the pause sweep runs.
         maybeKeepBackgroundMediaAlive()
+        webViewHolder?.pauseAllExceptKeptAlive()
     }
 
     override fun onStart() {
         super.onStart()
+        webViewHolder?.resumeAll()
         com.udaytank.browse.media.MediaHoldService.stop(this)
         val tabId = viewModel.activeTabId.value
         if (tabId != null) webViewHolder?.setKeepAlive(tabId, false)
+        // Foreground again: the notification's controls take over, so drop the JS-monitor bridge.
+        webViewHolder?.mediaStateListener = null
+        webViewHolder?.mediaEndedListener = null
     }
 
     /**
-     * Experimental background media playback (per-site opt-in, G3). Honest limits: this only
-     * gives the OS a foreground-service reason to keep the process around and gives the user a
-     * visible notification/control surface - an OEM battery manager (or the OS under memory
-     * pressure) can still kill the process regardless. There is no existing "pause all WebViews
-     * on background" path in this app (Activity lifecycle changes never call WebView.onPause), so
-     * there is nothing to skip here beyond marking the tab exempt for if/when such a path is added.
+     * Experimental background media playback (per-site opt-in, G3). When the opted-in, non-incognito
+     * foreground tab is actually playing, this marks it keep-alive (so [WebViewHolder.pauseAllExceptKeptAlive]
+     * leaves it running), starts the foreground [MediaHoldService] with its real [BrowserMediaSession]
+     * for lock-screen controls, injects the JS media monitor for state reporting + auto-advance, and
+     * bridges the transport buttons to [MediaControl] JS commands on that tab.
+     *
+     * Honest limits: this only gives the OS a foreground-service reason to keep the process around
+     * and a visible control surface — an OEM battery manager (or the OS under memory pressure) can
+     * still kill the process regardless.
      */
     private fun maybeKeepBackgroundMediaAlive() {
         if (!viewModel.backgroundMedia.value) return
         val tabId = viewModel.activeTabId.value ?: return
-        // Never let an incognito tab trigger the service/notification, regardless of allowlist
-        // membership - the host itself must never surface outside the tab's private session.
+        // Never let an incognito tab trigger the service/notification/monitor, regardless of
+        // allowlist membership - the host/title must never surface outside the private session.
         if (viewModel.tabs.value.find { it.id == tabId }?.isIncognito == true) return
         val url = viewModel.uiState.value.currentUrl ?: return
         if (!(url.startsWith("http://") || url.startsWith("https://"))) return
@@ -146,16 +156,33 @@ class MainActivity : FragmentActivity() {
         val holder = webViewHolder ?: return
 
         holder.setKeepAlive(tabId, true)
+        val appContext = applicationContext
         com.udaytank.browse.media.MediaHoldService.controller = {
-            holder.activeWebView(tabId)?.evaluateJavascript(
-                "document.querySelectorAll('video,audio').forEach(m=>m.paused?m.play():m.pause())",
-                null,
-            )
+            holder.runMediaCommand(tabId, com.udaytank.browse.browser.MediaControl.PLAY_PAUSE)
+        }
+        com.udaytank.browse.media.MediaHoldService.onNext = {
+            holder.runMediaCommand(tabId, com.udaytank.browse.browser.MediaControl.NEXT)
+        }
+        com.udaytank.browse.media.MediaHoldService.onPrevious = {
+            holder.runMediaCommand(tabId, com.udaytank.browse.browser.MediaControl.PREVIOUS)
         }
         com.udaytank.browse.media.MediaHoldService.onStopped = {
             holder.setKeepAlive(tabId, false)
+            holder.mediaStateListener = null
+            holder.mediaEndedListener = null
         }
-        com.udaytank.browse.media.MediaHoldService.start(this, tabId, host)
+        // Page monitor -> session/notification. Bridge callbacks arrive on a WebView binder
+        // thread; startService is thread-safe, so forward straight through.
+        holder.mediaStateListener = { title, playing ->
+            com.udaytank.browse.media.MediaHoldService.updateState(appContext, title, playing)
+        }
+        holder.mediaEndedListener = {
+            // The monitor's own `ended` handler clicks "next"; native side just refreshes state.
+        }
+        holder.startMediaMonitor(tabId)
+
+        val title = viewModel.tabs.value.find { it.id == tabId }?.title.orEmpty()
+        com.udaytank.browse.media.MediaHoldService.start(this, tabId, host, title)
     }
 
     fun promptBiometricUnlock() {
