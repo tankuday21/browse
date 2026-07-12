@@ -120,4 +120,9 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setTextScale(percent: Int) {
         textScale.value = percent.coerceIn(50, 200)
     }
+
+    override val asteroidHighScore = MutableStateFlow(0)
+    override suspend fun setAsteroidHighScore(score: Int) {
+        asteroidHighScore.value = score.coerceAtLeast(0)
+    }
 }

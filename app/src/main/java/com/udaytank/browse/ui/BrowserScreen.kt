@@ -68,6 +68,7 @@ import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.ui.components.CommandBar
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.SuggestionsPanel
+import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,6 +94,12 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var siteSheetOpen by remember { mutableStateOf(false) }
+    // K1: the asteroid game over the connectivity-error page. Closes itself if the error
+    // clears underneath it (e.g. a background retry succeeded).
+    var gameOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(state.pageError) {
+        if (state.pageError == null) gameOpen = false
+    }
     var notificationPermissionAsked by rememberSaveable { mutableStateOf(false) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -217,6 +224,18 @@ fun BrowserScreen(
                             modifier = Modifier.padding(top = 24.dp),
                         ) {
                             Text("Try again")
+                        }
+                        if (isConnectivityError(errorDescription)) {
+                            TextButton(
+                                onClick = { gameOpen = true },
+                                modifier = Modifier.padding(top = 8.dp),
+                            ) {
+                                Text(
+                                    "🚀 Lost in space? Tap to play",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -768,8 +787,28 @@ fun BrowserScreen(
                 ) { Text("Clear for this site") }
             }
         }
+
+        // ── K1: asteroid game, full-screen over the connectivity-error page ──
+        // Composed last so its BackHandler wins and it draws above everything in this Box.
+        if (gameOpen) {
+            val asteroidHighScore by viewModel.asteroidHighScore.collectAsStateWithLifecycle()
+            AsteroidGame(
+                highScore = asteroidHighScore,
+                onScore = viewModel::onAsteroidScore,
+                onExit = { gameOpen = false },
+            )
+        }
     }
 }
+
+/**
+ * True for connectivity-class page errors (offline, DNS, and other net:: engine failures) —
+ * the only error class that offers the asteroid game (K1).
+ */
+private fun isConnectivityError(description: String): Boolean =
+    description.contains("ERR_INTERNET_DISCONNECTED") ||
+        description.contains("ERR_NAME_NOT_RESOLVED") ||
+        description.contains("net::ERR_")
 
 /** Default / On / Off chip row for one tri-state site override (-1 / 1 / 0). */
 @Composable

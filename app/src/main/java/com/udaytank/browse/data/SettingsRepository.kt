@@ -74,6 +74,9 @@ interface SettingsRepository {
     /** Global page text scale in percent (I3), clamped 50..200. Site overrides win. */
     val textScale: Flow<Int>
     suspend fun setTextScale(percent: Int)
+    /** Best score in the offline-page asteroid game (K1). Never negative. */
+    val asteroidHighScore: Flow<Int>
+    suspend fun setAsteroidHighScore(score: Int)
 }
 
 class DataStoreSettingsRepository(
@@ -200,6 +203,14 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[TEXT_SCALE_KEY] = percent.coerceIn(50, 200) }
     }
 
+    override val asteroidHighScore: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[ASTEROID_HIGH_SCORE_KEY] ?: 0
+    }
+
+    override suspend fun setAsteroidHighScore(score: Int) {
+        dataStore.edit { it[ASTEROID_HIGH_SCORE_KEY] = score.coerceAtLeast(0) }
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
     }
@@ -292,5 +303,6 @@ class DataStoreSettingsRepository(
         val READER_WIDE_KEY = booleanPreferencesKey("reader_wide")
         val ONBOARDING_DONE_KEY = booleanPreferencesKey("onboarding_done")
         val TEXT_SCALE_KEY = intPreferencesKey("text_scale")
+        val ASTEROID_HIGH_SCORE_KEY = intPreferencesKey("asteroid_high_score")
     }
 }

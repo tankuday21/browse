@@ -389,6 +389,16 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setTextScale(percent) }
     }
 
+    /** Best asteroid-game score (K1), shown on the game-over overlay. */
+    val asteroidHighScore: StateFlow<Int> = settings.asteroidHighScore
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** End-of-run report from the asteroid game: persists only a new personal best. */
+    fun onAsteroidScore(score: Int) {
+        if (score <= asteroidHighScore.value) return
+        viewModelScope.launch { settings.setAsteroidHighScore(score) }
+    }
+
     // --- per-site display memory (H6) ---
 
     /**
