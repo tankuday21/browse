@@ -5,7 +5,7 @@ import android.content.Context
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
 import com.udaytank.browse.browser.AdBlockEngine
-import com.udaytank.browse.browser.FilterListParser
+import com.udaytank.browse.browser.adblock.AbpParser
 import com.udaytank.browse.data.BrowseDatabase
 import com.udaytank.browse.data.DataStoreSettingsRepository
 import com.udaytank.browse.data.SettingsRepository
@@ -34,11 +34,11 @@ class BrowseApplication : Application() {
         super.onCreate()
         appScope.launch {
             val text = assets.open("adblock/easylist.txt").bufferedReader().use { it.readText() }
-            adBlockEngine.load(FilterListParser.parse(text))
+            adBlockEngine.load(AbpParser.parse(text))
         }
         appScope.launch {
             val text = assets.open("adblock/annoyance-cookies.txt").bufferedReader().use { it.readText() }
-            annoyanceEngine.load(FilterListParser.parse(text))
+            annoyanceEngine.load(AbpParser.parse(text))
         }
         appScope.launch {
             // The download engine lives in this process: at process start no download
