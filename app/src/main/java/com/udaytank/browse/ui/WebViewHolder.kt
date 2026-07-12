@@ -45,6 +45,7 @@ class WebViewHolder(
         fun onRequestBlocked(tabId: Long)
         fun onLongPress(tabId: Long, url: String, isImage: Boolean)
         fun onDownloadStarted(downloadId: Long, fileName: String, url: String)
+        fun onDownloadRequested(url: String, fileName: String, mimeType: String?, userAgent: String?)
         fun onPageError(tabId: Long, description: String)
         fun onFindResult(tabId: Long, ordinal: Int, total: Int)
         fun onPermissionRequest(request: PermissionRequestInfo)
@@ -61,6 +62,9 @@ class WebViewHolder(
 
     @Volatile
     var httpsOnly: Boolean = false
+
+    @Volatile
+    var useSystemDownloader: Boolean = false
 
     /** Hosts the user has granted a given permission for this session. */
     private val grantedPermissions = HashSet<String>()
@@ -306,6 +310,10 @@ class WebViewHolder(
             return
         }
         val fileName = URLUtil.guessFileName(url, contentDisposition, mimetype)
+        if (!useSystemDownloader) {
+            listener.onDownloadRequested(url, fileName, mimetype, userAgent)
+            return
+        }
         val request = DownloadManager.Request(Uri.parse(url)).apply {
             setMimeType(mimetype)
             addRequestHeader("Cookie", CookieManager.getInstance().getCookie(url))

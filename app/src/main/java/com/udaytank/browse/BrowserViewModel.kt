@@ -49,6 +49,14 @@ import kotlinx.coroutines.launch
 
 data class LinkContextMenu(val url: String, val isImage: Boolean)
 
+/** A download the engine wants user confirmation for before it starts. */
+data class DownloadPrompt(
+    val url: String,
+    val fileName: String,
+    val mimeType: String?,
+    val userAgent: String?,
+)
+
 /** When a requested download should actually run. */
 enum class DownloadWhen { NOW, WIFI, LATER_1H }
 
@@ -81,6 +89,7 @@ data class BrowserUiState(
     val contextMenu: LinkContextMenu? = null,
     val pageError: String? = null,
     val confirmCloseTabId: Long? = null,
+    val downloadPrompt: DownloadPrompt? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -130,6 +139,13 @@ class BrowserViewModel(
 
     fun onHttpsOnlyToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setHttpsOnly(enabled) }
+    }
+
+    val useSystemDownloader: StateFlow<Boolean> = settings.useSystemDownloader
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onUseSystemDownloaderToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setUseSystemDownloader(enabled) }
     }
 
     val lockIncognito: StateFlow<Boolean> = settings.lockIncognito
@@ -574,6 +590,13 @@ class BrowserViewModel(
             )
         }
     }
+
+    /** Called from the download listener when the engine (non-system-downloader path) wants to start a download. */
+    fun onDownloadRequested(url: String, fileName: String, mimeType: String?, userAgent: String?) {
+        _uiState.update { it.copy(downloadPrompt = DownloadPrompt(url, fileName, mimeType, userAgent)) }
+    }
+
+    fun onDownloadPromptDismissed() = _uiState.update { it.copy(downloadPrompt = null) }
 
     fun onDeleteDownload(id: Long) {
         viewModelScope.launch {

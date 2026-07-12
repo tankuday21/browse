@@ -296,6 +296,25 @@ class BrowserViewModelTest {
     // --- downloads ---
 
     @Test
+    fun `onDownloadRequested sets prompt`() {
+        val vm = vm()
+        vm.onDownloadRequested("https://a.com/file.zip", "file.zip", "application/zip", "ua")
+        val prompt = vm.uiState.value.downloadPrompt
+        assertEquals("https://a.com/file.zip", prompt?.url)
+        assertEquals("file.zip", prompt?.fileName)
+        assertEquals("application/zip", prompt?.mimeType)
+        assertEquals("ua", prompt?.userAgent)
+    }
+
+    @Test
+    fun `dismiss clears prompt`() {
+        val vm = vm()
+        vm.onDownloadRequested("https://a.com/file.zip", "file.zip", null, null)
+        vm.onDownloadPromptDismissed()
+        assertNull(vm.uiState.value.downloadPrompt)
+    }
+
+    @Test
     fun `onStartDownload NOW inserts PENDING row and starts controller`() = runTest {
         val downloadDao = FakeDownloadDao()
         val controller = RecordingDownloadController()

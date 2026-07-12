@@ -165,6 +165,9 @@ class DownloadService : Service() {
                         stopIfIdle()
                     }
                 }
+                if (state == "FAILED") {
+                    DownloadScheduler.enqueueRetryOnReconnect(applicationContext, id)
+                }
             }
         }
 

@@ -124,6 +124,13 @@ class MainActivity : FragmentActivity() {
                         override fun onDownloadStarted(downloadId: Long, fileName: String, url: String) =
                             viewModel.onDownloadStarted(downloadId, fileName, url)
 
+                        override fun onDownloadRequested(
+                            url: String,
+                            fileName: String,
+                            mimeType: String?,
+                            userAgent: String?,
+                        ) = viewModel.onDownloadRequested(url, fileName, mimeType, userAgent)
+
                         override fun onPageError(tabId: Long, description: String) =
                             viewModel.onPageError(tabId, description)
 
@@ -146,6 +153,9 @@ class MainActivity : FragmentActivity() {
 
                 val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
                 LaunchedEffect(httpsOnly) { holder.httpsOnly = httpsOnly }
+
+                val useSystemDownloader by viewModel.useSystemDownloader.collectAsStateWithLifecycle()
+                LaunchedEffect(useSystemDownloader) { holder.useSystemDownloader = useSystemDownloader }
 
                 val jsEnabled by viewModel.javaScriptEnabled.collectAsStateWithLifecycle()
                 val cookiesEnabled by viewModel.cookiesEnabled.collectAsStateWithLifecycle()

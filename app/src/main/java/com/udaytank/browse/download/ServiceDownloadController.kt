@@ -12,8 +12,7 @@ class ServiceDownloadController(private val context: Context) : DownloadControll
     }
 
     override fun schedule(id: Long, constraint: DownloadWhen) {
-        // Scheduling lands with DownloadScheduler (plan Task 6); until then, start immediately.
-        startDownload(id)
+        DownloadScheduler.enqueue(context, id, constraint)
     }
 
     override fun pause(id: Long) {
