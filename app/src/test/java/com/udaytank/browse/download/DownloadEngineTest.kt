@@ -94,6 +94,23 @@ class DownloadEngineTest {
         }
     }
 
+    /**
+     * Dispatcher that ignores Range entirely and serves the payload with NO usable length:
+     * chunked transfer-encoding (no Content-Length header at all), so `HttpURLConnection`'s
+     * probe sees `contentLengthLong == -1` and the engine takes the unknown-total path
+     * (`serverTotal <= 0`) rather than the known-total `setLength(serverTotal)` path.
+     */
+    private fun unknownLengthDispatcher(): Dispatcher {
+        return object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("ETag", "v1")
+                    .setChunkedBody(Buffer().write(payload), 8192)
+            }
+        }
+    }
+
     private class TestListener : DownloadEngine.Listener {
         val terminal = CompletableDeferred<String>()
         val firstProgress = CompletableDeferred<Unit>()
@@ -264,8 +281,13 @@ class DownloadEngineTest {
     }
 
     @Test
-    fun `restart from scratch truncates preexisting junk file`() = runBlocking {
-        server.dispatcher = noRangeDispatcher()
+    fun `restart with unknown total truncates preexisting junk file`() = runBlocking {
+        // Unknown total (no Content-Length, no Range support) is the truly unguarded path:
+        // with a known Content-Length the pre-existing `setLength(serverTotal)` call would
+        // fix the file length even without the truncate-on-restart guard, so that scenario
+        // can't distinguish guarded from unguarded code. Here, with serverTotal <= 0, only
+        // the guard's `setLength(0)` can remove stale trailing bytes.
+        server.dispatcher = unknownLengthDispatcher()
         server.start()
 
         val dest = File.createTempFile("dl_restart", ".bin")
