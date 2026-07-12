@@ -20,7 +20,8 @@ class BrowserViewModelTest {
         tabDao: FakeTabDao = FakeTabDao(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
         downloadDao: FakeDownloadDao = FakeDownloadDao(),
-    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao)
+        closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
+    ) = BrowserViewModel(historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao)
 
     @Test
     fun `started downloads are recorded`() {

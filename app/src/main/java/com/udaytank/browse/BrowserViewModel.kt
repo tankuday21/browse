@@ -19,6 +19,7 @@ import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
+import com.udaytank.browse.data.ClosedTabDao
 import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
@@ -67,10 +68,11 @@ class BrowserViewModel(
     tabDao: TabDao,
     private val settings: SettingsRepository,
     private val downloadDao: DownloadDao,
+    closedTabDao: ClosedTabDao,
     suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
 ) : ViewModel() {
 
-    private val tabManager = TabManager(tabDao)
+    private val tabManager = TabManager(tabDao, closedTabDao)
     private val suggestionEngine = SuggestionEngine(historyDao, bookmarkDao, suggestionFetcher)
 
     private val _suggestions = MutableStateFlow<List<Suggestion>>(emptyList())
@@ -498,6 +500,7 @@ class BrowserViewModel(
                     app.database.tabDao(),
                     app.settingsRepository,
                     app.database.downloadDao(),
+                    app.database.closedTabDao(),
                 )
             }
         }

@@ -1,5 +1,7 @@
 package com.udaytank.browse.browser
 
+import com.udaytank.browse.data.ClosedTabDao
+import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabDao
 import com.udaytank.browse.data.TabEntity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -7,7 +9,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** In-memory authority over tabs; every mutation is written through to the DAO. */
-class TabManager(private val tabDao: TabDao) {
+class TabManager(
+    private val tabDao: TabDao,
+    private val closedTabDao: ClosedTabDao,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
 
     private val _tabs = MutableStateFlow<List<TabEntity>>(emptyList())
     val tabs: StateFlow<List<TabEntity>> = _tabs.asStateFlow()
@@ -31,15 +37,18 @@ class TabManager(private val tabDao: TabDao) {
         }
     }
 
-    suspend fun newTab(url: String, incognito: Boolean = false): Long {
+    suspend fun newTab(url: String, incognito: Boolean = false, groupId: Long? = null): Long {
         val position = (_tabs.value.maxOfOrNull { it.position } ?: -1) + 1
         val id = if (incognito) {
             nextIncognitoId--
         } else {
-            tabDao.insert(TabEntity(url = url, title = url, position = position, isActive = true))
+            tabDao.insert(TabEntity(url = url, title = url, position = position, isActive = true, groupId = groupId))
         }
         _tabs.value = _tabs.value.map { it.copy(isActive = false) } +
-            TabEntity(id = id, url = url, title = url, position = position, isActive = true, isIncognito = incognito)
+            TabEntity(
+                id = id, url = url, title = url, position = position, isActive = true,
+                isIncognito = incognito, groupId = groupId,
+            )
         _activeTabId.value = id
         if (!incognito) tabDao.setActive(id)
         return id
@@ -54,6 +63,11 @@ class TabManager(private val tabDao: TabDao) {
 
     suspend fun closeTab(id: Long, homeUrl: String) {
         val next = TabClosePolicy.nextActiveId(_tabs.value, closingId = id, activeId = _activeTabId.value)
+        val closing = _tabs.value.find { it.id == id }
+        if (closing != null && !isIncognitoId(id)) {
+            closedTabDao.insert(ClosedTabEntity(url = closing.url, title = closing.title, closedAt = now()))
+            closedTabDao.trimTo(100)
+        }
         _tabs.value = _tabs.value.filterNot { it.id == id }
         if (!isIncognitoId(id)) tabDao.deleteById(id)
         when {
@@ -65,5 +79,20 @@ class TabManager(private val tabDao: TabDao) {
     suspend fun onContentChanged(id: Long, url: String, title: String) {
         _tabs.value = _tabs.value.map { if (it.id == id) it.copy(url = url, title = title) else it }
         if (!isIncognitoId(id)) tabDao.updateContent(id, url, title)
+    }
+
+    suspend fun setGroup(id: Long, groupId: Long?) {
+        _tabs.value = _tabs.value.map { if (it.id == id) it.copy(groupId = groupId) else it }
+        if (!isIncognitoId(id)) tabDao.setGroup(id, groupId)
+    }
+
+    suspend fun setPinned(id: Long, pinned: Boolean) {
+        _tabs.value = _tabs.value.map { if (it.id == id) it.copy(pinned = pinned) else it }
+        if (!isIncognitoId(id)) tabDao.setPinned(id, pinned)
+    }
+
+    suspend fun setLocked(id: Long, locked: Boolean) {
+        _tabs.value = _tabs.value.map { if (it.id == id) it.copy(locked = locked) else it }
+        if (!isIncognitoId(id)) tabDao.setLocked(id, locked)
     }
 }
