@@ -8,57 +8,90 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.udaytank.browse.MainActivity
 
 /**
- * Foreground (mediaPlayback) service that keeps the process alive - and gives the user a visible,
- * dismissable notification with Play/Pause and Stop controls - while a single opted-in tab keeps
- * playing audio/video after the app leaves the foreground.
+ * Foreground (mediaPlayback) service that keeps the process alive while a single opted-in tab
+ * keeps playing after the app leaves the foreground, and now carries a real [BrowserMediaSession]
+ * so the OS shows lock-screen transport controls (Previous / Play-Pause / Next) bound to a
+ * [Notification.MediaStyle] notification — the same platform-MediaSession pattern ReadAloudService
+ * uses, so no new dependency is needed.
  *
- * This is deliberately minimal: no MediaSession, no lock-screen artwork, no queue. The notification
- * exists purely so background playback is never silent/invisible to the user, and so they always
- * have a one-tap way to stop it. It does NOT prevent the OS or an OEM battery manager from killing
- * the process anyway - that's an accepted, documented limitation of this experimental feature.
+ * Wiring back into the WebView keeps the deliberately simple static-bridge design this service
+ * started with: [MainActivity] sets the [controller]/[onNext]/[onPrevious]/[onStopped] callbacks
+ * before calling [start], and the transport callbacks invoke them on the main thread. This only
+ * works because a single MainActivity drives a single foreground media tab at a time — acceptable
+ * for this per-site opt-in feature. Every static bridge is nulled on destroy so the closed-over
+ * WebViewHolder/tab can't leak past the service's lifecycle.
  *
- * Wiring back into the WebView is intentionally simple rather than "correct": the service holds a
- * static [controller] callback that [MainActivity] sets before calling [start], and invokes it on
- * the main thread when the user taps the notification's Play/Pause action. This only works because
- * there is a single MainActivity instance driving a single foreground tab at a time - acceptable
- * for an experimental, per-site opt-in feature, but not a pattern to copy for anything richer
- * (a real MediaSession + MediaController would be the correct approach for that).
+ * It does NOT prevent an OEM battery manager or the OS (under memory pressure) from killing the
+ * process anyway — an accepted, documented limit of this experimental feature.
  */
 class MediaHoldService : Service() {
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var session: BrowserMediaSession? = null
+
+    private var title = ""
+    private var playing = true
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        session = BrowserMediaSession(
+            context = this,
+            // Transport callbacks hop to the main thread (like the original controller bridge)
+            // because they end up calling WebView.evaluateJavascript, which is main-thread only.
+            onPlayPause = { mainHandler.post { controller?.invoke() } },
+            onNext = { mainHandler.post { onNext?.invoke() } },
+            onPrevious = { mainHandler.post { onPrevious?.invoke() } },
+            onStop = { stop(this) },
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_TOGGLE -> {
-                Handler(Looper.getMainLooper()).post { controller?.invoke() }
+                mainHandler.post { controller?.invoke() }
+                return START_STICKY
+            }
+            ACTION_NEXT -> {
+                mainHandler.post { onNext?.invoke() }
+                return START_STICKY
+            }
+            ACTION_PREVIOUS -> {
+                mainHandler.post { onPrevious?.invoke() }
+                return START_STICKY
+            }
+            ACTION_UPDATE -> {
+                title = intent.getStringExtra(EXTRA_TITLE) ?: title
+                playing = intent.getBooleanExtra(EXTRA_PLAYING, playing)
+                session?.update(title, playing)
+                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
                 return START_STICKY
             }
             ACTION_STOP -> {
                 onStopped?.invoke()
-                controller = null
-                onStopped = null
+                clearBridges()
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             else -> {
-                val host = intent?.getStringExtra(EXTRA_HOST) ?: ""
-                startForegroundCompat(buildNotification(host))
+                title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
+                    ?: intent?.getStringExtra(EXTRA_HOST) ?: ""
+                playing = true
+                session?.update(title, playing)
+                startForegroundCompat(buildNotification())
                 return START_STICKY
             }
         }
@@ -66,12 +99,19 @@ class MediaHoldService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Best-effort: if the service is torn down by the system rather than via ACTION_STOP,
+        // Best-effort: if the system tears the service down rather than going via ACTION_STOP,
         // still clear the keep-alive flag so the tab isn't stuck exempt from pausing forever.
         onStopped?.invoke()
-        // Release both static callbacks so this service instance (and the WebViewHolder/tabId
-        // it closed over) isn't leaked past its own lifecycle.
+        session?.release()
+        session = null
+        clearBridges()
+    }
+
+    /** Release every static callback so this instance (and its captured WebViewHolder) can't leak. */
+    private fun clearBridges() {
         controller = null
+        onNext = null
+        onPrevious = null
         onStopped = null
     }
 
@@ -89,16 +129,39 @@ class MediaHoldService : Service() {
         }
     }
 
-    private fun buildNotification(host: String): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    /**
+     * Media-style notification bound to the session token: Previous / Play-Pause / Next plus a
+     * Stop action, with prev/play-pause/next shown in the compact (lock-screen) view.
+     */
+    private fun buildNotification(): Notification {
+        val playPause = if (playing) {
+            action(android.R.drawable.ic_media_pause, "Pause", ACTION_TOGGLE)
+        } else {
+            action(android.R.drawable.ic_media_play, "Play", ACTION_TOGGLE)
+        }
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(host)
+            .setContentTitle(title.ifBlank { "Playing in background" })
             .setContentText("Playing in background")
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "Play/Pause", pendingIntentFor(ACTION_TOGGLE))
-            .addAction(0, "Stop", pendingIntentFor(ACTION_STOP))
-            .build()
+            .setContentIntent(openAppIntent())
+            .addAction(action(android.R.drawable.ic_media_previous, "Previous", ACTION_PREVIOUS))
+            .addAction(playPause)
+            .addAction(action(android.R.drawable.ic_media_next, "Next", ACTION_NEXT))
+            .addAction(action(android.R.drawable.ic_delete, "Stop", ACTION_STOP))
+        val style = Notification.MediaStyle()
+            .setShowActionsInCompactView(0, 1, 2)
+        session?.token?.let { style.setMediaSession(it) }
+        builder.setStyle(style)
+        return builder.build()
+    }
+
+    private fun action(icon: Int, title: String, intentAction: String): Notification.Action =
+        Notification.Action.Builder(
+            Icon.createWithResource(this, icon),
+            title,
+            pendingIntentFor(intentAction),
+        ).build()
 
     private fun pendingIntentFor(action: String): PendingIntent {
         val intent = Intent(this, MediaHoldService::class.java).setAction(action)
@@ -106,26 +169,53 @@ class MediaHoldService : Service() {
         return PendingIntent.getService(this, action.hashCode(), intent, flags)
     }
 
+    private fun openAppIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getActivity(this, 0, intent, flags)
+    }
+
     companion object {
         private const val ACTION_TOGGLE = "com.udaytank.browse.media.action.TOGGLE"
+        private const val ACTION_NEXT = "com.udaytank.browse.media.action.NEXT"
+        private const val ACTION_PREVIOUS = "com.udaytank.browse.media.action.PREVIOUS"
+        private const val ACTION_UPDATE = "com.udaytank.browse.media.action.UPDATE"
         private const val ACTION_STOP = "com.udaytank.browse.media.action.STOP"
         private const val EXTRA_HOST = "com.udaytank.browse.media.extra.HOST"
+        private const val EXTRA_TITLE = "com.udaytank.browse.media.extra.TITLE"
+        private const val EXTRA_PLAYING = "com.udaytank.browse.media.extra.PLAYING"
         private const val CHANNEL_ID = "media"
         private const val NOTIFICATION_ID = 0x6D656469 // arbitrary, stable, distinct from other services
 
         /**
-         * Invoked on the main thread when the user taps Play/Pause in the notification. Set by
-         * MainActivity immediately before calling [start]; documented as a static single-instance
-         * bridge rather than a proper callback registration - see class doc.
+         * Invoked on the main thread for the lock-screen / notification Play-Pause. Set by
+         * MainActivity immediately before [start]; a static single-instance bridge (see class doc).
          */
         var controller: (() -> Unit)? = null
 
-        /** Invoked when the service stops (either via the Stop action or the OS tearing it down). */
+        /** Lock-screen / notification Next. Set by MainActivity, invoked on the main thread. */
+        var onNext: (() -> Unit)? = null
+
+        /** Lock-screen / notification Previous. Set by MainActivity, invoked on the main thread. */
+        var onPrevious: (() -> Unit)? = null
+
+        /** Invoked when the service stops (Stop action, session Stop, or the OS tearing it down). */
         var onStopped: (() -> Unit)? = null
 
-        fun start(context: Context, tabId: Long, host: String) {
-            val intent = Intent(context, MediaHoldService::class.java).putExtra(EXTRA_HOST, host)
+        fun start(context: Context, tabId: Long, host: String, title: String) {
+            val intent = Intent(context, MediaHoldService::class.java)
+                .putExtra(EXTRA_HOST, host)
+                .putExtra(EXTRA_TITLE, title)
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        /** Pushes fresh title/playing state (from the page's JS monitor) to the session + notification. */
+        fun updateState(context: Context, title: String, playing: Boolean) {
+            val intent = Intent(context, MediaHoldService::class.java)
+                .setAction(ACTION_UPDATE)
+                .putExtra(EXTRA_TITLE, title)
+                .putExtra(EXTRA_PLAYING, playing)
+            context.startService(intent)
         }
 
         fun stop(context: Context) {

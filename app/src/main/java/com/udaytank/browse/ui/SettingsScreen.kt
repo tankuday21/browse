@@ -280,7 +280,9 @@ fun SettingsScreen(
                 Switch(checked = backgroundMedia, onCheckedChange = viewModel::onBackgroundMediaToggled)
             }
             Text(
-                "Allow per site from the page menu. May be stopped by battery savers.",
+                "Allow per site from the page menu: keeps audio/video playing when you lock the " +
+                    "phone, with lock-screen play/pause/next controls and auto-play of the next " +
+                    "track. May be stopped by battery savers.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
