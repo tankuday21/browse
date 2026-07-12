@@ -7,8 +7,17 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "downloads")
 data class DownloadEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val downloadId: Long,
+    val downloadId: Long = -1,          // legacy system-DM id; -1 for engine downloads
     val fileName: String,
     val url: String,
     val createdAt: Long,
+    val totalBytes: Long = -1,
+    val downloadedBytes: Long = 0,
+    val state: String = "DONE",
+    val filePath: String? = null,
+    val mimeType: String? = null,
+    val etag: String? = null,
+    val segments: Int = 1,
+    val segmentState: String? = null,   // JSON: per-segment downloaded bytes
+    val error: String? = null,
 )
