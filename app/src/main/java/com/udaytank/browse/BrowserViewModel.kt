@@ -19,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
+import com.udaytank.browse.browser.Backup
+import com.udaytank.browse.browser.BackupCodec
 import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
@@ -53,6 +55,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -777,6 +780,126 @@ class BrowserViewModel(
             parsed.forEach { bookmarkDao.insert(it) }
             onDone(parsed.size)
         }
+    }
+
+    // --- backup & restore (J1) ---
+
+    /**
+     * The explicit list of settings a backup carries. Values are their string forms (enum
+     * names / toString), decoded leniently on restore so unknown values are skipped, not
+     * fatal. textScale (I3) doesn't exist yet — add it here when it lands.
+     */
+    private suspend fun settingsSnapshot(): Map<String, String> = mapOf(
+        "searchEngine" to settings.searchEngine.first().name,
+        "themeMode" to settings.themeMode.first().name,
+        "javaScriptEnabled" to settings.javaScriptEnabled.first().toString(),
+        "cookiesEnabled" to settings.cookiesEnabled.first().toString(),
+        "adBlockEnabled" to settings.adBlockEnabled.first().toString(),
+        "forceDarkWebsites" to settings.forceDarkWebsites.first().toString(),
+        "httpsOnly" to settings.httpsOnly.first().toString(),
+        "lockIncognito" to settings.lockIncognito.first().toString(),
+        "autoIslands" to settings.autoIslands.first().toString(),
+        "switcherListLayout" to settings.switcherListLayout.first().toString(),
+        "backgroundMedia" to settings.backgroundMedia.first().toString(),
+        "readerFontScale" to settings.readerFontScale.first().toString(),
+        "readerTheme" to settings.readerTheme.first().name,
+        "readerWide" to settings.readerWide.first().toString(),
+        "safeBrowsing" to settings.safeBrowsing.first().toString(),
+        "dismissCookieBanners" to settings.dismissCookieBanners.first().toString(),
+        "gpcEnabled" to settings.gpcEnabled.first().toString(),
+    )
+
+    /**
+     * Serializes everything backup-worthy to the versioned JSON format. Pure data out — the
+     * caller (Settings screen) owns the SAF stream plumbing, keeping this unit-testable.
+     */
+    suspend fun buildBackupJson(): String = BackupCodec.encode(
+        Backup(
+            settings = settingsSnapshot(),
+            bookmarks = bookmarkDao.getAll(),
+            homeShortcuts = homeShortcutDao.getAll(),
+            readingList = readingListDao.observeAll().first(),
+            tabGroups = tabGroupDao.getAll(),
+        )
+    )
+
+    /**
+     * Merges a decoded backup into the live data (never wipes): bookmarks / shortcuts /
+     * reading-list rows dedupe by url, tab groups by name, settings overwrite. Restored
+     * shortcuts and groups append after the existing ones; reading-list rows come back as
+     * metadata only (no offline copy). [onFeedback] gets a toastable per-section count line.
+     */
+    fun onRestoreBackup(backup: Backup, onFeedback: (String) -> Unit) {
+        viewModelScope.launch {
+            applyRestoredSettings(backup.settings)
+
+            val existingBookmarks = bookmarkDao.getAll().map { it.url }.toSet()
+            var bookmarksAdded = 0
+            backup.bookmarks.forEach { bookmark ->
+                if (bookmark.url !in existingBookmarks) {
+                    bookmarkDao.insert(bookmark.copy(id = 0))
+                    bookmarksAdded++
+                }
+            }
+
+            val currentShortcuts = homeShortcutDao.getAll()
+            val existingShortcutUrls = currentShortcuts.map { it.url }.toSet()
+            var nextPosition = (currentShortcuts.maxOfOrNull { it.position } ?: -1) + 1
+            var shortcutsAdded = 0
+            backup.homeShortcuts.sortedBy { it.position }.forEach { shortcut ->
+                if (shortcut.url !in existingShortcutUrls) {
+                    homeShortcutDao.insert(shortcut.copy(id = 0, position = nextPosition++))
+                    shortcutsAdded++
+                }
+            }
+
+            var readingAdded = 0
+            backup.readingList.forEach { entry ->
+                if (!readingListDao.existsByUrl(entry.url)) {
+                    readingListDao.insert(entry.copy(id = 0, filePath = null))
+                    readingAdded++
+                }
+            }
+
+            val existingGroupNames = tabGroupDao.getAll().map { it.name }.toSet()
+            var groupPosition = tabGroupDao.getAll().size
+            var groupsAdded = 0
+            backup.tabGroups.sortedBy { it.position }.forEach { group ->
+                if (group.name !in existingGroupNames) {
+                    tabGroupDao.insert(group.copy(id = 0, position = groupPosition++))
+                    groupsAdded++
+                }
+            }
+
+            onFeedback(
+                "Restored $bookmarksAdded bookmarks, $shortcutsAdded shortcuts, " +
+                    "$readingAdded reading list items, $groupsAdded tab groups"
+            )
+        }
+    }
+
+    /** Lenient per-key apply: unknown or unparseable values are skipped, never fatal. */
+    private suspend fun applyRestoredSettings(map: Map<String, String>) {
+        map["searchEngine"]?.let { v -> SearchEngine.entries.find { it.name == v } }
+            ?.let { settings.setSearchEngine(it) }
+        map["themeMode"]?.let { v -> ThemeMode.entries.find { it.name == v } }
+            ?.let { settings.setThemeMode(it) }
+        map["javaScriptEnabled"]?.toBooleanStrictOrNull()?.let { settings.setJavaScriptEnabled(it) }
+        map["cookiesEnabled"]?.toBooleanStrictOrNull()?.let { settings.setCookiesEnabled(it) }
+        map["adBlockEnabled"]?.toBooleanStrictOrNull()?.let { settings.setAdBlockEnabled(it) }
+        map["forceDarkWebsites"]?.toBooleanStrictOrNull()?.let { settings.setForceDarkWebsites(it) }
+        map["httpsOnly"]?.toBooleanStrictOrNull()?.let { settings.setHttpsOnly(it) }
+        map["lockIncognito"]?.toBooleanStrictOrNull()?.let { settings.setLockIncognito(it) }
+        map["autoIslands"]?.toBooleanStrictOrNull()?.let { settings.setAutoIslands(it) }
+        map["switcherListLayout"]?.toBooleanStrictOrNull()?.let { settings.setSwitcherListLayout(it) }
+        map["backgroundMedia"]?.toBooleanStrictOrNull()?.let { settings.setBackgroundMedia(it) }
+        map["readerFontScale"]?.toIntOrNull()?.let { settings.setReaderFontScale(it) }
+        map["readerTheme"]?.let { v -> ReaderTheme.entries.find { it.name == v } }
+            ?.let { settings.setReaderTheme(it) }
+        map["readerWide"]?.toBooleanStrictOrNull()?.let { settings.setReaderWide(it) }
+        map["safeBrowsing"]?.toBooleanStrictOrNull()?.let { settings.setSafeBrowsing(it) }
+        map["dismissCookieBanners"]?.toBooleanStrictOrNull()?.let { settings.setDismissCookieBanners(it) }
+        map["gpcEnabled"]?.toBooleanStrictOrNull()?.let { settings.setGpcEnabled(it) }
     }
 
     // --- reading list (save for later) ---

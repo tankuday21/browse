@@ -60,6 +60,7 @@ fun SettingsScreen(
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -83,6 +84,37 @@ fun SettingsScreen(
             }.getOrNull()
             if (html != null) viewModel.importBookmarksHtml(html) { count ->
                 Toast.makeText(context, "Imported $count bookmarks", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val backupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val json = viewModel.buildBackupJson()
+            val ok = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+            }.isSuccess
+            Toast.makeText(
+                context,
+                if (ok) "Backup saved" else "Couldn't save backup",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+    val restoreLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val json = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            val backup = json?.let { com.udaytank.browse.browser.BackupCodec.decode(it) }
+            if (backup == null) {
+                Toast.makeText(context, "Not a valid Andromeda backup", Toast.LENGTH_SHORT).show()
+            } else {
+                pendingRestore = backup
             }
         }
     }
@@ -325,6 +357,57 @@ fun SettingsScreen(
             ) {
                 Text("Import bookmarks")
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Backup & restore",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            TextButton(
+                onClick = {
+                    val date = java.time.LocalDate.now()
+                        .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                    backupLauncher.launch("andromeda-backup-$date.json")
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Back up")
+            }
+            TextButton(
+                onClick = { restoreLauncher.launch(arrayOf("application/json")) },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Restore")
+            }
+            Text(
+                "Backs up settings, bookmarks, home shortcuts, reading list, and tab groups. " +
+                    "Saved articles and browsing history stay on this device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+
+        pendingRestore?.let { backup ->
+            AlertDialog(
+                onDismissRequest = { pendingRestore = null },
+                title = { Text("Restore backup?") },
+                text = { Text("Merges with your current data. Nothing is deleted; duplicates are skipped and settings take the backup's values.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.onRestoreBackup(backup) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                        pendingRestore = null
+                    }) {
+                        Text("Restore")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingRestore = null }) { Text("Cancel") }
+                },
+            )
         }
 
         if (showClearDialog) {
