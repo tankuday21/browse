@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts (J4). MainActivity reads the "andromeda.shortcut" extra in
+     both onCreate (fresh launch only) and onNewIntent (app already running, singleTask). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_tab"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_tab"
+        android:shortcutShortLabel="@string/shortcut_new_tab_short"
+        android:shortcutLongLabel="@string/shortcut_new_tab_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.udaytank.andromeda"
+            android:targetClass="com.udaytank.browse.MainActivity">
+            <extra
+                android:name="andromeda.shortcut"
+                android:value="new_tab" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_incognito"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_new_incognito"
+        android:shortcutShortLabel="@string/shortcut_new_incognito_short"
+        android:shortcutLongLabel="@string/shortcut_new_incognito_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.udaytank.andromeda"
+            android:targetClass="com.udaytank.browse.MainActivity">
+            <extra
+                android:name="andromeda.shortcut"
+                android:value="new_incognito" />
+        </intent>
+    </shortcut>
+</shortcuts>

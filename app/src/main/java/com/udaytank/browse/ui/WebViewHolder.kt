@@ -237,11 +237,37 @@ class WebViewHolder(
         val effective = SiteSettingsResolver.resolve(
             globalForceDark = forceDark,
             globalDesktop = tabId in desktopTabs,
+            globalTextZoom = globalTextScale,
             override = siteSettingsProvider?.invoke(host),
         )
         webView.settings.textZoom = effective.textZoom
         applyForceDark(webView, effective.forceDark)
         applyDesktopUa(tabId, effective.desktopMode)
+    }
+
+    /**
+     * The user's global text scale in percent (I3). @Volatile like the other globals: written
+     * from the UI via [applyGlobalTextScale], read in obtain() and onPageStarted paths.
+     */
+    @Volatile
+    private var globalTextScale: Int = 100
+
+    /**
+     * Live re-apply of a changed global text scale (I3) to every open tab, re-resolving each
+     * against its site override — a positive per-site textZoom still wins, exactly as at page
+     * start. New WebViews pick the value up in [obtain]; page starts keep re-resolving.
+     */
+    fun applyGlobalTextScale(scale: Int) {
+        globalTextScale = scale
+        webViews.forEach { (tabId, webView) ->
+            val override = UrlHosts.of(webView.url)?.let { siteSettingsProvider?.invoke(it) }
+            webView.settings.textZoom = SiteSettingsResolver.resolve(
+                globalForceDark = forceDark,
+                globalDesktop = tabId in desktopTabs,
+                globalTextZoom = scale,
+                override = override,
+            ).textZoom
+        }
     }
 
     /** Algorithmic darkening (same mechanism the global force-dark setting uses). */
@@ -319,6 +345,12 @@ class WebViewHolder(
         WebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
             applySafeBrowsing(this)
+            // Pinch zoom always available (I3); the legacy on-screen +/- controls stay hidden.
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
+            // Global text scale baseline; onPageStarted re-resolves per site (override wins).
+            settings.textZoom = globalTextScale
             if (forceDark) applyForceDark(this, true)
             if (incognito) {
                 // Leave no local traces: no DOM storage, no cache writes.

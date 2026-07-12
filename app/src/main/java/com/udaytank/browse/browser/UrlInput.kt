@@ -23,4 +23,14 @@ object UrlInput {
             else -> searchUrl + URLEncoder.encode(text, "UTF-8")
         }
     }
+
+    /**
+     * True when [toLoadableUrl] would treat [input] as a URL rather than a search — the
+     * clipboard chip (A6) only appears for copied text that would actually navigate.
+     */
+    fun isUrlLike(input: String): Boolean {
+        val text = input.trim()
+        return text.startsWith("http://") || text.startsWith("https://") ||
+            (text.isNotEmpty() && !text.contains(' ') && text.contains('.'))
+    }
 }

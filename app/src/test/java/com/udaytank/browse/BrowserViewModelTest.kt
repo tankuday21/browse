@@ -34,12 +34,13 @@ class BrowserViewModelTest {
         readingListDao: FakeReadingListDao = FakeReadingListDao(),
         articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
         siteSettingsDao: FakeSiteSettingsDao = FakeSiteSettingsDao(),
+        homeShortcutDao: FakeHomeShortcutDao = FakeHomeShortcutDao(),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
-        readingListDao, articleStore, siteSettingsDao, downloadController, downloadManagerRemover,
-        ioDispatcher = Dispatchers.Unconfined,
+        readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
+        downloadManagerRemover, ioDispatcher = Dispatchers.Unconfined,
     )
 
     @Test
@@ -885,5 +886,254 @@ class BrowserViewModelTest {
         vm.onPageStarted(vm.activeTabId.value!!, "https://other.com/page")
         advanceUntilIdle()
         assertNull(vm.siteSettingsForCurrentSite.value)
+    }
+
+    // --- home shortcut grid (C1) ---
+
+    @Test
+    fun `add shortcut appends at the next position`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://a.com", "https://b.com"), dao.getAll().map { it.url })
+        assertEquals(listOf(0, 1), dao.getAll().map { it.position })
+    }
+
+    @Test
+    fun `add shortcut dedupes by url and reports feedback`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddShortcut("https://a.com", "A") { messages += it }
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A again") { messages += it }
+        advanceUntilIdle()
+
+        assertEquals(1, dao.getAll().size)
+        assertEquals(listOf("Added to home", "Already on your home screen"), messages)
+    }
+
+    @Test
+    fun `add shortcut with blank title falls back to host`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        vm.onAddShortcut("https://news.bbc.co.uk/story", "  ")
+        advanceUntilIdle()
+
+        assertEquals("news.bbc.co.uk", dao.getAll().single().title)
+    }
+
+    @Test
+    fun `add current page to home uses the active tab's url and title`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://a.com/page")
+        vm.onPageFinished(tabId, "https://a.com/page", "A page")
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddCurrentPageToHome { messages += it }
+        advanceUntilIdle()
+
+        assertEquals("https://a.com/page", dao.getAll().single().url)
+        assertEquals("A page", dao.getAll().single().title)
+        assertEquals(listOf("Added to home"), messages)
+    }
+
+    @Test
+    fun `add current page on the home tab reports nothing to add`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+
+        val messages = mutableListOf<String>()
+        vm.onAddCurrentPageToHome { messages += it }
+        advanceUntilIdle()
+
+        assertTrue(dao.getAll().isEmpty())
+        assertEquals(listOf("Nothing to add on this page"), messages)
+    }
+
+    @Test
+    fun `remove shortcut deletes the row`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        advanceUntilIdle()
+
+        vm.onRemoveShortcut(dao.getAll().first { it.url == "https://a.com" }.id)
+        advanceUntilIdle()
+
+        assertEquals(listOf("https://b.com"), dao.getAll().map { it.url })
+    }
+
+    @Test
+    fun `move shortcut to front reindexes every position`() = runTest {
+        val dao = FakeHomeShortcutDao()
+        val vm = vm(homeShortcutDao = dao)
+        advanceUntilIdle()
+        vm.onAddShortcut("https://a.com", "A")
+        vm.onAddShortcut("https://b.com", "B")
+        vm.onAddShortcut("https://c.com", "C")
+        advanceUntilIdle()
+
+        vm.onMoveShortcutToFront(dao.getAll().first { it.url == "https://c.com" }.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("https://c.com", "https://a.com", "https://b.com"),
+            dao.getAll().map { it.url },
+        )
+        assertEquals(listOf(0, 1, 2), dao.getAll().map { it.position })
+    }
+
+    // --- backup & restore (J1) ---
+
+    @Test
+    fun `backup json round-trips through the codec with all sections`() = runTest {
+        val bookmarkDao = FakeBookmarkDao()
+        val shortcutDao = FakeHomeShortcutDao()
+        val readingDao = FakeReadingListDao()
+        val groupDao = FakeTabGroupDao()
+        val settings = FakeSettingsRepository()
+        settings.setSearchEngine(SearchEngine.BING)
+        settings.setReaderFontScale(130)
+        val vm = vm(
+            bookmarkDao = bookmarkDao, homeShortcutDao = shortcutDao,
+            readingListDao = readingDao, tabGroupDao = groupDao, settings = settings,
+        )
+        advanceUntilIdle()
+        bookmarkDao.insert(
+            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, folder = "Work")
+        )
+        shortcutDao.insert(
+            com.udaytank.browse.data.HomeShortcutEntity(url = "https://b.com", title = "B", position = 0)
+        )
+        readingDao.insert(ReadingListEntry(url = "https://c.com", title = "C", addedAt = 2, filePath = "/gone.html"))
+        groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 1, position = 0))
+
+        val decoded = com.udaytank.browse.browser.BackupCodec.decode(vm.buildBackupJson())
+
+        assertNotNull(decoded)
+        decoded!!
+        assertEquals("BING", decoded.settings["searchEngine"])
+        assertEquals("130", decoded.settings["readerFontScale"])
+        assertEquals("Work", decoded.bookmarks.single().folder)
+        assertEquals("https://b.com", decoded.homeShortcuts.single().url)
+        // Reading list travels as metadata only - never a device file path.
+        assertNull(decoded.readingList.single().filePath)
+        assertEquals("Trip", decoded.tabGroups.single().name)
+    }
+
+    @Test
+    fun `restore merges with dedupe across every section and reports counts`() = runTest {
+        val bookmarkDao = FakeBookmarkDao()
+        val shortcutDao = FakeHomeShortcutDao()
+        val readingDao = FakeReadingListDao()
+        val groupDao = FakeTabGroupDao()
+        val vm = vm(
+            bookmarkDao = bookmarkDao, homeShortcutDao = shortcutDao,
+            readingListDao = readingDao, tabGroupDao = groupDao,
+        )
+        advanceUntilIdle()
+        // Existing data that overlaps with the backup.
+        bookmarkDao.insert(com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup", createdAt = 1))
+        shortcutDao.insert(com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0))
+        readingDao.insert(ReadingListEntry(url = "https://dup.com", title = "Dup", addedAt = 1))
+        groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 0, position = 0))
+
+        val backup = com.udaytank.browse.browser.Backup(
+            settings = emptyMap(),
+            bookmarks = listOf(
+                com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup copy", createdAt = 9),
+                com.udaytank.browse.data.Bookmark(url = "https://new.com", title = "New", createdAt = 9, folder = "Work"),
+            ),
+            homeShortcuts = listOf(
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0),
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://fresh.com", title = "Fresh", position = 1),
+            ),
+            readingList = listOf(
+                ReadingListEntry(url = "https://dup.com", title = "Dup", addedAt = 9),
+                ReadingListEntry(url = "https://article.com", title = "Article", addedAt = 9, readAt = 10),
+            ),
+            tabGroups = listOf(
+                com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 5, position = 0),
+                com.udaytank.browse.data.TabGroupEntity(name = "Research", color = 2, position = 1),
+            ),
+        )
+
+        val messages = mutableListOf<String>()
+        vm.onRestoreBackup(backup) { messages += it }
+        advanceUntilIdle()
+
+        // Bookmarks: dup skipped (original title kept), new one added with its folder.
+        assertEquals(2, bookmarkDao.bookmarks.value.size)
+        assertEquals("Dup", bookmarkDao.bookmarks.value.first { it.url == "https://dup.com" }.title)
+        assertEquals("Work", bookmarkDao.bookmarks.value.first { it.url == "https://new.com" }.folder)
+
+        // Shortcuts: dup skipped, fresh one appended after the existing tiles.
+        assertEquals(listOf("https://dup.com", "https://fresh.com"), shortcutDao.getAll().map { it.url })
+        assertEquals(listOf(0, 1), shortcutDao.getAll().map { it.position })
+
+        // Reading list: dup skipped; restored row keeps readAt but never a filePath.
+        assertEquals(2, readingDao.entries.value.size)
+        val restored = readingDao.entries.value.first { it.url == "https://article.com" }
+        assertEquals(10L, restored.readAt)
+        assertNull(restored.filePath)
+
+        // Groups: "Trip" deduped by name (original color kept), "Research" appended.
+        assertEquals(2, groupDao.groups.value.size)
+        assertEquals(0, groupDao.groups.value.first { it.name == "Trip" }.color)
+        assertEquals(1, groupDao.groups.value.first { it.name == "Research" }.position)
+
+        assertEquals(
+            listOf("Restored 1 bookmarks, 1 shortcuts, 1 reading list items, 1 tab groups"),
+            messages,
+        )
+    }
+
+    @Test
+    fun `restore overwrites settings and skips unparseable values`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        advanceUntilIdle()
+
+        val backup = com.udaytank.browse.browser.Backup(
+            settings = mapOf(
+                "searchEngine" to "DUCKDUCKGO",
+                "themeMode" to "DARK",
+                "javaScriptEnabled" to "false",
+                "readerFontScale" to "120",
+                "httpsOnly" to "true",
+                "searchEngineTypo" to "ignored",
+                "gpcEnabled" to "not-a-boolean",
+            ),
+            bookmarks = emptyList(),
+            homeShortcuts = emptyList(),
+            readingList = emptyList(),
+            tabGroups = emptyList(),
+        )
+        vm.onRestoreBackup(backup) {}
+        advanceUntilIdle()
+
+        assertEquals(SearchEngine.DUCKDUCKGO, settings.searchEngine.value)
+        assertEquals(com.udaytank.browse.data.ThemeMode.DARK, settings.themeMode.value)
+        assertFalse(settings.javaScriptEnabled.value)
+        assertEquals(120, settings.readerFontScale.value)
+        assertTrue(settings.httpsOnly.value)
+        assertFalse(settings.gpcEnabled.value) // unparseable -> untouched
     }
 }

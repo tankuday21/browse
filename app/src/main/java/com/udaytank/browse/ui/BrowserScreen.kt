@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.Print
@@ -84,7 +85,7 @@ fun BrowserScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
-    val bookmarksList by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val homeShortcuts by viewModel.homeShortcuts.collectAsStateWithLifecycle()
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
@@ -111,12 +112,27 @@ fun BrowserScreen(
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
+    val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
     val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
     val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
 
     LaunchedEffect(isEditing) {
         if (!isEditing) viewModel.onSuggestionsDismissed()
+    }
+
+    // A6 clipboard chip: the ONE clipboard read per bar-focus event (never polled). A copied
+    // URL that isn't the page already showing becomes a "Go to copied link" suggestion row.
+    var copiedUrlSuggestion by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isEditing) {
+        copiedUrlSuggestion = if (isEditing) {
+            clipboard.getText()?.text?.trim()
+                ?.takeIf { com.udaytank.browse.browser.UrlInput.isUrlLike(it) }
+                ?.let { com.udaytank.browse.browser.UrlInput.toLoadableUrl(it) }
+                ?.takeIf { it != state.currentUrl }
+        } else {
+            null
+        }
     }
 
     // Back: close editing first, then page history, then exit.
@@ -138,9 +154,16 @@ fun BrowserScreen(
             ) {
                 if (isHome) {
                     HomePage(
-                        bookmarks = bookmarksList,
+                        shortcuts = homeShortcuts,
                         isIncognito = isIncognito,
                         onOpenUrl = viewModel::onOpenUrl,
+                        onAddShortcut = { url, title ->
+                            viewModel.onAddShortcut(url, title) { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onRemoveShortcut = viewModel::onRemoveShortcut,
+                        onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
                         modifier = Modifier.fillMaxSize(),
                         lifetimeBlocked = lifetimeBlocked,
                     )
@@ -297,11 +320,16 @@ fun BrowserScreen(
                 .imePadding()
                 .padding(bottom = 12.dp),
         ) {
-            if (isEditing && suggestions.isNotEmpty()) {
+            if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
                 SuggestionsPanel(
                     suggestions = suggestions,
                     onPick = {
                         viewModel.onSuggestionPicked(it)
+                        isEditing = false
+                    },
+                    copiedUrl = copiedUrlSuggestion,
+                    onPickCopied = { url ->
+                        viewModel.onOpenUrl(url)
                         isEditing = false
                     },
                     modifier = Modifier
@@ -327,6 +355,7 @@ fun BrowserScreen(
                 )
             } else {
                 CommandBar(
+            pageUrl = if (isHome) null else state.currentUrl,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
             isSecure = state.currentUrl?.startsWith("https://") == true,
@@ -426,6 +455,23 @@ fun BrowserScreen(
                         },
                         enabled = state.currentUrl != null,
                         onClick = { viewModel.onToggleBookmark(); menuOpen = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to home") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.AddHome,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        enabled = state.currentUrl != null,
+                        onClick = {
+                            viewModel.onAddCurrentPageToHome { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            menuOpen = false
+                        },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
@@ -671,7 +717,7 @@ fun BrowserScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
                 )
                 Slider(
-                    value = (if (draftZoom > 0) draftZoom else 100).toFloat(),
+                    value = (if (draftZoom > 0) draftZoom else globalTextScale).toFloat(),
                     onValueChange = { raw ->
                         val snapped = (raw / 10f).roundToInt() * 10
                         draftZoom = snapped
@@ -714,7 +760,7 @@ fun BrowserScreen(
                         draftZoom = -1
                         draftForceDark = -1
                         draftDesktop = -1
-                        holder.applyTextZoom(sheetTabId, 100)
+                        holder.applyTextZoom(sheetTabId, globalTextScale)
                         holder.applyForceDark(sheetTabId, globalForceDark)
                         holder.applyDesktopMode(sheetTabId, tabDesktopBaseline)
                     },

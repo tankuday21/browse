@@ -68,6 +68,12 @@ interface SettingsRepository {
     suspend fun setReaderTheme(theme: ReaderTheme)
     val readerWide: Flow<Boolean>
     suspend fun setReaderWide(wide: Boolean)
+    /** First-run onboarding finished (J2). Device-local — deliberately never backed up. */
+    val onboardingDone: Flow<Boolean>
+    suspend fun setOnboardingDone(done: Boolean)
+    /** Global page text scale in percent (I3), clamped 50..200. Site overrides win. */
+    val textScale: Flow<Int>
+    suspend fun setTextScale(percent: Int)
 }
 
 class DataStoreSettingsRepository(
@@ -178,6 +184,22 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[READER_WIDE_KEY] = wide }
     }
 
+    override val onboardingDone: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[ONBOARDING_DONE_KEY] ?: false
+    }
+
+    override suspend fun setOnboardingDone(done: Boolean) {
+        dataStore.edit { it[ONBOARDING_DONE_KEY] = done }
+    }
+
+    override val textScale: Flow<Int> = dataStore.data.map { prefs ->
+        prefs[TEXT_SCALE_KEY] ?: 100
+    }
+
+    override suspend fun setTextScale(percent: Int) {
+        dataStore.edit { it[TEXT_SCALE_KEY] = percent.coerceIn(50, 200) }
+    }
+
     override suspend fun setSearchEngine(engine: SearchEngine) {
         dataStore.edit { it[SEARCH_ENGINE_KEY] = engine.name }
     }
@@ -268,5 +290,7 @@ class DataStoreSettingsRepository(
         val READER_FONT_SCALE_KEY = intPreferencesKey("reader_font_scale")
         val READER_THEME_KEY = stringPreferencesKey("reader_theme")
         val READER_WIDE_KEY = booleanPreferencesKey("reader_wide")
+        val ONBOARDING_DONE_KEY = booleanPreferencesKey("onboarding_done")
+        val TEXT_SCALE_KEY = intPreferencesKey("text_scale")
     }
 }

@@ -15,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ClosedTabEntity::class,
         ReadingListEntry::class,
         SiteSettingsEntity::class,
+        HomeShortcutEntity::class,
     ],
-    version = 8,
+    version = 9,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -27,8 +28,34 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun closedTabDao(): ClosedTabDao
     abstract fun readingListDao(): ReadingListDao
     abstract fun siteSettingsDao(): SiteSettingsDao
+    abstract fun homeShortcutDao(): HomeShortcutDao
 
     companion object {
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `home_shortcuts` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`url` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`position` INTEGER NOT NULL)"
+                )
+                // Seed the grid from what the home page displayed before v9: the 8 newest
+                // bookmarks (BookmarkDao.observeAll orders createdAt DESC; HomePage took 8).
+                // position = how many bookmarks are newer, so the top-8 get ranks 0..7.
+                // COUNT-based rank instead of ROW_NUMBER(): minSdk 26 predates SQLite 3.25.
+                db.execSQL(
+                    "INSERT INTO home_shortcuts (url, title, position) " +
+                        "SELECT b.url, b.title, " +
+                        "(SELECT COUNT(*) FROM bookmarks n WHERE n.createdAt > b.createdAt " +
+                        "OR (n.createdAt = b.createdAt AND n.id < b.id)) " +
+                        "FROM bookmarks b " +
+                        "ORDER BY b.createdAt DESC, b.id ASC " +
+                        "LIMIT 8"
+                )
+            }
+        }
+
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

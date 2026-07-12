@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
@@ -47,12 +48,18 @@ import com.udaytank.browse.ui.BrowserScreen
 import com.udaytank.browse.ui.DownloadsScreen
 import com.udaytank.browse.ui.HistoryScreen
 import com.udaytank.browse.ui.IncognitoLockScreen
+import com.udaytank.browse.ui.OnboardingScreen
 import com.udaytank.browse.ui.ReadingListScreen
 import com.udaytank.browse.ui.TabSwitcherScreen
 import com.udaytank.browse.ui.WebViewHolder
 import com.udaytank.browse.ui.theme.BrowseTheme
 
 class MainActivity : FragmentActivity() {
+
+    private companion object {
+        /** Intent extra carried by the static launcher shortcuts (res/xml/shortcuts.xml). */
+        const val SHORTCUT_EXTRA = "andromeda.shortcut"
+    }
 
     private val viewModel: BrowserViewModel by viewModels { BrowserViewModel.Factory }
 
@@ -97,6 +104,7 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleWebIntent(intent)
+        handleShortcutIntent(intent)
     }
 
     override fun onStop() {
@@ -200,10 +208,41 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Static launcher shortcuts (J4): the shortcuts.xml intents carry an extra, no data uri. */
+    private fun handleShortcutIntent(intent: Intent?) {
+        when (intent?.getStringExtra(SHORTCUT_EXTRA)) {
+            "new_tab" -> viewModel.onNewTab()
+            "new_incognito" -> viewModel.onNewIncognitoTab()
+        }
+    }
+
+    /**
+     * The default-browser ask (J2 page 3 and Settings share this): the system RoleManager
+     * sheet where available, otherwise the default-apps settings screen.
+     */
+    fun requestDefaultBrowserRole() {
+        val intent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(android.app.role.RoleManager::class.java)
+            if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_BROWSER) &&
+                !roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_BROWSER)
+            ) {
+                roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_BROWSER)
+            } else {
+                Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+            }
+        } else {
+            Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+        }
+        runCatching { startActivity(intent) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleWebIntent(intent)
+        // Only a fresh launch acts on a shortcut extra — a recreation (process death restore)
+        // still carries the old intent and must not open yet another tab.
+        if (savedInstanceState == null) handleShortcutIntent(intent)
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             BrowseTheme(
@@ -213,6 +252,27 @@ class MainActivity : FragmentActivity() {
                     ThemeMode.DARK -> true
                 }
             ) {
+                // First-run gate (J2): render onboarding INSTEAD of the browser tree, and a
+                // plain background frame while the flag is still loading, so the real UI never
+                // flashes underneath. Any onboarding exit path flips the flag permanently.
+                val onboardingDone by viewModel.onboardingDone.collectAsStateWithLifecycle()
+                if (onboardingDone != true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                    ) {
+                        if (onboardingDone == false) {
+                            OnboardingScreen(
+                                onImportBookmarks = viewModel::importBookmarksHtml,
+                                onSetDefaultBrowser = ::requestDefaultBrowserRole,
+                                onDone = viewModel::onOnboardingFinished,
+                            )
+                        }
+                    }
+                    return@BrowseTheme
+                }
+
                 val navController = rememberNavController()
                 val holderRef = remember { arrayOfNulls<WebViewHolder>(1) }
                 val holder = remember {
@@ -281,6 +341,11 @@ class MainActivity : FragmentActivity() {
 
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }
+
+                // Global text scale (I3): live re-apply to every open tab; site overrides win
+                // inside the holder's re-resolve. Also seeds fresh WebViews via obtain().
+                val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+                LaunchedEffect(textScale) { holder.applyGlobalTextScale(textScale) }
 
                 // Page-start site-settings lookup: a plain read of the VM's in-memory host map,
                 // so the WebView client callback never blocks on the database.

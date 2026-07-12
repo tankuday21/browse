@@ -20,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ThemeMode
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,7 +61,10 @@ fun SettingsScreen(
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+    val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+    var draftTextScale by remember { mutableStateOf<Int?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -83,6 +88,37 @@ fun SettingsScreen(
             }.getOrNull()
             if (html != null) viewModel.importBookmarksHtml(html) { count ->
                 Toast.makeText(context, "Imported $count bookmarks", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val backupLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) scope.launch {
+            val json = viewModel.buildBackupJson()
+            val ok = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+            }.isSuccess
+            Toast.makeText(
+                context,
+                if (ok) "Backup saved" else "Couldn't save backup",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+    val restoreLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val json = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            val backup = json?.let { com.udaytank.browse.browser.BackupCodec.decode(it) }
+            if (backup == null) {
+                Toast.makeText(context, "Not a valid Andromeda backup", Toast.LENGTH_SHORT).show()
+            } else {
+                pendingRestore = backup
             }
         }
     }
@@ -178,6 +214,38 @@ fun SettingsScreen(
                     )
                 }
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Accessibility",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            // Draft holds the value while dragging (live % label); DataStore is written once
+            // on release — MainActivity live-applies the persisted value to all open tabs.
+            val shownScale = draftTextScale ?: textScale
+            Text(
+                "Text size — ${if (shownScale == 100) "Default" else "$shownScale%"}",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Slider(
+                value = shownScale.toFloat(),
+                onValueChange = { raw -> draftTextScale = (raw / 10f).roundToInt() * 10 },
+                onValueChangeFinished = {
+                    draftTextScale?.let(viewModel::onTextScaleChanged)
+                    draftTextScale = null
+                },
+                valueRange = 50f..200f,
+                steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Text(
+                "Applies to every website. A per-site text size from Site settings wins.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 "Tabs",
@@ -325,6 +393,57 @@ fun SettingsScreen(
             ) {
                 Text("Import bookmarks")
             }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Backup & restore",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            TextButton(
+                onClick = {
+                    val date = java.time.LocalDate.now()
+                        .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                    backupLauncher.launch("andromeda-backup-$date.json")
+                },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Back up")
+            }
+            TextButton(
+                onClick = { restoreLauncher.launch(arrayOf("application/json")) },
+                modifier = Modifier.padding(horizontal = 8.dp),
+            ) {
+                Text("Restore")
+            }
+            Text(
+                "Backs up settings, bookmarks, home shortcuts, reading list, and tab groups. " +
+                    "Saved articles and browsing history stay on this device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+        }
+
+        pendingRestore?.let { backup ->
+            AlertDialog(
+                onDismissRequest = { pendingRestore = null },
+                title = { Text("Restore backup?") },
+                text = { Text("Merges with your current data. Nothing is deleted; duplicates are skipped and settings take the backup's values.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.onRestoreBackup(backup) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                        pendingRestore = null
+                    }) {
+                        Text("Restore")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingRestore = null }) { Text("Cancel") }
+                },
+            )
         }
 
         if (showClearDialog) {

@@ -110,4 +110,14 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setReaderWide(wide: Boolean) {
         readerWide.value = wide
     }
+
+    override val onboardingDone = MutableStateFlow(false)
+    override suspend fun setOnboardingDone(done: Boolean) {
+        onboardingDone.value = done
+    }
+
+    override val textScale = MutableStateFlow(100)
+    override suspend fun setTextScale(percent: Int) {
+        textScale.value = percent.coerceIn(50, 200)
+    }
 }

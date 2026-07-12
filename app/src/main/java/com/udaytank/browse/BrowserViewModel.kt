@@ -19,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
 import com.udaytank.browse.browser.VisitPolicy
+import com.udaytank.browse.browser.Backup
+import com.udaytank.browse.browser.BackupCodec
 import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
@@ -28,6 +30,8 @@ import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.HomeShortcutDao
+import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
@@ -51,6 +55,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -119,6 +124,7 @@ class BrowserViewModel(
     private val readingListDao: ReadingListDao,
     private val articleStore: ArticleStore,
     private val siteSettingsDao: SiteSettingsDao,
+    private val homeShortcutDao: HomeShortcutDao,
     private val downloadController: DownloadController,
     /**
      * Removes a system-DownloadManager-owned download by its DM id. Only ever used for the
@@ -265,6 +271,68 @@ class BrowserViewModel(
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Eagerly: the home page is the first thing rendered, before any subscriber settles.
+    val homeShortcuts: StateFlow<List<HomeShortcutEntity>> = homeShortcutDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Adds a shortcut tile at the end of the home grid. Dedupe by url — the grid is small
+     * and duplicate tiles would just waste slots. [onFeedback] gets a toastable message,
+     * following the [importBookmarksHtml] / [onSaveForLater] callback pattern.
+     */
+    fun onAddShortcut(url: String, title: String, onFeedback: (String) -> Unit = {}) {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isBlank()) {
+            onFeedback("Enter a link to add")
+            return
+        }
+        viewModelScope.launch {
+            if (homeShortcutDao.getAll().any { it.url == cleanUrl }) {
+                onFeedback("Already on your home screen")
+                return@launch
+            }
+            val nextPosition = (homeShortcutDao.getAll().maxOfOrNull { it.position } ?: -1) + 1
+            homeShortcutDao.insert(
+                HomeShortcutEntity(
+                    url = cleanUrl,
+                    title = title.trim().ifBlank { UrlHosts.of(cleanUrl) ?: cleanUrl },
+                    position = nextPosition,
+                )
+            )
+            onFeedback("Added to home")
+        }
+    }
+
+    /**
+     * Menu action: puts the current page on the home grid. Allowed from incognito too —
+     * it's an explicit user action, same policy as downloads and save-for-later.
+     */
+    fun onAddCurrentPageToHome(onFeedback: (String) -> Unit) {
+        val url = _uiState.value.currentUrl
+        if (url.isNullOrBlank() || url == HOME_URL) {
+            onFeedback("Nothing to add on this page")
+            return
+        }
+        val tabTitle = tabs.value.find { it.id == activeTabId.value }?.title
+        onAddShortcut(url, tabTitle ?: "", onFeedback)
+    }
+
+    fun onRemoveShortcut(id: Long) {
+        viewModelScope.launch { homeShortcutDao.deleteById(id) }
+    }
+
+    /** Moves a tile to the first slot; the whole list is rewritten with fresh 0..n positions. */
+    fun onMoveShortcutToFront(id: Long) {
+        viewModelScope.launch {
+            val current = homeShortcutDao.getAll()
+            val target = current.find { it.id == id } ?: return@launch
+            val reordered = listOf(target) + current.filterNot { it.id == id }
+            homeShortcutDao.replaceAll(
+                reordered.mapIndexed { index, shortcut -> shortcut.copy(position = index) }
+            )
+        }
+    }
+
     val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -296,6 +364,29 @@ class BrowserViewModel(
 
     fun onReaderWideToggled(wide: Boolean) {
         viewModelScope.launch { settings.setReaderWide(wide) }
+    }
+
+    /**
+     * First-run gate (J2), tri-state on purpose: null while DataStore hasn't answered yet —
+     * MainActivity then renders a plain background-colored frame (never the browser, so the
+     * real UI can't flash before onboarding), false shows onboarding, true shows the browser.
+     */
+    val onboardingDone: StateFlow<Boolean?> = settings.onboardingDone
+        .map<Boolean, Boolean?> { it }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Every onboarding exit path (Skip / Get started / Maybe later) lands here — permanent. */
+    fun onOnboardingFinished() {
+        viewModelScope.launch { settings.setOnboardingDone(true) }
+    }
+
+    /** Global page text scale in percent (I3) — the base textZoom for every tab; a positive
+     *  per-site override still wins (SiteSettingsResolver). */
+    val textScale: StateFlow<Int> = settings.textScale
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 100)
+
+    fun onTextScaleChanged(percent: Int) {
+        viewModelScope.launch { settings.setTextScale(percent) }
     }
 
     // --- per-site display memory (H6) ---
@@ -714,6 +805,128 @@ class BrowserViewModel(
         }
     }
 
+    // --- backup & restore (J1) ---
+
+    /**
+     * The explicit list of settings a backup carries. Values are their string forms (enum
+     * names / toString), decoded leniently on restore so unknown values are skipped, not
+     * fatal. onboardingDone is deliberately absent — first-run state is device-local.
+     */
+    private suspend fun settingsSnapshot(): Map<String, String> = mapOf(
+        "searchEngine" to settings.searchEngine.first().name,
+        "themeMode" to settings.themeMode.first().name,
+        "javaScriptEnabled" to settings.javaScriptEnabled.first().toString(),
+        "cookiesEnabled" to settings.cookiesEnabled.first().toString(),
+        "adBlockEnabled" to settings.adBlockEnabled.first().toString(),
+        "forceDarkWebsites" to settings.forceDarkWebsites.first().toString(),
+        "httpsOnly" to settings.httpsOnly.first().toString(),
+        "lockIncognito" to settings.lockIncognito.first().toString(),
+        "autoIslands" to settings.autoIslands.first().toString(),
+        "switcherListLayout" to settings.switcherListLayout.first().toString(),
+        "backgroundMedia" to settings.backgroundMedia.first().toString(),
+        "readerFontScale" to settings.readerFontScale.first().toString(),
+        "textScale" to settings.textScale.first().toString(),
+        "readerTheme" to settings.readerTheme.first().name,
+        "readerWide" to settings.readerWide.first().toString(),
+        "safeBrowsing" to settings.safeBrowsing.first().toString(),
+        "dismissCookieBanners" to settings.dismissCookieBanners.first().toString(),
+        "gpcEnabled" to settings.gpcEnabled.first().toString(),
+    )
+
+    /**
+     * Serializes everything backup-worthy to the versioned JSON format. Pure data out — the
+     * caller (Settings screen) owns the SAF stream plumbing, keeping this unit-testable.
+     */
+    suspend fun buildBackupJson(): String = BackupCodec.encode(
+        Backup(
+            settings = settingsSnapshot(),
+            bookmarks = bookmarkDao.getAll(),
+            homeShortcuts = homeShortcutDao.getAll(),
+            readingList = readingListDao.observeAll().first(),
+            tabGroups = tabGroupDao.getAll(),
+        )
+    )
+
+    /**
+     * Merges a decoded backup into the live data (never wipes): bookmarks / shortcuts /
+     * reading-list rows dedupe by url, tab groups by name, settings overwrite. Restored
+     * shortcuts and groups append after the existing ones; reading-list rows come back as
+     * metadata only (no offline copy). [onFeedback] gets a toastable per-section count line.
+     */
+    fun onRestoreBackup(backup: Backup, onFeedback: (String) -> Unit) {
+        viewModelScope.launch {
+            applyRestoredSettings(backup.settings)
+
+            val existingBookmarks = bookmarkDao.getAll().map { it.url }.toSet()
+            var bookmarksAdded = 0
+            backup.bookmarks.forEach { bookmark ->
+                if (bookmark.url !in existingBookmarks) {
+                    bookmarkDao.insert(bookmark.copy(id = 0))
+                    bookmarksAdded++
+                }
+            }
+
+            val currentShortcuts = homeShortcutDao.getAll()
+            val existingShortcutUrls = currentShortcuts.map { it.url }.toSet()
+            var nextPosition = (currentShortcuts.maxOfOrNull { it.position } ?: -1) + 1
+            var shortcutsAdded = 0
+            backup.homeShortcuts.sortedBy { it.position }.forEach { shortcut ->
+                if (shortcut.url !in existingShortcutUrls) {
+                    homeShortcutDao.insert(shortcut.copy(id = 0, position = nextPosition++))
+                    shortcutsAdded++
+                }
+            }
+
+            var readingAdded = 0
+            backup.readingList.forEach { entry ->
+                if (!readingListDao.existsByUrl(entry.url)) {
+                    readingListDao.insert(entry.copy(id = 0, filePath = null))
+                    readingAdded++
+                }
+            }
+
+            val existingGroupNames = tabGroupDao.getAll().map { it.name }.toSet()
+            var groupPosition = tabGroupDao.getAll().size
+            var groupsAdded = 0
+            backup.tabGroups.sortedBy { it.position }.forEach { group ->
+                if (group.name !in existingGroupNames) {
+                    tabGroupDao.insert(group.copy(id = 0, position = groupPosition++))
+                    groupsAdded++
+                }
+            }
+
+            onFeedback(
+                "Restored $bookmarksAdded bookmarks, $shortcutsAdded shortcuts, " +
+                    "$readingAdded reading list items, $groupsAdded tab groups"
+            )
+        }
+    }
+
+    /** Lenient per-key apply: unknown or unparseable values are skipped, never fatal. */
+    private suspend fun applyRestoredSettings(map: Map<String, String>) {
+        map["searchEngine"]?.let { v -> SearchEngine.entries.find { it.name == v } }
+            ?.let { settings.setSearchEngine(it) }
+        map["themeMode"]?.let { v -> ThemeMode.entries.find { it.name == v } }
+            ?.let { settings.setThemeMode(it) }
+        map["javaScriptEnabled"]?.toBooleanStrictOrNull()?.let { settings.setJavaScriptEnabled(it) }
+        map["cookiesEnabled"]?.toBooleanStrictOrNull()?.let { settings.setCookiesEnabled(it) }
+        map["adBlockEnabled"]?.toBooleanStrictOrNull()?.let { settings.setAdBlockEnabled(it) }
+        map["forceDarkWebsites"]?.toBooleanStrictOrNull()?.let { settings.setForceDarkWebsites(it) }
+        map["httpsOnly"]?.toBooleanStrictOrNull()?.let { settings.setHttpsOnly(it) }
+        map["lockIncognito"]?.toBooleanStrictOrNull()?.let { settings.setLockIncognito(it) }
+        map["autoIslands"]?.toBooleanStrictOrNull()?.let { settings.setAutoIslands(it) }
+        map["switcherListLayout"]?.toBooleanStrictOrNull()?.let { settings.setSwitcherListLayout(it) }
+        map["backgroundMedia"]?.toBooleanStrictOrNull()?.let { settings.setBackgroundMedia(it) }
+        map["readerFontScale"]?.toIntOrNull()?.let { settings.setReaderFontScale(it) }
+        map["textScale"]?.toIntOrNull()?.let { settings.setTextScale(it) }
+        map["readerTheme"]?.let { v -> ReaderTheme.entries.find { it.name == v } }
+            ?.let { settings.setReaderTheme(it) }
+        map["readerWide"]?.toBooleanStrictOrNull()?.let { settings.setReaderWide(it) }
+        map["safeBrowsing"]?.toBooleanStrictOrNull()?.let { settings.setSafeBrowsing(it) }
+        map["dismissCookieBanners"]?.toBooleanStrictOrNull()?.let { settings.setDismissCookieBanners(it) }
+        map["gpcEnabled"]?.toBooleanStrictOrNull()?.let { settings.setGpcEnabled(it) }
+    }
+
     // --- reading list (save for later) ---
 
     /**
@@ -1027,6 +1240,7 @@ class BrowserViewModel(
                     app.database.readingListDao(),
                     ArticleStore(java.io.File(app.filesDir, "reading_list")),
                     app.database.siteSettingsDao(),
+                    app.database.homeShortcutDao(),
                     com.udaytank.browse.download.ServiceDownloadController(app),
                     downloadManagerRemover = { id ->
                         (app.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager)
