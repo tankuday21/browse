@@ -50,6 +50,8 @@ class MediaHoldService : Service() {
             }
             ACTION_STOP -> {
                 onStopped?.invoke()
+                controller = null
+                onStopped = null
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -67,6 +69,10 @@ class MediaHoldService : Service() {
         // Best-effort: if the service is torn down by the system rather than via ACTION_STOP,
         // still clear the keep-alive flag so the tab isn't stuck exempt from pausing forever.
         onStopped?.invoke()
+        // Release both static callbacks so this service instance (and the WebViewHolder/tabId
+        // it closed over) isn't leaked past its own lifecycle.
+        controller = null
+        onStopped = null
     }
 
     private fun createNotificationChannel() {

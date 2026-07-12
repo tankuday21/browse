@@ -480,4 +480,22 @@ class BrowserViewModelTest {
         assertFalse("bbc.com" in vm.backgroundMediaSites.value)
         assertFalse(vm.currentSiteBackgroundAllowed.value)
     }
+
+    @Test
+    fun `incognito tab cannot add background media site`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://secret.com/video")
+        advanceUntilIdle()
+
+        vm.onToggleBackgroundMediaForCurrentSite()
+        advanceUntilIdle()
+
+        assertTrue(vm.backgroundMediaSites.value.isEmpty())
+        assertFalse("secret.com" in vm.backgroundMediaSites.value)
+        assertFalse(vm.currentSiteBackgroundAllowed.value)
+    }
 }

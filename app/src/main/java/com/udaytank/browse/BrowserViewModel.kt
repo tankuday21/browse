@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BrowserCommand
+import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
 import com.udaytank.browse.browser.SuggestionKind
@@ -168,6 +169,10 @@ class BrowserViewModel(
 
     /** Toggles the active tab's host in the background-media allowlist. */
     fun onToggleBackgroundMediaForCurrentSite() {
+        // Incognito hosts must never enter the persisted allowlist - that would leak which
+        // private sites the user visited across sessions.
+        val isIncognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+        if (isIncognito) return
         val host = currentHost() ?: return
         viewModelScope.launch {
             val current = backgroundMediaSites.value
@@ -231,7 +236,7 @@ class BrowserViewModel(
     val currentSiteBackgroundAllowed: StateFlow<Boolean> = combine(
         uiState, backgroundMediaSites,
     ) { state, sites ->
-        val host = state.currentUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+        val host = UrlHosts.of(state.currentUrl)
         host != null && host in sites
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -416,8 +421,7 @@ class BrowserViewModel(
     }
 
     /** Host of the page in the active tab, or null (home tab / malformed url). */
-    fun currentHost(): String? =
-        _uiState.value.currentUrl?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+    fun currentHost(): String? = UrlHosts.of(_uiState.value.currentUrl)
 
     fun onToggleAllowAdsOnCurrentSite() {
         val host = currentHost() ?: return

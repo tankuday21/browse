@@ -73,9 +73,12 @@ class MainActivity : FragmentActivity() {
     private fun maybeKeepBackgroundMediaAlive() {
         if (!viewModel.backgroundMedia.value) return
         val tabId = viewModel.activeTabId.value ?: return
+        // Never let an incognito tab trigger the service/notification, regardless of allowlist
+        // membership - the host itself must never surface outside the tab's private session.
+        if (viewModel.tabs.value.find { it.id == tabId }?.isIncognito == true) return
         val url = viewModel.uiState.value.currentUrl ?: return
         if (!(url.startsWith("http://") || url.startsWith("https://"))) return
-        val host = android.net.Uri.parse(url).host ?: return
+        val host = com.udaytank.browse.browser.UrlHosts.of(url) ?: return
         if (host !in viewModel.backgroundMediaSites.value) return
         val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
         if (!audioManager.isMusicActive) return

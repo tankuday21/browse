@@ -322,7 +322,7 @@ fun BrowserScreen(
                         text = { Text("Settings") },
                         onClick = { onOpenSettings(); menuOpen = false },
                     )
-                    if (backgroundMedia && currentUrlIsHttp) {
+                    if (backgroundMedia && currentUrlIsHttp && !isIncognito) {
                         DropdownMenuItem(
                             text = {
                                 Text(
