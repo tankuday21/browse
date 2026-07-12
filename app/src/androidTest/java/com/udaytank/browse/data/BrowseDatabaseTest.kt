@@ -184,6 +184,124 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate7to8_createsReadingListAndSiteSettings() {
+        helper.createDatabase(DB, 7).apply {
+            execSQL(
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0, 0, 0)"
+            )
+            execSQL(
+                "INSERT INTO downloads (downloadId, fileName, url, createdAt, totalBytes, " +
+                    "downloadedBytes, state, segments, attempts) " +
+                    "VALUES (42, 'file.pdf', 'https://a.com/file.pdf', 1, -1, 0, 'DONE', 1, 0)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 8, true, BrowseDatabase.MIGRATION_7_8)
+        // Legacy data survives the migration.
+        db.query("SELECT url FROM tabs").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("https://a.com", c.getString(0))
+        }
+        db.query("SELECT fileName FROM downloads").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("file.pdf", c.getString(0))
+        }
+        // Both new tables are usable: insert + read back.
+        db.execSQL(
+            "INSERT INTO reading_list (url, title, addedAt, readAt, filePath) " +
+                "VALUES ('https://a.com/article', 'Article', 10, NULL, NULL)"
+        )
+        db.query("SELECT id, url, title, addedAt, readAt, filePath FROM reading_list").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(1L, c.getLong(0))
+            assertEquals("https://a.com/article", c.getString(1))
+            assertEquals("Article", c.getString(2))
+            assertEquals(10L, c.getLong(3))
+            assertTrue(c.isNull(4))
+            assertTrue(c.isNull(5))
+        }
+        db.execSQL(
+            "INSERT INTO site_settings (host, textZoom, forceDark, desktopMode) " +
+                "VALUES ('a.com', 150, -1, 1)"
+        )
+        db.query("SELECT host, textZoom, forceDark, desktopMode FROM site_settings").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("a.com", c.getString(0))
+            assertEquals(150, c.getInt(1))
+            assertEquals(-1, c.getInt(2))
+            assertEquals(1, c.getInt(3))
+        }
+    }
+
+    @Test
+    fun readingListDao_roundTrip() = runBlocking {
+        val dao = database.readingListDao()
+        val id = dao.insert(ReadingListEntry(url = "https://a.com/1", title = "One", addedAt = 1))
+        val id2 = dao.insert(ReadingListEntry(url = "https://a.com/2", title = "Two", addedAt = 2))
+
+        // observeAll orders newest-first by addedAt.
+        assertEquals(listOf(id2, id), dao.observeAll().first().map { it.id })
+
+        // getById round-trips the inserted values.
+        val one = dao.getById(id)
+        assertEquals("https://a.com/1", one?.url)
+        assertEquals("One", one?.title)
+        assertEquals(null, one?.readAt)
+        assertEquals(null, one?.filePath)
+
+        // existsByUrl
+        assertTrue(dao.existsByUrl("https://a.com/1"))
+        assertFalse(dao.existsByUrl("https://nope.com"))
+
+        // getUnread orders oldest-first; setReadAt removes from unread.
+        assertEquals(listOf(id, id2), dao.getUnread().map { it.id })
+        dao.setReadAt(id, 99L)
+        assertEquals(99L, dao.getById(id)?.readAt)
+        assertEquals(listOf(id2), dao.getUnread().map { it.id })
+        dao.setReadAt(id, null)
+        assertEquals(listOf(id, id2), dao.getUnread().map { it.id })
+
+        // setFilePath
+        dao.setFilePath(id, "/data/reading_list/1.html")
+        assertEquals("/data/reading_list/1.html", dao.getById(id)?.filePath)
+        dao.setFilePath(id, null)
+        assertEquals(null, dao.getById(id)?.filePath)
+
+        // deleteById
+        dao.deleteById(id)
+        assertEquals(null, dao.getById(id))
+        assertFalse(dao.existsByUrl("https://a.com/1"))
+        assertEquals(1, dao.observeAll().first().size)
+    }
+
+    @Test
+    fun siteSettingsDao_roundTrip() = runBlocking {
+        val dao = database.siteSettingsDao()
+        assertEquals(null, dao.getByHost("a.com"))
+
+        dao.upsert(SiteSettingsEntity(host = "a.com", textZoom = 150))
+        val stored = dao.getByHost("a.com")
+        assertEquals(150, stored?.textZoom)
+        assertEquals(-1, stored?.forceDark)
+        assertEquals(-1, stored?.desktopMode)
+
+        // upsert replaces on conflict (same host).
+        dao.upsert(SiteSettingsEntity(host = "a.com", textZoom = 80, forceDark = 1, desktopMode = 0))
+        val replaced = dao.getByHost("a.com")
+        assertEquals(80, replaced?.textZoom)
+        assertEquals(1, replaced?.forceDark)
+        assertEquals(0, replaced?.desktopMode)
+
+        dao.upsert(SiteSettingsEntity(host = "b.com"))
+        assertEquals(setOf("a.com", "b.com"), dao.observeAll().first().map { it.host }.toSet())
+
+        dao.deleteByHost("a.com")
+        assertEquals(null, dao.getByHost("a.com"))
+        assertEquals(listOf("b.com"), dao.observeAll().first().map { it.host })
+    }
+
+    @Test
     fun downloadDao_progressAndStateRoundTrip() = runBlocking {
         val dao = database.downloadDao()
         val id = dao.insertReturning(

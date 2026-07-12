@@ -13,8 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadEntry::class,
         TabGroupEntity::class,
         ClosedTabEntity::class,
+        ReadingListEntry::class,
+        SiteSettingsEntity::class,
     ],
-    version = 7,
+    version = 8,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -23,8 +25,32 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun tabGroupDao(): TabGroupDao
     abstract fun closedTabDao(): ClosedTabDao
+    abstract fun readingListDao(): ReadingListDao
+    abstract fun siteSettingsDao(): SiteSettingsDao
 
     companion object {
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reading_list` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`url` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`addedAt` INTEGER NOT NULL, " +
+                        "`readAt` INTEGER, " +
+                        "`filePath` TEXT)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `site_settings` (" +
+                        "`host` TEXT NOT NULL, " +
+                        "`textZoom` INTEGER NOT NULL, " +
+                        "`forceDark` INTEGER NOT NULL, " +
+                        "`desktopMode` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`host`))"
+                )
+            }
+        }
+
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `downloads` ADD COLUMN `totalBytes` INTEGER NOT NULL DEFAULT -1")
