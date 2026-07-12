@@ -37,6 +37,16 @@ class DownloadService : Service() {
     /** Count of downloads this service instance currently considers "in flight". */
     private val activeCount = AtomicInteger(0)
 
+    /**
+     * Guards first-start filename resolution + destination-file creation as one atomic unit.
+     * Without this, two concurrent first-starts for the same fileName can both see
+     * UniqueName.resolve's exists() check return false (the engine only creates the file after
+     * a network probe, leaving a full-RTT TOCTOU window), resolve to the same dest file, and
+     * end up with two DB rows writing the same path. Creating the file inside the lock closes
+     * the window: the second resolver's exists() check will see the first's claimed file.
+     */
+    private val nameLock = Any()
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -102,11 +112,12 @@ class DownloadService : Service() {
             // verbatim, so it keeps writing the same file. Only a first start resolves a fresh,
             // collision-free name from entry.fileName and persists it - never re-derive from the
             // raw fileName on subsequent starts, or two same-named downloads could still collide.
-            val dest = entry.filePath?.let { File(it) } ?: run {
+            val dest = entry.filePath?.let { File(it) } ?: synchronized(nameLock) {
                 val name = UniqueName.resolve(entry.fileName) { candidate -> File(dir, candidate).exists() }
-                val f = File(dir, name)
-                dao.setFileInfo(id, name, f.absolutePath, entry.mimeType, entry.etag, entry.segments)
-                f
+                File(dir, name).apply { parentFile?.mkdirs(); createNewFile() }
+            }
+            if (entry.filePath == null) {
+                dao.setFileInfo(id, dest.name, dest.absolutePath, entry.mimeType, entry.etag, entry.segments)
             }
 
             dao.setState(id, "RUNNING")
