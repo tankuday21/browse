@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Environment
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.udaytank.browse.BrowseApplication
 import com.udaytank.browse.data.DownloadDao
 import kotlinx.coroutines.CoroutineScope
@@ -51,13 +52,29 @@ class DownloadService : Service() {
         val id = intent?.getLongExtra(EXTRA_ID, -1L) ?: -1L
         if (id == -1L) return START_NOT_STICKY
 
+        // Every branch schedules a stopIfIdle() check after its own work, so an action for an
+        // id the engine doesn't (or no longer) track - e.g. PAUSE/CANCEL after the download
+        // already finished - can't leave the service stranded in the foreground forever.
+        // activeCount is only ever incremented synchronously (inside handleStart, before any
+        // suspension), so by the time these launches actually run the count already reflects
+        // this call's effect - a stray stopIfIdle can't race ahead of engine.start().
         when (intent?.action) {
-            ACTION_START, ACTION_RESUME -> handleStart(id)
-            ACTION_PAUSE -> engine.pause(id)
+            ACTION_START, ACTION_RESUME -> {
+                handleStart(id)
+                scope.launch { stopIfIdle() }
+            }
+            ACTION_PAUSE -> {
+                engine.pause(id)
+                scope.launch { stopIfIdle() }
+            }
             ACTION_CANCEL -> {
                 engine.cancel(id)
-                scope.launch { dao.setState(id, "CANCELLED") }
+                scope.launch {
+                    dao.setState(id, "CANCELLED")
+                    stopIfIdle()
+                }
             }
+            else -> scope.launch { stopIfIdle() }
         }
         return START_NOT_STICKY
     }
@@ -81,13 +98,22 @@ class DownloadService : Service() {
 
             val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             dir?.mkdirs()
-            val destFile = File(dir, entry.fileName)
+            // RESUME/retry of a download that already resolved+persisted a filePath reuses it
+            // verbatim, so it keeps writing the same file. Only a first start resolves a fresh,
+            // collision-free name from entry.fileName and persists it - never re-derive from the
+            // raw fileName on subsequent starts, or two same-named downloads could still collide.
+            val dest = entry.filePath?.let { File(it) } ?: run {
+                val name = UniqueName.resolve(entry.fileName) { candidate -> File(dir, candidate).exists() }
+                val f = File(dir, name)
+                dao.setFileInfo(id, name, f.absolutePath, entry.mimeType, entry.etag, entry.segments)
+                f
+            }
 
             dao.setState(id, "RUNNING")
             engine.start(
                 id = id,
                 url = entry.url,
-                destFile = destFile,
+                destFile = dest,
                 userAgent = null,
                 priorEtag = entry.etag,
                 priorTotal = entry.totalBytes,
@@ -97,8 +123,12 @@ class DownloadService : Service() {
         }
     }
 
+    /** Idempotent: safe to call speculatively from any action's completion path. */
     private fun stopIfIdle() {
-        if (activeCount.get() <= 0) stopSelf()
+        if (activeCount.get() <= 0) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private val listener = object : DownloadEngine.Listener {
@@ -108,17 +138,21 @@ class DownloadService : Service() {
         }
 
         override fun onStateChanged(id: Long, state: String, error: String?) {
-            scope.launch { dao.setState(id, state, error) }
+            // Notification is fire-and-forget and can stay synchronous. The activeCount
+            // decrement + stopIfIdle for terminal states must NOT run until the dao.setState
+            // write below has actually landed - otherwise stopIfIdle() can stopSelf() (and
+            // cancel this service's scope) while that write is still in flight, dropping it.
             when (state) {
-                "DONE", "FAILED", "CANCELLED" -> {
-                    finalNotification(id, state)
-                    activeCount.decrementAndGet()
-                    stopIfIdle()
-                }
-                "PAUSED" -> {
-                    pausedNotification(id)
-                    activeCount.decrementAndGet()
-                    stopIfIdle()
+                "DONE", "FAILED", "CANCELLED" -> finalNotification(id, state)
+                "PAUSED" -> pausedNotification(id)
+            }
+            scope.launch {
+                dao.setState(id, state, error)
+                when (state) {
+                    "DONE", "FAILED", "CANCELLED", "PAUSED" -> {
+                        activeCount.decrementAndGet()
+                        stopIfIdle()
+                    }
                 }
             }
         }
@@ -126,11 +160,20 @@ class DownloadService : Service() {
         override fun onFileInfo(id: Long, fileName: String, total: Long, etag: String?, segments: Int) {
             scope.launch {
                 val entry = dao.getById(id)
-                val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                val existingPath = entry?.filePath
+                // Never rebuild the path (or overwrite the persisted fileName) from the raw
+                // fileName reported here once a filePath is already persisted - handleStart
+                // already resolved a collision-free name for this download; re-deriving from
+                // fileName again would risk re-colliding with another same-named download.
+                val filePath = existingPath ?: run {
+                    val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                    val name = UniqueName.resolve(fileName) { candidate -> File(dir, candidate).exists() }
+                    File(dir, name).absolutePath
+                }
                 dao.setFileInfo(
                     id = id,
-                    fileName = fileName,
-                    filePath = entry?.filePath ?: File(dir, fileName).absolutePath,
+                    fileName = if (existingPath != null) entry.fileName else fileName,
+                    filePath = filePath,
                     mimeType = entry?.mimeType,
                     etag = etag,
                     segments = segments,
