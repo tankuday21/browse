@@ -591,7 +591,18 @@ class BrowserViewModel(
 
     // --- tab groups ---
 
-    fun onCreateGroupWithTabs(name: String, tabIds: List<Long>) {
+    /**
+     * Creates a group and assigns [tabIds] to it. Incognito tabs join in-memory only
+     * ([TabManager] never persists negative ids), so a selection with NO regular tab must not
+     * create the group at all — it would persist an empty group row that outlives the
+     * incognito session. [onFeedback] gets a toastable message on that no-op.
+     */
+    fun onCreateGroupWithTabs(name: String, tabIds: List<Long>, onFeedback: (String) -> Unit = {}) {
+        val hasPersistableTab = tabIds.any { id -> tabs.value.find { it.id == id }?.isIncognito != true }
+        if (!hasPersistableTab) {
+            onFeedback("Incognito tabs can't form a group")
+            return
+        }
         viewModelScope.launch {
             val group = TabGroupEntity(
                 name = name,

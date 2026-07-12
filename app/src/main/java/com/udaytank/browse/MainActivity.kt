@@ -339,6 +339,11 @@ class MainActivity : FragmentActivity() {
                     onDispose { holder.destroyAll() }
                 }
 
+                // Fullscreen custom views are only honored for the tab the user is looking at;
+                // the holder reads this in onShowCustomView (P6 improve pass).
+                val holderActiveTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
+                LaunchedEffect(holderActiveTabId) { holder.activeTabId = holderActiveTabId }
+
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }
 
