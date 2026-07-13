@@ -123,8 +123,11 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         webViewHolder?.resumeAll()
         com.udaytank.browse.media.MediaHoldService.stop(this)
-        val tabId = viewModel.activeTabId.value
-        if (tabId != null) webViewHolder?.setKeepAlive(tabId, false)
+        // NOTE: do NOT clear the keep-alive flag here. It is owned by the proactive
+        // setBackgroundPlaybackTab effect (keyed on the toggle + active tab), so it must survive
+        // foreground/background cycles - clearing it on foreground would leave the NEXT lock
+        // unprotected (the effect won't re-run when nothing changed). On foreground the tab is
+        // VISIBLE anyway, so the flag is inert until the next background transition.
         // Foreground again: the notification's controls take over, so drop the JS-monitor bridge.
         webViewHolder?.mediaStateListener = null
         webViewHolder?.mediaEndedListener = null
@@ -150,9 +153,9 @@ class MainActivity : FragmentActivity() {
         val url = viewModel.uiState.value.currentUrl ?: return
         if (!(url.startsWith("http://") || url.startsWith("https://"))) return
         val host = com.udaytank.browse.browser.UrlHosts.of(url) ?: return
-        // The global "background media" toggle governs: when it's on, any non-incognito tab that
-        // is actually playing keeps going on lock. (The older per-site allowlist is no longer a
-        // gate - it was undiscoverable and left playback stopping for sites the user never added.)
+        // The keep-alive flag itself is armed proactively (setBackgroundPlaybackTab) so playback
+        // survives the lock regardless; this method only decides whether to also raise the
+        // foreground media notification, which is pointless unless audio is actually playing.
         val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
         if (!audioManager.isMusicActive) return
         val holder = webViewHolder ?: return
@@ -169,7 +172,8 @@ class MainActivity : FragmentActivity() {
             holder.runMediaCommand(tabId, com.udaytank.browse.browser.MediaControl.PREVIOUS)
         }
         com.udaytank.browse.media.MediaHoldService.onStopped = {
-            holder.setKeepAlive(tabId, false)
+            // Don't clear keep-alive here: this fires on every routine foreground return (onStart
+            // stops the service), and the proactive effect owns the flag. Just drop the bridge.
             holder.mediaStateListener = null
             holder.mediaEndedListener = null
         }
@@ -377,6 +381,21 @@ class MainActivity : FragmentActivity() {
                 // the holder reads this in onShowCustomView (P6 improve pass).
                 val holderActiveTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
                 LaunchedEffect(holderActiveTabId) { holder.activeTabId = holderActiveTabId }
+
+                // Background media (v3.0.1): choose the keep-alive tab PROACTIVELY while the app
+                // is still foreground, so KeepAliveWebView's visibility override is armed before
+                // the screen-lock transition. Setting it in onStop is too late - the window goes
+                // invisible (and Chromium pauses the media) before onStop runs. Re-runs on toggle
+                // flips, tab switches, and incognito changes; obtain() arms a not-yet-created tab.
+                val bgMediaEnabled by viewModel.backgroundMedia.collectAsStateWithLifecycle()
+                val allTabsForBgMedia by viewModel.tabs.collectAsStateWithLifecycle()
+                LaunchedEffect(bgMediaEnabled, holderActiveTabId, allTabsForBgMedia) {
+                    val activeId = holderActiveTabId
+                    val incognito = allTabsForBgMedia.find { it.id == activeId }?.isIncognito == true
+                    holder.setBackgroundPlaybackTab(
+                        if (bgMediaEnabled && activeId != null && !incognito) activeId else null
+                    )
+                }
 
                 val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
                 LaunchedEffect(forceDark) { holder.forceDark = forceDark }

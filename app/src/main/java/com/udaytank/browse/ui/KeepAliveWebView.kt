@@ -29,4 +29,11 @@ class KeepAliveWebView(context: Context) : WebView(context) {
             super.onWindowVisibilityChanged(visibility)
         }
     }
+
+    // Chromium also pauses media when the view's *aggregated* visibility drops (window +
+    // view state combined) - verified on device that this fires alongside the window signal.
+    // Keep reporting visible while armed, so neither signal suspends the renderer.
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(if (keepAliveInBackground) true else isVisible)
+    }
 }

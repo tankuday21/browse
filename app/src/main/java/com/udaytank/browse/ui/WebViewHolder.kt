@@ -109,6 +109,28 @@ class WebViewHolder(
         (webViews[tabId] as? KeepAliveWebView)?.keepAliveInBackground = keep
     }
 
+    /**
+     * The one tab allowed to keep playing while the app is backgrounded/locked, or null.
+     *
+     * This MUST be set proactively while the app is still in the foreground (from a Compose
+     * effect reacting to the background-media toggle + active tab) — NOT reactively in onStop.
+     * On screen lock the framework delivers `onWindowVisibilityChanged(GONE)` during the stop
+     * transition, *before* onStop runs; if the keep-alive flag isn't already armed by then,
+     * Chromium has already paused the media. Stored so a WebView created later (obtain) still
+     * gets armed if it is the designated tab.
+     */
+    @Volatile
+    private var backgroundPlaybackTabId: Long? = null
+
+    fun setBackgroundPlaybackTab(tabId: Long?) {
+        backgroundPlaybackTabId = tabId
+        webViews.forEach { (id, webView) ->
+            val keep = tabId != null && id == tabId
+            if (keep) keepAliveTabs.add(id) else keepAliveTabs.remove(id)
+            (webView as? KeepAliveWebView)?.keepAliveInBackground = keep
+        }
+    }
+
     fun isKeptAlive(tabId: Long): Boolean = tabId in keepAliveTabs
 
     /**
@@ -478,6 +500,13 @@ class WebViewHolder(
                         setOf("https://*.youtube.com", "https://youtube.com", "https://music.youtube.com"),
                     )
                 }
+            }
+
+            // If this tab was already designated the background-playback tab before its WebView
+            // existed, arm keep-alive now so a later lock transition can't pause its media.
+            if (tabId == backgroundPlaybackTabId) {
+                keepAliveTabs.add(tabId)
+                keepAliveInBackground = true
             }
 
             webViewClient = object : WebViewClient() {
