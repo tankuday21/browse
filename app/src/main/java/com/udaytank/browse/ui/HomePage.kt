@@ -7,7 +7,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -37,6 +39,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
 import com.udaytank.browse.data.HomeShortcutEntity
+import com.udaytank.browse.ui.theme.OrbitSpacing
 import java.time.LocalTime
 
 private fun greeting(): String = when (LocalTime.now().hour) {
@@ -64,12 +67,6 @@ fun HomePage(
     onMoveShortcutToFront: (Long) -> Unit,
     modifier: Modifier = Modifier,
     lifetimeBlocked: Long = 0L,
-    /**
-     * Chrome-NTP centered search (v3-ux): the REAL CommandBar in home-pill display state,
-     * rendered under the wordmark with the shortcut grid + stats below. Null while the bar
-     * is editing (it then sits at the bottom above the keyboard, same as on web pages).
-     */
-    searchBar: (@Composable () -> Unit)? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
@@ -101,17 +98,10 @@ fun HomePage(
                 modifier = Modifier.padding(bottom = 24.dp),
             )
         }
-        // ── Centered search pill (v3-ux) — logo above, shortcuts + stats below ──
-        searchBar?.let { bar ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 36.dp),
-            ) {
-                bar()
-            }
-        }
-        // ── Shortcut grid (C1) — user-curated, so shown in incognito too ──
+        // ── Shortcut grid (C1) — user-curated, so shown in incognito too. No centered
+        // search pill anymore (v3.1): the shared OmniBar lives bottom-anchored below this
+        // whole canvas — tapping it enters edit mode exactly like on a web page. ──
+        Spacer(modifier = Modifier.height(OrbitSpacing.xl))
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
