@@ -276,13 +276,14 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             ) {
-                Text("Background playback (experimental)", modifier = Modifier.weight(1f))
+                Text("Keep media playing in background", modifier = Modifier.weight(1f))
                 Switch(checked = backgroundMedia, onCheckedChange = viewModel::onBackgroundMediaToggled)
             }
             Text(
-                "Allow per site from the page menu: keeps audio/video playing when you lock the " +
-                    "phone, with lock-screen play/pause/next controls and auto-play of the next " +
-                    "track. May be stopped by battery savers.",
+                "Keeps audio/video playing when you lock the phone or switch apps, with " +
+                    "lock-screen play/pause/next controls and auto-play of the next track. " +
+                    "Applies to every site (never incognito). May be stopped by aggressive " +
+                    "battery savers on some phones.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),

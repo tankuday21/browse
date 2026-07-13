@@ -104,6 +104,9 @@ class WebViewHolder(
 
     fun setKeepAlive(tabId: Long, keep: Boolean) {
         if (keep) keepAliveTabs.add(tabId) else keepAliveTabs.remove(tabId)
+        // Also tell the WebView itself to lie about window visibility while backgrounded, so
+        // Chromium doesn't pause its media on screen lock (the actual cause of "stops on lock").
+        (webViews[tabId] as? KeepAliveWebView)?.keepAliveInBackground = keep
     }
 
     fun isKeptAlive(tabId: Long): Boolean = tabId in keepAliveTabs
@@ -418,7 +421,7 @@ class WebViewHolder(
 
     @SuppressLint("SetJavaScriptEnabled")
     fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
-        WebView(context).apply {
+        KeepAliveWebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
             applySafeBrowsing(this)
             // Pinch zoom always available (I3); the legacy on-screen +/- controls stay hidden.

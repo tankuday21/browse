@@ -150,7 +150,9 @@ class MainActivity : FragmentActivity() {
         val url = viewModel.uiState.value.currentUrl ?: return
         if (!(url.startsWith("http://") || url.startsWith("https://"))) return
         val host = com.udaytank.browse.browser.UrlHosts.of(url) ?: return
-        if (host !in viewModel.backgroundMediaSites.value) return
+        // The global "background media" toggle governs: when it's on, any non-incognito tab that
+        // is actually playing keeps going on lock. (The older per-site allowlist is no longer a
+        // gate - it was undiscoverable and left playback stopping for sites the user never added.)
         val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
         if (!audioManager.isMusicActive) return
         val holder = webViewHolder ?: return

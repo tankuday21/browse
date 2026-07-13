@@ -137,7 +137,6 @@ fun BrowserScreen(
     val permissionPrompt by viewModel.permissionPrompt.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
-    val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     // In-flight or queued downloads drive the menu's Downloads badge.
@@ -147,8 +146,6 @@ fun BrowserScreen(
     val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
-    val currentSiteBackgroundAllowed by viewModel.currentSiteBackgroundAllowed.collectAsStateWithLifecycle()
-    val currentUrlIsHttp = state.currentUrl?.let { it.startsWith("http://") || it.startsWith("https://") } == true
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
 
     // Auto-hiding command bar: the VM's scroll hysteresis says hidden/shown; every state where
@@ -363,21 +360,6 @@ fun BrowserScreen(
                         leadingIcon = { MenuIcon(Icons.Filled.Settings) },
                         onClick = { onOpenSettings(); menuOpen = false },
                     )
-                    if (backgroundMedia && currentUrlIsHttp && !isIncognito) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (currentSiteBackgroundAllowed) "Stop background play for this site"
-                                    else "Play in background on this site"
-                                )
-                            },
-                            leadingIcon = { MenuIcon(Icons.Filled.MusicNote) },
-                            onClick = {
-                                viewModel.onToggleBackgroundMediaForCurrentSite()
-                                menuOpen = false
-                            },
-                        )
-                    }
                     if (currentHost != null) {
                         HorizontalDivider()
                         DropdownMenuItem(
