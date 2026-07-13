@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BarScrollPolicy
+import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.adblock.FilterLists
@@ -168,43 +169,39 @@ class BrowserViewModel(
 
     fun onExitReaderMode() { _readerActive.value = false }
 
-    // ── Auto-hiding command bar (v3-ux) ──────────────────────────────────────────
+    // ── OmniBar shrink-not-hide (v3.1 Task 3) ────────────────────────────────────
     // Scroll hysteresis lives in the pure BarScrollPolicy; this layer only forwards
-    // events for the ACTIVE tab and pushes a state change when visibility actually
-    // flips (scroll events are high-frequency — recompositions must not be).
-    //
-    // TEMPORARY SHIM (v3.1 Task 2): BarScrollPolicy now reports BarState.Full/Slim
-    // instead of a visible Boolean. Slim isn't "hidden" — Task 3 wires the real
-    // shrink-not-hide OmniBar and BarState StateFlow. Until then, keep the bar
-    // visible unconditionally so existing behavior/compile stays intact.
+    // events for the ACTIVE tab and pushes a StateFlow update when the answer actually
+    // changes (scroll events are high-frequency — recompositions must not be).
 
     private var barScrollPolicy = BarScrollPolicy()
 
-    /** True while the bottom command bar is scrolled away (Chrome-style auto-hide). */
-    private val _barHidden = MutableStateFlow(false)
-    val barHidden: StateFlow<Boolean> = _barHidden.asStateFlow()
+    /** Full (56dp floating pill) or Slim (30dp grab-pill) — drives the OmniBar's shrink. */
+    private val _barState = MutableStateFlow(BarState.Full)
+    val barState: StateFlow<BarState> = _barState.asStateFlow()
 
-    /** Density-corrected shrink threshold (≈24dp in px); set once by the UI layer. */
-    fun setBarHideThresholdPx(px: Int) {
-        if (px > 0) barScrollPolicy = BarScrollPolicy(shrinkThresholdPx = px)
+    /** Density-corrected shrink/expand thresholds; set once by the UI layer (MainActivity). */
+    fun setBarScrollThresholds(shrinkPx: Int, expandPx: Int) {
+        if (shrinkPx > 0 && expandPx > 0) {
+            barScrollPolicy = BarScrollPolicy(shrinkThresholdPx = shrinkPx, expandThresholdPx = expandPx)
+        }
     }
 
     /** High-frequency WebView scroll callback; cheap by contract (see holder Listener docs). */
     fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) {
         if (tabId != activeTabId.value) return
-        barScrollPolicy.onScroll(scrollY, dy)
-        // Shim: BarState.Slim doesn't mean "hidden" (see note above) — keep visible for now.
-        if (_barHidden.value) _barHidden.value = false
+        val next = barScrollPolicy.onScroll(scrollY, dy)
+        if (_barState.value != next) _barState.value = next
     }
 
     /**
-     * Any bar-revealing event: tab switch, navigation start, edit focus, reader toggle,
-     * find bar, landing on the home tab. Resets the hysteresis so the bar doesn't
-     * instantly re-hide from stale accumulated scroll.
+     * Any bar-restoring event: tab switch, navigation start, edit focus, reader toggle,
+     * find bar, landing on the home tab, or a tap on the Slim grab-pill. Resets the
+     * hysteresis so the bar doesn't instantly re-shrink from stale accumulated scroll.
      */
     fun onBarShouldShow() {
         barScrollPolicy.reset()
-        if (_barHidden.value) _barHidden.value = false
+        if (_barState.value != BarState.Full) _barState.value = BarState.Full
     }
 
     val forceDark: StateFlow<Boolean> = settings.forceDarkWebsites

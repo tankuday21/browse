@@ -275,8 +275,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Auto-hiding command bar: convert the 24dp hide hysteresis into real pixels once.
-        viewModel.setBarHideThresholdPx((24 * resources.displayMetrics.density).toInt())
+        // OmniBar shrink hysteresis: convert the dp thresholds into real pixels once.
+        val barDensity = resources.displayMetrics.density
+        viewModel.setBarScrollThresholds(
+            shrinkPx = (60 * barDensity).toInt(),
+            expandPx = (8 * barDensity).toInt(),
+        )
         handleWebIntent(intent)
         // Only a fresh launch acts on a shortcut extra — a recreation (process death restore)
         // still carries the old intent and must not open yet another tab.

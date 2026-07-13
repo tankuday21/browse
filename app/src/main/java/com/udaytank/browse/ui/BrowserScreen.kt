@@ -7,12 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -87,8 +81,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.DownloadWhen
-import com.udaytank.browse.ui.components.CommandBar
+import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.OmniBar
+import com.udaytank.browse.ui.components.OmniBarInset
+import com.udaytank.browse.ui.components.OmniBarReservedHeight
 import com.udaytank.browse.ui.components.SuggestionsPanel
 import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
@@ -148,12 +145,13 @@ fun BrowserScreen(
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
 
-    // Auto-hiding command bar: the VM's scroll hysteresis says hidden/shown; every state where
-    // the bar must never hide (home, editing, reader, find, bar-anchored menu/sheet open)
-    // simply forces it visible here.
-    val barHidden by viewModel.barHidden.collectAsStateWithLifecycle()
-    val barVisible = !barHidden || isHome || isEditing || readerActive ||
+    // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
+    // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
+    // forces it Full here — mirrors the old barVisible-forcing logic, one state richer.
+    val vmBarState by viewModel.barState.collectAsStateWithLifecycle()
+    val forceBarFull = isHome || isEditing || readerActive ||
         menuOpen || siteSheetOpen || state.findQuery != null
+    val effectiveBarState = if (forceBarFull) BarState.Full else vmBarState
 
     LaunchedEffect(isEditing) {
         if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
@@ -173,12 +171,14 @@ fun BrowserScreen(
         }
     }
 
-    // The ONE real CommandBar, shared by two mutually-exclusive call sites: centered on the
-    // home page (Chrome-NTP pill display state, via the HomePage searchBar slot) and
-    // bottom-anchored on web pages and during edit (edit mode always sits at the bottom,
-    // above the keyboard, so the suggestions panel + IME insets keep working unchanged).
-    val commandBar: @Composable () -> Unit = {
-        CommandBar(
+    // The ONE OmniBar, always bottom-anchored — home and web share this exact call site (no
+    // more centered home pill), which is what removes the old home->web layout jump. Edit
+    // mode always sits at the bottom, above the keyboard, so the suggestions panel + IME
+    // insets keep working unchanged.
+    val omniBar: @Composable () -> Unit = {
+        OmniBar(
+            barState = effectiveBarState,
+            onBarTap = viewModel::onBarShouldShow,
             homePill = isHome,
             // Voice search from the home pill's mic: identical to the typed path.
             onVoiceSubmit = { spoken ->
@@ -446,12 +446,14 @@ fun BrowserScreen(
                         },
                         onRemoveShortcut = viewModel::onRemoveShortcut,
                         onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
-                        modifier = Modifier.fillMaxSize(),
+                        // Content-above-bar: the home canvas stops exactly where the shared
+                        // OmniBar starts (no centered pill anymore — see the omniBar composable
+                        // below, rendered bottom-anchored for home exactly like on web).
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight),
                         lifetimeBlocked = lifetimeBlocked,
-                        // Chrome-NTP centered search: the real bar, pill display state. While
-                        // editing it renders at the bottom instead (above the keyboard), so
-                        // the centered copy disappears for the duration of the edit.
-                        searchBar = if (isEditing) null else commandBar,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(
@@ -470,7 +472,14 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        modifier = Modifier.fillMaxSize(),
+                        // Content-above-bar: a stable inset at the bar's Full height, held
+                        // constant across Full/Slim so the page never reflows on scroll (a
+                        // fixed inset is correct and jank-free; only the floating bar itself
+                        // animates its own size on top of this space).
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight),
                     )
                 }
                 state.pageError?.let { errorDescription ->
@@ -609,14 +618,14 @@ fun BrowserScreen(
             }
         }
 
-        // ── Bottom stack: suggestions above the find bar / Command Bar ──
+        // ── Bottom stack: suggestions panel above the find bar / the shared OmniBar ──
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = OmniBarInset)
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(bottom = 12.dp),
+                .padding(bottom = OmniBarInset),
         ) {
             if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
                 SuggestionsPanel(
@@ -651,20 +660,12 @@ fun BrowserScreen(
                         viewModel.onFindClose()
                     },
                 )
-            } else if (!isHome || isEditing) {
-                // Web pages, and edit mode everywhere (home included): the bar sits at the
-                // bottom. On the home page in display state the bar renders CENTERED inside
-                // HomePage instead (Chrome-NTP), so nothing is emitted here.
-                // Slides away on downward page scroll, back on any upward nudge (Chrome-style).
-                // The page content is already full-bleed behind this overlay, so a hidden bar
-                // means the site simply uses the whole height — no blank strip.
-                AnimatedVisibility(
-                    visible = barVisible,
-                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(180)),
-                    exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
-                ) {
-                    commandBar()
-                }
+            } else {
+                // The ONE shared OmniBar — home and web both render it from this exact
+                // bottom-anchored spot; it animates its own Full/Slim/editing states
+                // internally (see the omniBar composable above), so nothing here needs to
+                // hide or reposition it.
+                omniBar()
             }
         }
 
