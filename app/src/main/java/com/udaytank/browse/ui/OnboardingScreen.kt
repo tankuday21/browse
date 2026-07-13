@@ -42,6 +42,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.R
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitDisplay
 import kotlinx.coroutines.launch
 
 /**
@@ -75,7 +79,8 @@ fun OnboardingScreen(
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    val scheme = orbit()
+    Surface(modifier = Modifier.fillMaxSize(), color = scheme.surfaces.base) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -88,7 +93,7 @@ fun OnboardingScreen(
             ) {
                 TextButton(
                     onClick = onDone,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.xs),
                 ) { Text("Skip") }
             }
 
@@ -113,17 +118,17 @@ fun OnboardingScreen(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = OrbitSpacing.md),
             ) {
                 repeat(3) { index ->
                     Box(
                         modifier = Modifier
-                            .padding(horizontal = 4.dp)
+                            .padding(horizontal = OrbitSpacing.xs)
                             .size(8.dp)
                             .clip(CircleShape)
                             .background(
-                                if (index == pagerState.currentPage) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant
+                                if (index == pagerState.currentPage) scheme.accent.solid
+                                else scheme.surfaces.elevated
                             ),
                     )
                 }
@@ -139,8 +144,8 @@ fun OnboardingScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 16.dp),
+                    .padding(horizontal = OrbitSpacing.xl)
+                    .padding(bottom = OrbitSpacing.lg),
             ) {
                 Text(if (pagerState.currentPage < 2) "Next" else "Get started")
             }
@@ -155,7 +160,7 @@ private fun BrandingPage() {
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp),
+            .padding(horizontal = OrbitSpacing.xxl),
     ) {
         Image(
             painter = painterResource(R.drawable.ic_launcher_fg),
@@ -164,9 +169,10 @@ private fun BrandingPage() {
         )
         Text(
             "Your private power browser",
-            style = MaterialTheme.typography.headlineSmall,
+            style = orbitDisplay,
+            color = orbit().text.primary,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 16.dp, bottom = 24.dp),
+            modifier = Modifier.padding(top = OrbitSpacing.lg, bottom = OrbitSpacing.xl),
         )
         FeatureBullet(Icons.Filled.Block, "Ad blocking built in")
         FeatureBullet(Icons.Filled.Lock, "Your data stays on your device")
@@ -176,46 +182,50 @@ private fun BrandingPage() {
 
 @Composable
 private fun FeatureBullet(icon: ImageVector, text: String) {
+    val scheme = orbit()
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = OrbitSpacing.sm),
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = scheme.accent.solid,
             modifier = Modifier.size(22.dp),
         )
         Text(
             text,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(start = 16.dp),
+            style = orbitBody,
+            color = scheme.text.primary,
+            modifier = Modifier.padding(start = OrbitSpacing.lg),
         )
     }
 }
 
 @Composable
 private fun ImportPage(onImport: () -> Unit) {
+    val scheme = orbit()
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp),
+            .padding(horizontal = OrbitSpacing.xxl),
     ) {
         Text(
             "Bring your bookmarks",
-            style = MaterialTheme.typography.headlineSmall,
+            style = orbitDisplay,
+            color = scheme.text.primary,
             textAlign = TextAlign.Center,
         )
         Text(
             "Export your bookmarks from your old browser as an HTML file, then pick it here.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = orbitBody,
+            color = scheme.text.muted,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier.padding(vertical = OrbitSpacing.lg),
         )
         OutlinedButton(onClick = onImport) { Text("Import bookmarks") }
     }
@@ -223,29 +233,31 @@ private fun ImportPage(onImport: () -> Unit) {
 
 @Composable
 private fun DefaultBrowserPage(onSetDefault: () -> Unit, onMaybeLater: () -> Unit) {
+    val scheme = orbit()
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp),
+            .padding(horizontal = OrbitSpacing.xxl),
     ) {
         Text(
             "Make Andromeda your default",
-            style = MaterialTheme.typography.headlineSmall,
+            style = orbitDisplay,
+            color = scheme.text.primary,
             textAlign = TextAlign.Center,
         )
         Text(
             "Links from other apps will open here, with ads blocked and your privacy protected.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = orbitBody,
+            color = scheme.text.muted,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(vertical = 16.dp),
+            modifier = Modifier.padding(vertical = OrbitSpacing.lg),
         )
         OutlinedButton(onClick = onSetDefault) { Text("Set as default browser") }
         TextButton(
             onClick = onMaybeLater,
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = Modifier.padding(top = OrbitSpacing.sm),
         ) { Text("Maybe later") }
     }
 }

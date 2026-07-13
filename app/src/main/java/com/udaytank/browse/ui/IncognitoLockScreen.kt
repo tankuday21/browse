@@ -9,13 +9,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitTitle
 
 /** Opaque gate shown over incognito tabs until biometric auth succeeds. */
 @Composable
@@ -23,26 +25,27 @@ fun IncognitoLockScreen(onUnlock: () -> Unit) {
     // Prompt automatically on appearance; the button is the retry path.
     LaunchedEffect(Unit) { onUnlock() }
 
+    val scheme = orbit()
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(32.dp),
+            .background(scheme.surfaces.base)
+            .padding(OrbitSpacing.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         Icon(
             Icons.Filled.Lock,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 16.dp),
+            tint = scheme.accent.solid,
+            modifier = Modifier.padding(bottom = OrbitSpacing.lg),
         )
-        Text("Incognito locked", style = MaterialTheme.typography.titleLarge)
+        Text("Incognito locked", style = orbitTitle, color = scheme.text.primary)
         Text(
             "Your private tabs are hidden. Verify to continue.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(vertical = 12.dp),
+            style = orbitBody,
+            color = scheme.text.muted,
+            modifier = Modifier.padding(vertical = OrbitSpacing.md),
         )
         Button(onClick = onUnlock) { Text("Unlock") }
     }

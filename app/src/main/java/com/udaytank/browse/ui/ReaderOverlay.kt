@@ -51,6 +51,12 @@ import com.udaytank.browse.browser.ReaderExtraction
 import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.reading.ReadAloudService
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 
 /**
  * A distraction-free reader: extracts the active tab's article and renders
@@ -114,11 +120,11 @@ fun ReaderOverlay(
             val context = LocalContext.current
             val ensureNotificationPermission = rememberNotificationPermissionRequest()
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
                 // Clear of the floating command bar at the bottom of the browser screen.
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 120.dp),
+                    .padding(end = OrbitSpacing.lg, bottom = 120.dp),
             ) {
                 if (current != null) {
                     ListenPill(onClick = {
@@ -149,11 +155,12 @@ fun ReaderOverlay(
  */
 @Composable
 fun ListenPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = orbit()
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = scheme.surfaces.elevated,
+        contentColor = scheme.text.primary,
         shadowElevation = 4.dp,
         modifier = modifier,
     ) {
@@ -203,29 +210,34 @@ fun ReaderControls(
     modifier: Modifier = Modifier,
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
+    val scheme = orbit()
     Surface(
         onClick = { sheetOpen = true },
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        color = scheme.surfaces.elevated,
+        contentColor = scheme.text.primary,
         shadowElevation = 4.dp,
         modifier = modifier,
     ) {
         Text(
             "Aa",
-            style = MaterialTheme.typography.titleMedium,
+            style = orbitBody,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         )
     }
     if (sheetOpen) {
-        ModalBottomSheet(onDismissRequest = { sheetOpen = false }) {
+        ModalBottomSheet(
+            onDismissRequest = { sheetOpen = false },
+            containerColor = scheme.surfaces.elevated,
+            shape = RoundedCornerShape(topStart = OrbitRadii.bar, topEnd = OrbitRadii.bar),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 32.dp),
+                    .padding(horizontal = OrbitSpacing.xl)
+                    .padding(bottom = OrbitSpacing.xxl),
             ) {
-                Text("Font size", style = MaterialTheme.typography.labelLarge)
+                Text("Font size", style = orbitCaption, color = scheme.text.secondary)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = { onFontScale((fontScale - 10).coerceAtLeast(70)) },
@@ -235,7 +247,8 @@ fun ReaderControls(
                     }
                     Text(
                         "$fontScale%",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = orbitBody,
+                        color = scheme.text.primary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f),
                     )
@@ -246,9 +259,9 @@ fun ReaderControls(
                         Icon(Icons.Filled.Add, contentDescription = "Larger text")
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Theme", style = MaterialTheme.typography.labelLarge)
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(OrbitSpacing.lg))
+                Text("Theme", style = orbitCaption, color = scheme.text.secondary)
+                Spacer(modifier = Modifier.height(OrbitSpacing.sm))
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     ReaderTheme.entries.forEachIndexed { index, entry ->
                         SegmentedButton(
@@ -263,9 +276,9 @@ fun ReaderControls(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Width", style = MaterialTheme.typography.labelLarge)
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(OrbitSpacing.lg))
+                Text("Width", style = orbitCaption, color = scheme.text.secondary)
+                Spacer(modifier = Modifier.height(OrbitSpacing.sm))
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         selected = !wide,
