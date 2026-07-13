@@ -2,7 +2,7 @@
 
 A fast, private, power-user mobile web browser for Android, built from scratch in Kotlin.
 
-**Status:** v3.0 — the "Power Browser" release. Built on v1 (core) and v2 (privacy), v3 adds a real download engine, a reading stack, a safety shield, a foundation layer, and a from-scratch full-strength ad blocker.
+**Status:** v3.1 — the "Power Browser," premium UI. v3.0 added a real download engine, a reading stack, a safety shield, a foundation layer, and a from-scratch full-strength ad blocker; v3.1 unifies the whole app on one "Orbit" design system — a shrink-not-hide bottom bar, a Focused customizable home, a bottom-sheet menu, and shared tokens/components across every screen.
 
 ## Features
 
