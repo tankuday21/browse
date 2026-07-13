@@ -4,6 +4,7 @@ import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.ReaderTheme
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.SettingsRepository
+import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -137,5 +138,25 @@ class FakeSettingsRepository : SettingsRepository {
     override val asteroidHighScore = MutableStateFlow(0)
     override suspend fun setAsteroidHighScore(score: Int) {
         asteroidHighScore.value = score.coerceAtLeast(0)
+    }
+
+    override val showGreeting = MutableStateFlow(false)
+    override suspend fun setShowGreeting(enabled: Boolean) {
+        showGreeting.value = enabled
+    }
+
+    override val showHomeStats = MutableStateFlow(false)
+    override suspend fun setShowHomeStats(enabled: Boolean) {
+        showHomeStats.value = enabled
+    }
+
+    override val shortcutDensity = MutableStateFlow(ShortcutDensity.FEW)
+    override suspend fun setShortcutDensity(density: ShortcutDensity) {
+        shortcutDensity.value = density
+    }
+
+    override val homeWallpaper = MutableStateFlow("")
+    override suspend fun setHomeWallpaper(id: String) {
+        homeWallpaper.value = id
     }
 }

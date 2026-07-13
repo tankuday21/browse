@@ -13,7 +13,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -22,7 +24,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import com.udaytank.browse.ui.theme.Orbit
+import com.udaytank.browse.ui.theme.OrbitMotion
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -275,8 +277,12 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // Auto-hiding command bar: convert the 24dp hide hysteresis into real pixels once.
-        viewModel.setBarHideThresholdPx((24 * resources.displayMetrics.density).toInt())
+        // OmniBar shrink hysteresis: convert the dp thresholds into real pixels once.
+        val barDensity = resources.displayMetrics.density
+        viewModel.setBarScrollThresholds(
+            shrinkPx = (60 * barDensity).toInt(),
+            expandPx = (8 * barDensity).toInt(),
+        )
         handleWebIntent(intent)
         // Only a fresh launch acts on a shortcut extra — a recreation (process death restore)
         // still carries the old intent and must not open yet another tab.
@@ -440,22 +446,34 @@ class MainActivity : FragmentActivity() {
                         .updatePolicy(adBlockEnabled, adAllowedSites)
                 }
 
+                // Screen transitions on the Orbit v3.1 motion curve (unification pass): fades use
+                // OrbitMotion.structural/quick directly (both are actually finite specs — spring()/
+                // tween() under the hood — just cast to the Finite* type fadeIn/fadeOut require).
+                // The slide's IntOffset has no Orbit-token spec variant, so it mirrors
+                // OrbitMotion.structural's exact spring (dampingRatio/stiffness) rather than a
+                // divergent one-off tween.
+                val structuralFade = OrbitMotion.structural as FiniteAnimationSpec<Float>
+                val quickFade = OrbitMotion.quick as FiniteAnimationSpec<Float>
+                val slideSpec = spring<androidx.compose.ui.unit.IntOffset>(
+                    dampingRatio = 0.85f,
+                    stiffness = Spring.StiffnessMediumLow,
+                )
                 NavHost(
                     navController = navController,
                     startDestination = "browser",
                     enterTransition = {
                         slideInVertically(
                             initialOffsetY = { it / 8 },
-                            animationSpec = tween(Orbit.MotionMs, easing = Orbit.Easing),
-                        ) + fadeIn(tween(Orbit.MotionMs))
+                            animationSpec = slideSpec,
+                        ) + fadeIn(structuralFade)
                     },
-                    exitTransition = { fadeOut(tween(150)) },
-                    popEnterTransition = { fadeIn(tween(Orbit.MotionMs)) },
+                    exitTransition = { fadeOut(quickFade) },
+                    popEnterTransition = { fadeIn(structuralFade) },
                     popExitTransition = {
                         slideOutVertically(
                             targetOffsetY = { it / 8 },
-                            animationSpec = tween(Orbit.MotionMs, easing = Orbit.Easing),
-                        ) + fadeOut(tween(Orbit.MotionMs))
+                            animationSpec = slideSpec,
+                        ) + fadeOut(structuralFade)
                     },
                 ) {
                     composable("browser") {

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.udaytank.browse.browser.BarScrollPolicy
+import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.adblock.FilterLists
@@ -45,6 +46,7 @@ import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
 import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.data.ReaderTheme
+import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.reading.ArticleStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -168,37 +170,39 @@ class BrowserViewModel(
 
     fun onExitReaderMode() { _readerActive.value = false }
 
-    // ── Auto-hiding command bar (v3-ux) ──────────────────────────────────────────
+    // ── OmniBar shrink-not-hide (v3.1 Task 3) ────────────────────────────────────
     // Scroll hysteresis lives in the pure BarScrollPolicy; this layer only forwards
-    // events for the ACTIVE tab and pushes a state change when visibility actually
-    // flips (scroll events are high-frequency — recompositions must not be).
+    // events for the ACTIVE tab and pushes a StateFlow update when the answer actually
+    // changes (scroll events are high-frequency — recompositions must not be).
 
-    private val barScrollPolicy = BarScrollPolicy()
+    private var barScrollPolicy = BarScrollPolicy()
 
-    /** True while the bottom command bar is scrolled away (Chrome-style auto-hide). */
-    private val _barHidden = MutableStateFlow(false)
-    val barHidden: StateFlow<Boolean> = _barHidden.asStateFlow()
+    /** Full (56dp floating pill) or Slim (30dp grab-pill) — drives the OmniBar's shrink. */
+    private val _barState = MutableStateFlow(BarState.Full)
+    val barState: StateFlow<BarState> = _barState.asStateFlow()
 
-    /** Density-corrected hide threshold (≈24dp in px); set once by the UI layer. */
-    fun setBarHideThresholdPx(px: Int) {
-        if (px > 0) barScrollPolicy.hideThresholdPx = px
+    /** Density-corrected shrink/expand thresholds; set once by the UI layer (MainActivity). */
+    fun setBarScrollThresholds(shrinkPx: Int, expandPx: Int) {
+        if (shrinkPx > 0 && expandPx > 0) {
+            barScrollPolicy = BarScrollPolicy(shrinkThresholdPx = shrinkPx, expandThresholdPx = expandPx)
+        }
     }
 
     /** High-frequency WebView scroll callback; cheap by contract (see holder Listener docs). */
     fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) {
         if (tabId != activeTabId.value) return
-        val visible = barScrollPolicy.onScroll(scrollY, dy)
-        if (_barHidden.value == visible) _barHidden.value = !visible // push only on flips
+        val next = barScrollPolicy.onScroll(scrollY, dy)
+        if (_barState.value != next) _barState.value = next
     }
 
     /**
-     * Any bar-revealing event: tab switch, navigation start, edit focus, reader toggle,
-     * find bar, landing on the home tab. Resets the hysteresis so the bar doesn't
-     * instantly re-hide from stale accumulated scroll.
+     * Any bar-restoring event: tab switch, navigation start, edit focus, reader toggle,
+     * find bar, landing on the home tab, or a tap on the Slim grab-pill. Resets the
+     * hysteresis so the bar doesn't instantly re-shrink from stale accumulated scroll.
      */
     fun onBarShouldShow() {
         barScrollPolicy.reset()
-        if (_barHidden.value) _barHidden.value = false
+        if (_barState.value != BarState.Full) _barState.value = BarState.Full
     }
 
     val forceDark: StateFlow<Boolean> = settings.forceDarkWebsites
@@ -552,6 +556,39 @@ class BrowserViewModel(
     /** Persisted lifetime blocked-request count, for the home page stats block (C3). */
     val lifetimeBlocked: StateFlow<Long> = settings.lifetimeBlocked
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    // ── Home canvas customization (v3.1 Focused home) ──────────────────────
+    /** Greeting line ("Good morning" etc.) under the wordmark. Off by default. */
+    val showGreeting: StateFlow<Boolean> = settings.showGreeting
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Privacy stats card on home. Off by default; never shown on incognito regardless. */
+    val showHomeStats: StateFlow<Boolean> = settings.showHomeStats
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** FEW (one calm row) or MORE (full grid) of home shortcuts. Defaults to FEW. */
+    val shortcutDensity: StateFlow<ShortcutDensity> = settings.shortcutDensity
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ShortcutDensity.FEW)
+
+    /** Id of a bundled home backdrop ("aurora"/"nebula"), or "" for none. */
+    val homeWallpaper: StateFlow<String> = settings.homeWallpaper
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    fun onShowGreetingToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowGreeting(enabled) }
+    }
+
+    fun onShowHomeStatsToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowHomeStats(enabled) }
+    }
+
+    fun onShortcutDensitySelected(density: ShortcutDensity) {
+        viewModelScope.launch { settings.setShortcutDensity(density) }
+    }
+
+    fun onHomeWallpaperSelected(id: String) {
+        viewModelScope.launch { settings.setHomeWallpaper(id) }
+    }
 
     /**
      * Blocks not yet flushed to DataStore. Atomic because [onRequestBlocked] arrives on

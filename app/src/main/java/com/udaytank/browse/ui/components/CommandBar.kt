@@ -34,7 +34,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +59,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.TabBadge
 import com.udaytank.browse.ui.theme.Orbit
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 
 /**
  * Orbit's signature component: a floating pill that drives the browser.
@@ -102,8 +106,8 @@ fun CommandBar(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize(tween(Orbit.MotionMs, easing = Orbit.Easing)),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(OrbitRadii.bar),
+        color = orbit().surfaces.surface,
         tonalElevation = 6.dp,
         shadowElevation = 8.dp,
     ) {
@@ -135,15 +139,15 @@ fun CommandBar(
                                     onLongClick = { if (pageUrl != null) barMenuOpen = true },
                                 )
                                 .padding(
-                                    horizontal = if (homePill) 16.dp else 10.dp,
-                                    vertical = if (homePill) 18.dp else 12.dp,
+                                    horizontal = if (homePill) OrbitSpacing.lg else OrbitSpacing.sm,
+                                    vertical = if (homePill) OrbitSpacing.lg else OrbitSpacing.md,
                                 ),
                         ) {
                             if (homePill) {
                                 Icon(
                                     Icons.Filled.Search,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = orbit().text.secondary,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
@@ -151,17 +155,17 @@ fun CommandBar(
                                 Icon(
                                     Icons.Filled.Lock,
                                     contentDescription = "Secure connection",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = orbit().text.secondary,
                                     modifier = Modifier.size(14.dp),
                                 )
                             }
                             Text(
                                 text = displayHost ?: "Search or type URL",
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = orbitBody,
                                 color = if (displayHost != null) {
-                                    MaterialTheme.colorScheme.onSurface
+                                    orbit().text.primary
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                    orbit().text.muted
                                 },
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -194,7 +198,7 @@ fun CommandBar(
                     IconButton(onClick = onOpenTabs) {
                         Text(
                             text = TabBadge.label(tabCount),
-                            style = MaterialTheme.typography.labelLarge,
+                            style = orbitCaption,
                             modifier = Modifier
                                 .border(1.5.dp, LocalContentColor.current, RoundedCornerShape(6.dp))
                                 .padding(horizontal = 7.dp, vertical = 2.dp),
@@ -308,10 +312,8 @@ private fun EditingContent(
                 onAddressChange(it.text)
             },
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            textStyle = orbitBody.copy(color = orbit().text.primary),
+            cursorBrush = SolidColor(orbit().accent.solid),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
             keyboardActions = KeyboardActions(onGo = {
                 onGo()
@@ -319,7 +321,7 @@ private fun EditingContent(
             }),
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 20.dp, top = 16.dp, bottom = 16.dp)
+                .padding(start = OrbitSpacing.lg, top = 16.dp, bottom = 16.dp)
                 .focusRequester(focusRequester),
         )
         if (launchVoice != null) {

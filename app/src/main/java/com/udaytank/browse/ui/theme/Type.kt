@@ -32,3 +32,32 @@ val Typography = Typography(
     )
     */
 )
+
+// ── Orbit v3.1 named text styles ──────────────────────────────
+// Used via MaterialTheme/LocalOrbit-aware composables (later tasks); defined
+// here so Task 1 establishes the full token surface up front.
+val orbitDisplay = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.W800,
+    fontSize = 24.sp,
+    letterSpacing = (-0.3).sp,
+)
+
+val orbitTitle = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.W700,
+    fontSize = 17.sp,
+)
+
+val orbitBody = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.W400,
+    fontSize = 13.sp,
+    lineHeight = 20.sp,
+)
+
+val orbitCaption = TextStyle(
+    fontFamily = FontFamily.Default,
+    fontWeight = FontWeight.W400,
+    fontSize = 11.sp,
+)

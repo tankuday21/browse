@@ -35,13 +35,18 @@ import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.adblock.FilterListUpdater
 import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.SearchEngine
+import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
+import com.udaytank.browse.ui.theme.orbitTitle
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,11 +72,16 @@ fun SettingsScreen(
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+    val showGreeting by viewModel.showGreeting.collectAsStateWithLifecycle()
+    val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
+    val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
+    val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
     var draftTextScale by remember { mutableStateOf<Int?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val scheme = orbit()
 
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/html")
@@ -139,6 +149,7 @@ fun SettingsScreen(
                 },
             )
         },
+        containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -148,9 +159,9 @@ fun SettingsScreen(
         ) {
             Text(
                 "General",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             TextButton(
                 onClick = {
@@ -168,16 +179,16 @@ fun SettingsScreen(
                     }
                     runCatching { context.startActivity(intent) }
                 },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Set Andromeda as default browser")
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Search engine",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             SearchEngine.entries.forEach { option ->
                 Row(
@@ -188,18 +199,23 @@ fun SettingsScreen(
                             selected = engine == option,
                             onClick = { viewModel.onSearchEngineSelected(option) },
                         )
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
                 ) {
                     RadioButton(selected = engine == option, onClick = null)
-                    Text(option.label, modifier = Modifier.padding(start = 8.dp))
+                    Text(
+                        option.label,
+                        style = orbitBody,
+                        color = scheme.text.primary,
+                        modifier = Modifier.padding(start = OrbitSpacing.sm),
+                    )
                 }
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Theme",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             ThemeMode.entries.forEach { option ->
                 Row(
@@ -210,29 +226,32 @@ fun SettingsScreen(
                             selected = theme == option,
                             onClick = { viewModel.onThemeSelected(option) },
                         )
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
                 ) {
                     RadioButton(selected = theme == option, onClick = null)
                     Text(
                         option.name.lowercase().replaceFirstChar { it.uppercase() },
-                        modifier = Modifier.padding(start = 8.dp),
+                        style = orbitBody,
+                        color = scheme.text.primary,
+                        modifier = Modifier.padding(start = OrbitSpacing.sm),
                     )
                 }
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Accessibility",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             // Draft holds the value while dragging (live % label); DataStore is written once
             // on release — MainActivity live-applies the persisted value to all open tabs.
             val shownScale = draftTextScale ?: textScale
             Text(
                 "Text size — ${if (shownScale == 100) "Default" else "$shownScale%"}",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Slider(
                 value = shownScale.toFloat(),
@@ -243,40 +262,138 @@ fun SettingsScreen(
                 },
                 valueRange = 50f..200f,
                 steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Text(
                 "Applies to every website. A per-site text size from Site settings wins.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+            Text(
+                "Home",
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+            ) {
+                Text("Show greeting", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
+                Switch(checked = showGreeting, onCheckedChange = viewModel::onShowGreetingToggled)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+            ) {
+                Text(
+                    "Show privacy stats on home",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = showHomeStats, onCheckedChange = viewModel::onShowHomeStatsToggled)
+            }
+            Text(
+                "Shortcut density",
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.sm),
+            ) {
+                listOf(ShortcutDensity.FEW to "Few", ShortcutDensity.MORE to "More").forEach { (option, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .selectable(
+                                selected = shortcutDensity == option,
+                                onClick = { viewModel.onShortcutDensitySelected(option) },
+                            )
+                            .padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.xs),
+                    ) {
+                        RadioButton(selected = shortcutDensity == option, onClick = null)
+                        Text(
+                            label,
+                            style = orbitBody,
+                            color = scheme.text.primary,
+                            modifier = Modifier.padding(start = OrbitSpacing.xs),
+                        )
+                    }
+                }
+            }
+            Text(
+                "One calm row (Few) or your full shortcut grid (More) on the home canvas.",
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
+            )
+            Text(
+                "Wallpaper",
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+            )
+            listOf("" to "None", "aurora" to "Aurora", "nebula" to "Nebula").forEach { (id, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = homeWallpaper == id,
+                            onClick = { viewModel.onHomeWallpaperSelected(id) },
+                        )
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                ) {
+                    RadioButton(selected = homeWallpaper == id, onClick = null)
+                    Text(
+                        label,
+                        style = orbitBody,
+                        color = scheme.text.primary,
+                        modifier = Modifier.padding(start = OrbitSpacing.sm),
+                    )
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Tabs",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Group tabs opened from links", modifier = Modifier.weight(1f))
+                Text(
+                    "Group tabs opened from links",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = autoIslands, onCheckedChange = viewModel::onAutoIslandsToggled)
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Media",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Keep media playing in background", modifier = Modifier.weight(1f))
+                Text(
+                    "Keep media playing in background",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = backgroundMedia, onCheckedChange = viewModel::onBackgroundMediaToggled)
             }
             Text(
@@ -284,37 +401,38 @@ fun SettingsScreen(
                     "lock-screen play/pause/next controls and auto-play of the next track. " +
                     "Applies to every site (never incognito). May be stopped by aggressive " +
                     "battery savers on some phones.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Privacy",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Block ads", modifier = Modifier.weight(1f))
+                Text("Block ads", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
                 Switch(checked = adBlockEnabled, onCheckedChange = viewModel::onAdBlockToggled)
             }
             FilterLists.ADS.forEach { def ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
-                        .padding(start = 32.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+                        .padding(
+                            start = OrbitSpacing.xxl,
+                            end = OrbitSpacing.lg,
+                            top = OrbitSpacing.xs,
+                            bottom = OrbitSpacing.xs,
+                        ),
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(def.label)
-                        Text(
-                            def.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text(def.label, style = orbitBody, color = scheme.text.primary)
+                        Text(def.description, style = orbitCaption, color = scheme.text.muted)
                     }
                     Switch(
                         checked = def.id in adBlockLists,
@@ -328,7 +446,7 @@ fun SettingsScreen(
                     FilterListUpdater.updateNow(context)
                     Toast.makeText(context, "Updating filter lists…", Toast.LENGTH_SHORT).show()
                 },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Update filter lists")
             }
@@ -342,115 +460,135 @@ fun SettingsScreen(
                         DateUtils.MINUTE_IN_MILLIS,
                     )
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Safe Browsing", modifier = Modifier.weight(1f))
+                Text("Safe Browsing", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
                 Switch(checked = safeBrowsing, onCheckedChange = viewModel::onSafeBrowsingToggled)
             }
             Text(
                 "Warns you before phishing and malware sites (Google Safe Browsing)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Auto-dismiss cookie banners", modifier = Modifier.weight(1f))
+                Text(
+                    "Auto-dismiss cookie banners",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = dismissCookieBanners, onCheckedChange = viewModel::onDismissCookieBannersToggled)
             }
             Text(
                 "Hides consent pop-ups (may affect some sites)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Global Privacy Control", modifier = Modifier.weight(1f))
+                Text(
+                    "Global Privacy Control",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = gpcEnabled, onCheckedChange = viewModel::onGpcToggled)
             }
             Text(
                 "Tells sites not to sell or share your data (takes effect on new tabs)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("JavaScript", modifier = Modifier.weight(1f))
+                Text("JavaScript", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
                 Switch(checked = jsEnabled, onCheckedChange = viewModel::onJavaScriptToggled)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Accept cookies", modifier = Modifier.weight(1f))
+                Text("Accept cookies", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
                 Switch(checked = cookiesEnabled, onCheckedChange = viewModel::onCookiesToggled)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Dark mode for websites", modifier = Modifier.weight(1f))
+                Text(
+                    "Dark mode for websites",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = forceDark, onCheckedChange = viewModel::onForceDarkToggled)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("HTTPS-only mode", modifier = Modifier.weight(1f))
+                Text("HTTPS-only mode", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
                 Switch(checked = httpsOnly, onCheckedChange = viewModel::onHttpsOnlyToggled)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
             ) {
-                Text("Lock incognito with biometrics", modifier = Modifier.weight(1f))
+                Text(
+                    "Lock incognito with biometrics",
+                    style = orbitBody,
+                    color = scheme.text.primary,
+                    modifier = Modifier.weight(1f),
+                )
                 Switch(checked = lockIncognito, onCheckedChange = viewModel::onLockIncognitoToggled)
             }
             TextButton(
                 onClick = { showClearDialog = true },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Bookmarks",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             TextButton(
                 onClick = { exportLauncher.launch("andromeda-bookmarks.html") },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Export bookmarks")
             }
             TextButton(
                 onClick = { importLauncher.launch(arrayOf("text/html")) },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Import bookmarks")
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(
                 "Backup & restore",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(16.dp),
+                style = orbitTitle,
+                color = scheme.accent.solid,
+                modifier = Modifier.padding(OrbitSpacing.lg),
             )
             TextButton(
                 onClick = {
@@ -458,22 +596,22 @@ fun SettingsScreen(
                         .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
                     backupLauncher.launch("andromeda-backup-$date.json")
                 },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Back up")
             }
             TextButton(
                 onClick = { restoreLauncher.launch(arrayOf("application/json")) },
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
             ) {
                 Text("Restore")
             }
             Text(
                 "Backs up settings, bookmarks, home shortcuts, reading list, and tab groups. " +
                     "Saved articles and browsing history stay on this device.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                style = orbitCaption,
+                color = scheme.text.muted,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             )
         }
 

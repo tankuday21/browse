@@ -7,12 +7,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -29,41 +23,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddHome
-import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material.icons.filled.Bookmarks
-import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.GppBad
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -87,8 +55,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.DownloadWhen
-import com.udaytank.browse.ui.components.CommandBar
+import com.udaytank.browse.browser.BarState
+import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.OmniBar
+import com.udaytank.browse.ui.components.OmniBarInset
+import com.udaytank.browse.ui.components.OmniBarReservedHeight
 import com.udaytank.browse.ui.components.SuggestionsPanel
 import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
@@ -147,13 +119,20 @@ fun BrowserScreen(
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
+    val showGreeting by viewModel.showGreeting.collectAsStateWithLifecycle()
+    val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
+    val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
+    val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
 
-    // Auto-hiding command bar: the VM's scroll hysteresis says hidden/shown; every state where
-    // the bar must never hide (home, editing, reader, find, bar-anchored menu/sheet open)
-    // simply forces it visible here.
-    val barHidden by viewModel.barHidden.collectAsStateWithLifecycle()
-    val barVisible = !barHidden || isHome || isEditing || readerActive ||
+    // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
+    // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
+    // forces it Full here — mirrors the old barVisible-forcing logic, one state richer.
+    val vmBarState by viewModel.barState.collectAsStateWithLifecycle()
+    // Reader mode is NOT in this list: reader hides the bar entirely (spec §3, same treatment
+    // as fullscreen video) instead of forcing it Full — see the omniBar() call site below.
+    val forceBarFull = isHome || isEditing ||
         menuOpen || siteSheetOpen || state.findQuery != null
+    val effectiveBarState = if (forceBarFull) BarState.Full else vmBarState
 
     LaunchedEffect(isEditing) {
         if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
@@ -173,12 +152,14 @@ fun BrowserScreen(
         }
     }
 
-    // The ONE real CommandBar, shared by two mutually-exclusive call sites: centered on the
-    // home page (Chrome-NTP pill display state, via the HomePage searchBar slot) and
-    // bottom-anchored on web pages and during edit (edit mode always sits at the bottom,
-    // above the keyboard, so the suggestions panel + IME insets keep working unchanged).
-    val commandBar: @Composable () -> Unit = {
-        CommandBar(
+    // The ONE OmniBar, always bottom-anchored — home and web share this exact call site (no
+    // more centered home pill), which is what removes the old home->web layout jump. Edit
+    // mode always sits at the bottom, above the keyboard, so the suggestions panel + IME
+    // insets keep working unchanged.
+    val omniBar: @Composable () -> Unit = {
+        OmniBar(
+            barState = effectiveBarState,
+            onBarTap = viewModel::onBarShouldShow,
             homePill = isHome,
             // Voice search from the home pill's mic: identical to the typed path.
             onVoiceSubmit = { spoken ->
@@ -204,189 +185,70 @@ fun BrowserScreen(
             },
             onMenuClick = { menuOpen = true },
             menu = {
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    // ── Icon-only action row: the five most-reached page actions plus the
-                    // bookmark star (the star toggle predates the reorg; nothing is lost). ──
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(
-                            enabled = state.canGoBack,
-                            onClick = { viewModel.onBackPressed(); menuOpen = false },
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                        IconButton(
-                            enabled = state.canGoForward,
-                            onClick = { viewModel.onForwardPressed(); menuOpen = false },
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                        }
-                        IconButton(
-                            onClick = { viewModel.onReloadPressed(); menuOpen = false },
-                        ) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Reload")
-                        }
-                        IconButton(
-                            enabled = state.currentUrl != null,
-                            onClick = {
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, state.currentUrl)
-                                }
-                                context.startActivity(Intent.createChooser(send, "Share page"))
-                                menuOpen = false
-                            },
-                        ) {
-                            Icon(Icons.Filled.Share, contentDescription = "Share page")
-                        }
-                        IconButton(
-                            enabled = state.currentUrl != null,
-                            onClick = { viewModel.onToggleBookmark(); menuOpen = false },
-                        ) {
-                            Icon(
-                                if (isBookmarked) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
-                                tint = if (isBookmarked) MaterialTheme.colorScheme.primary
-                                else androidx.compose.material3.LocalContentColor.current,
-                            )
-                        }
-                        IconButton(
-                            enabled = state.currentUrl != null,
-                            onClick = {
-                                viewModel.onAddCurrentPageToHome { message ->
-                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                }
-                                menuOpen = false
-                            },
-                        ) {
-                            Icon(Icons.Filled.AddHome, contentDescription = "Add to home")
-                        }
-                    }
-                    HorizontalDivider()
-                    // ── New tabs ────────────────────────────────
-                    DropdownMenuItem(
-                        text = { Text("New tab") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Add) },
-                        onClick = { viewModel.onNewTab(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("New incognito tab") },
-                        leadingIcon = { MenuIcon(Icons.Filled.VisibilityOff) },
-                        onClick = { viewModel.onNewIncognitoTab(); menuOpen = false },
-                    )
-                    HorizontalDivider()
-                    // ── Library ─────────────────────────────────
-                    DropdownMenuItem(
-                        text = { Text("Bookmarks") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Bookmarks) },
-                        onClick = { onOpenBookmarks(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("History") },
-                        leadingIcon = { MenuIcon(Icons.Filled.History) },
-                        onClick = { onOpenHistory(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Downloads") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Download) },
-                        trailingIcon = {
-                            if (activeDownloadCount > 0) Badge { Text("$activeDownloadCount") }
+                // Bottom-sheet menu (Orbit v3.1 §5): container + styling change only — every
+                // action/condition/badge below is the same one the prior DropdownMenu carried,
+                // just wired through BrowserMenuSheet's params instead of DropdownMenuItem.
+                if (menuOpen) {
+                    BrowserMenuSheet(
+                        onDismissRequest = { menuOpen = false },
+                        canGoBack = state.canGoBack,
+                        canGoForward = state.canGoForward,
+                        hasPage = state.currentUrl != null,
+                        isBookmarked = isBookmarked,
+                        onBack = { viewModel.onBackPressed(); menuOpen = false },
+                        onForward = { viewModel.onForwardPressed(); menuOpen = false },
+                        onReload = { viewModel.onReloadPressed(); menuOpen = false },
+                        onShare = {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, state.currentUrl)
+                            }
+                            context.startActivity(Intent.createChooser(send, "Share page"))
+                            menuOpen = false
                         },
-                        onClick = { onOpenDownloads(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Reading list") },
-                        leadingIcon = { MenuIcon(Icons.AutoMirrored.Filled.MenuBook) },
-                        trailingIcon = {
-                            if (unreadCount > 0) Badge { Text("$unreadCount") }
+                        onToggleBookmark = { viewModel.onToggleBookmark(); menuOpen = false },
+                        onAddToHome = {
+                            viewModel.onAddCurrentPageToHome { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                            }
+                            menuOpen = false
                         },
-                        onClick = { onOpenReadingList(); menuOpen = false },
-                    )
-                    HorizontalDivider()
-                    // ── This page ───────────────────────────────
-                    DropdownMenuItem(
-                        text = { Text("Save for later") },
-                        leadingIcon = { MenuIcon(Icons.Filled.BookmarkAdd) },
-                        enabled = state.currentUrl != null,
-                        onClick = {
+                        onNewTab = { viewModel.onNewTab(); menuOpen = false },
+                        onNewIncognitoTab = { viewModel.onNewIncognitoTab(); menuOpen = false },
+                        onOpenBookmarks = { onOpenBookmarks(); menuOpen = false },
+                        onOpenHistory = { onOpenHistory(); menuOpen = false },
+                        onOpenDownloads = { onOpenDownloads(); menuOpen = false },
+                        activeDownloadCount = activeDownloadCount,
+                        onOpenReadingList = { onOpenReadingList(); menuOpen = false },
+                        unreadCount = unreadCount,
+                        onSaveForLater = {
                             viewModel.onSaveForLater(holder::extractReaderContent) { message ->
                                 Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                             }
                             menuOpen = false
                         },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (readerActive) "Exit reader" else "Reader mode") },
-                        leadingIcon = { MenuIcon(Icons.AutoMirrored.Filled.Article) },
-                        enabled = !isHome,
-                        onClick = { viewModel.onToggleReaderMode(); menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Find in page") },
-                        leadingIcon = { MenuIcon(Icons.Filled.FindInPage) },
-                        enabled = !isHome,
-                        onClick = { viewModel.onFindOpen(); menuOpen = false },
-                    )
-                    HorizontalDivider()
-                    // ── Site controls ───────────────────────────
-                    DropdownMenuItem(
-                        text = { Text(if (activeTabId in desktopTabs) "Mobile site" else "Desktop site") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Computer) },
-                        enabled = !isHome,
-                        onClick = {
+                        isHome = isHome,
+                        readerActive = readerActive,
+                        onToggleReaderMode = { viewModel.onToggleReaderMode(); menuOpen = false },
+                        onFindInPage = { viewModel.onFindOpen(); menuOpen = false },
+                        isDesktopSite = activeTabId in desktopTabs,
+                        onToggleDesktopSite = {
                             val desktop = viewModel.onToggleDesktopSite()
                             activeTabId?.let { holder.setDesktopMode(it, desktop) }
                             menuOpen = false
                         },
+                        currentHost = currentHost,
+                        onOpenSiteSettings = { siteSheetOpen = true; menuOpen = false },
+                        onPrint = { onPrint(); menuOpen = false },
+                        onOpenSettings = { onOpenSettings(); menuOpen = false },
+                        blockedOnPage = blockedOnPage,
+                        isAdAllowedOnSite = currentHost in adAllowedSites,
+                        onToggleAdAllowlist = {
+                            viewModel.onToggleAllowAdsOnCurrentSite()
+                            viewModel.onReloadPressed()
+                            menuOpen = false
+                        },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Site settings") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Tune) },
-                        enabled = currentHost != null,
-                        onClick = { siteSheetOpen = true; menuOpen = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Print / Save as PDF") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Print) },
-                        enabled = state.currentUrl != null,
-                        onClick = { onPrint(); menuOpen = false },
-                    )
-                    HorizontalDivider()
-                    // ── App ─────────────────────────────────────
-                    DropdownMenuItem(
-                        text = { Text("Settings") },
-                        leadingIcon = { MenuIcon(Icons.Filled.Settings) },
-                        onClick = { onOpenSettings(); menuOpen = false },
-                    )
-                    if (currentHost != null) {
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "$blockedOnPage ads blocked on this page",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            },
-                            onClick = { menuOpen = false },
-                            enabled = false,
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (currentHost in adAllowedSites) "Block ads on this site"
-                                    else "Allow ads on this site"
-                                )
-                            },
-                            leadingIcon = { MenuIcon(Icons.Filled.Block) },
-                            onClick = {
-                                viewModel.onToggleAllowAdsOnCurrentSite()
-                                viewModel.onReloadPressed()
-                                menuOpen = false
-                            },
-                        )
-                    }
                 }
             },
             modifier = Modifier
@@ -446,12 +308,18 @@ fun BrowserScreen(
                         },
                         onRemoveShortcut = viewModel::onRemoveShortcut,
                         onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
-                        modifier = Modifier.fillMaxSize(),
+                        // Content-above-bar: the home canvas stops exactly where the shared
+                        // OmniBar starts (no centered pill anymore — see the omniBar composable
+                        // below, rendered bottom-anchored for home exactly like on web).
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight),
                         lifetimeBlocked = lifetimeBlocked,
-                        // Chrome-NTP centered search: the real bar, pill display state. While
-                        // editing it renders at the bottom instead (above the keyboard), so
-                        // the centered copy disappears for the duration of the edit.
-                        searchBar = if (isEditing) null else commandBar,
+                        showGreeting = showGreeting,
+                        showHomeStats = showHomeStats,
+                        shortcutDensity = shortcutDensity,
+                        homeWallpaper = homeWallpaper,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(
@@ -470,7 +338,14 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        modifier = Modifier.fillMaxSize(),
+                        // Content-above-bar: a stable inset at the bar's Full height, held
+                        // constant across Full/Slim so the page never reflows on scroll (a
+                        // fixed inset is correct and jank-free; only the floating bar itself
+                        // animates its own size on top of this space).
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight),
                     )
                 }
                 state.pageError?.let { errorDescription ->
@@ -478,6 +353,10 @@ fun BrowserScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.surface)
+                            // Bar-inset: this interstitial shows the (Full) OmniBar per spec,
+                            // it just must never be drawn underneath it — reserve the same
+                            // bottom footprint so "Try again" / "Tap to play" stay clear.
+                            .padding(bottom = OmniBarReservedHeight)
                             .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -519,26 +398,34 @@ fun BrowserScreen(
                     }
                 }
                 state.sslWarningUrl?.let { blockedUrl ->
-                    Card(
+                    // Bar-inset: centered within a box that reserves the OmniBar's footprint at
+                    // the bottom, so a tall card (long URL, wrapped text) can never grow into the
+                    // bar's "OK" dismissal being covered by it.
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            .fillMaxSize()
+                            .padding(bottom = OmniBarReservedHeight),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text(
-                                "Connection not secure",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                            TextButton(onClick = viewModel::onSslWarningDismissed) {
-                                Text("OK")
+                        Card(
+                            modifier = Modifier.padding(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Text(
+                                    "Connection not secure",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Text(
+                                    "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                )
+                                TextButton(onClick = viewModel::onSslWarningDismissed) {
+                                    Text("OK")
+                                }
                             }
                         }
                     }
@@ -549,6 +436,9 @@ fun BrowserScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.surface)
+                            // Bar-inset: reserve the OmniBar's footprint so "Go back" / "Proceed
+                            // anyway" never render underneath the (Full) bar shown over this.
+                            .padding(bottom = OmniBarReservedHeight)
                             .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -609,14 +499,14 @@ fun BrowserScreen(
             }
         }
 
-        // ── Bottom stack: suggestions above the find bar / Command Bar ──
+        // ── Bottom stack: suggestions panel above the find bar / the shared OmniBar ──
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = OmniBarInset)
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(bottom = 12.dp),
+                .padding(bottom = OmniBarInset),
         ) {
             if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
                 SuggestionsPanel(
@@ -651,20 +541,17 @@ fun BrowserScreen(
                         viewModel.onFindClose()
                     },
                 )
-            } else if (!isHome || isEditing) {
-                // Web pages, and edit mode everywhere (home included): the bar sits at the
-                // bottom. On the home page in display state the bar renders CENTERED inside
-                // HomePage instead (Chrome-NTP), so nothing is emitted here.
-                // Slides away on downward page scroll, back on any upward nudge (Chrome-style).
-                // The page content is already full-bleed behind this overlay, so a hidden bar
-                // means the site simply uses the whole height — no blank strip.
-                AnimatedVisibility(
-                    visible = barVisible,
-                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(180)),
-                    exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
-                ) {
-                    commandBar()
-                }
+            } else if (!readerActive) {
+                // The ONE shared OmniBar — home and web both render it from this exact
+                // bottom-anchored spot; it animates its own Full/Slim/editing states
+                // internally (see the omniBar composable above), so nothing here needs to
+                // hide or reposition it.
+                //
+                // Reader mode (spec §3) hides the bar entirely rather than forcing it Full —
+                // it would otherwise compete with ReaderOverlay's own Aa/Listen bottom
+                // controls. The bar isn't composed at all here; exiting reader mode still
+                // works via the system BackHandler and ReaderOverlay's own controls/menu.
+                omniBar()
             }
         }
 
@@ -879,12 +766,6 @@ private fun isConnectivityError(description: String): Boolean =
     description.contains("ERR_INTERNET_DISCONNECTED") ||
         description.contains("ERR_NAME_NOT_RESOLVED") ||
         description.contains("net::ERR_")
-
-/** Primary-tinted leading icon shared by every dropdown menu item (consistent icon set). */
-@Composable
-private fun MenuIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-}
 
 /** Default / On / Off chip row for one tri-state site override (-1 / 1 / 0). */
 @Composable
