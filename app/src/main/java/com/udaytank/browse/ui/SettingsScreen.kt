@@ -41,6 +41,7 @@ import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.adblock.FilterListUpdater
 import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.SearchEngine
+import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import kotlin.math.roundToInt
 
@@ -67,6 +68,10 @@ fun SettingsScreen(
     val autoIslands by viewModel.autoIslands.collectAsStateWithLifecycle()
     val backgroundMedia by viewModel.backgroundMedia.collectAsStateWithLifecycle()
     val textScale by viewModel.textScale.collectAsStateWithLifecycle()
+    val showGreeting by viewModel.showGreeting.collectAsStateWithLifecycle()
+    val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
+    val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
+    val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
     var draftTextScale by remember { mutableStateOf<Int?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
@@ -251,6 +256,77 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text(
+                "Home",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(16.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Show greeting", modifier = Modifier.weight(1f))
+                Switch(checked = showGreeting, onCheckedChange = viewModel::onShowGreetingToggled)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Text("Show privacy stats on home", modifier = Modifier.weight(1f))
+                Switch(checked = showHomeStats, onCheckedChange = viewModel::onShowHomeStatsToggled)
+            }
+            Text(
+                "Shortcut density",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            ) {
+                listOf(ShortcutDensity.FEW to "Few", ShortcutDensity.MORE to "More").forEach { (option, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .selectable(
+                                selected = shortcutDensity == option,
+                                onClick = { viewModel.onShortcutDensitySelected(option) },
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        RadioButton(selected = shortcutDensity == option, onClick = null)
+                        Text(label, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+            }
+            Text(
+                "One calm row (Few) or your full shortcut grid (More) on the home canvas.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Text(
+                "Wallpaper",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            listOf("" to "None", "aurora" to "Aurora", "nebula" to "Nebula").forEach { (id, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = homeWallpaper == id,
+                            onClick = { viewModel.onHomeWallpaperSelected(id) },
+                        )
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    RadioButton(selected = homeWallpaper == id, onClick = null)
+                    Text(label, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 "Tabs",

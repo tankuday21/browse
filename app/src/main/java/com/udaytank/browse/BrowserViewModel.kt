@@ -574,6 +574,22 @@ class BrowserViewModel(
     val homeWallpaper: StateFlow<String> = settings.homeWallpaper
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
+    fun onShowGreetingToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowGreeting(enabled) }
+    }
+
+    fun onShowHomeStatsToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowHomeStats(enabled) }
+    }
+
+    fun onShortcutDensitySelected(density: ShortcutDensity) {
+        viewModelScope.launch { settings.setShortcutDensity(density) }
+    }
+
+    fun onHomeWallpaperSelected(id: String) {
+        viewModelScope.launch { settings.setHomeWallpaper(id) }
+    }
+
     /**
      * Blocks not yet flushed to DataStore. Atomic because [onRequestBlocked] arrives on
      * WebView's background threads. Flushed every [LIFETIME_FLUSH_BATCH] events (a write
