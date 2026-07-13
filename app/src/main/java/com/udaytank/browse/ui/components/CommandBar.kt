@@ -321,7 +321,7 @@ private fun EditingContent(
             }),
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 20.dp, top = 16.dp, bottom = 16.dp)
+                .padding(start = OrbitSpacing.lg, top = 16.dp, bottom = 16.dp)
                 .focusRequester(focusRequester),
         )
         if (launchVoice != null) {
