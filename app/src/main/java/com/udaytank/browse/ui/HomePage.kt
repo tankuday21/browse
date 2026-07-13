@@ -4,18 +4,21 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -24,7 +27,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,11 +37,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
 import com.udaytank.browse.data.HomeShortcutEntity
+import com.udaytank.browse.data.ShortcutDensity
+import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
+import com.udaytank.browse.ui.theme.orbitDisplay
 import java.time.LocalTime
 
 private fun greeting(): String = when (LocalTime.now().hour) {
@@ -56,6 +66,111 @@ private fun looksLikeUrl(text: String): Boolean {
         (t.startsWith("http://") || t.startsWith("https://") || t.contains('.'))
 }
 
+/**
+ * The two built-in home backdrops (v3.1 wallpaper picker). "" (none) renders no brush at all.
+ * Both are built purely from Orbit tokens — no new color literals — so they stay in tune with
+ * whichever scheme (dark/light) is active.
+ */
+private fun homeBackdropBrush(id: String, scheme: OrbitScheme): Brush? = when (id) {
+    "aurora" -> Brush.verticalGradient(
+        listOf(
+            scheme.accent.gradient.first().copy(alpha = if (scheme.dark) 0.28f else 0.14f),
+            scheme.surfaces.base,
+        ),
+    )
+    "nebula" -> Brush.verticalGradient(
+        listOf(
+            scheme.accent.gradient.last().copy(alpha = if (scheme.dark) 0.24f else 0.12f),
+            scheme.surfaces.elevated.copy(alpha = if (scheme.dark) 0.5f else 0.3f),
+            scheme.surfaces.base,
+        ),
+    )
+    else -> null
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ShortcutTile(
+    shortcut: HomeShortcutEntity,
+    isMenuOpen: Boolean,
+    onOpen: () -> Unit,
+    onLongClick: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onMoveToFront: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val scheme = orbit()
+    Box {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onLongClick),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(scheme.surfaces.elevated, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    shortcut.title.take(1).uppercase(),
+                    style = orbitBody,
+                    color = scheme.accent.solid,
+                )
+            }
+            Text(
+                shortcut.title,
+                style = orbitCaption,
+                color = scheme.text.secondary,
+                maxLines = 1,
+                modifier = Modifier.padding(top = OrbitSpacing.xs),
+            )
+        }
+        DropdownMenu(expanded = isMenuOpen, onDismissRequest = onDismissMenu) {
+            DropdownMenuItem(
+                text = { Text("Move to front") },
+                onClick = { onMoveToFront(); onDismissMenu() },
+            )
+            DropdownMenuItem(
+                text = { Text("Remove") },
+                onClick = { onRemove(); onDismissMenu() },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AddShortcutTile(onClick: () -> Unit) {
+    val scheme = orbit()
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.combinedClickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .border(1.dp, scheme.text.muted, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "Add shortcut", tint = scheme.text.muted)
+        }
+        Text(
+            "Add",
+            style = orbitCaption,
+            color = scheme.text.muted,
+            maxLines = 1,
+            modifier = Modifier.padding(top = OrbitSpacing.xs),
+        )
+    }
+}
+
+/**
+ * Focused default: logo/wordmark + ONE calm shortcut row. [showGreeting]/[showHomeStats]/
+ * [shortcutDensity]/[homeWallpaper] (v3.1 Home prefs, Task 5) opt back into a richer canvas —
+ * greeting line, privacy stats card (never on incognito), the full shortcut grid, and a subtle
+ * built-in backdrop, respectively. No centered search pill: the shared OmniBar (Task 3/4) sits
+ * bottom-anchored below this canvas and owns all address-entry.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomePage(
@@ -67,147 +182,110 @@ fun HomePage(
     onMoveShortcutToFront: (Long) -> Unit,
     modifier: Modifier = Modifier,
     lifetimeBlocked: Long = 0L,
+    showGreeting: Boolean = false,
+    showHomeStats: Boolean = false,
+    shortcutDensity: ShortcutDensity = ShortcutDensity.FEW,
+    homeWallpaper: String = "",
 ) {
+    val scheme = orbit()
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
     var menuForId by remember { mutableStateOf<Long?>(null) }
 
-    Column(
-        modifier = modifier.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            if (isIncognito) "Incognito" else "Andromeda",
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 48.dp, bottom = 8.dp),
-        )
-        if (!isIncognito) {
-            Text(
-                greeting(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 32.dp),
-            )
+    Box(modifier = modifier) {
+        homeBackdropBrush(homeWallpaper, scheme)?.let { brush ->
+            Box(modifier = Modifier.matchParentSize().background(brush))
         }
-        if (isIncognito) {
-            Text(
-                "Pages you view in this tab won't appear in your history,\nand the tab disappears when you close the app.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 24.dp),
-            )
-        }
-        // ── Shortcut grid (C1) — user-curated, so shown in incognito too. No centered
-        // search pill anymore (v3.1): the shared OmniBar lives bottom-anchored below this
-        // whole canvas — tapping it enters edit mode exactly like on a web page. ──
-        Spacer(modifier = Modifier.height(OrbitSpacing.xl))
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(OrbitSpacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            items(shortcuts, key = { it.id }) { shortcut ->
-                Box {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.combinedClickable(
-                            onClick = { onOpenUrl(shortcut.url) },
-                            onLongClick = { menuForId = shortcut.id },
-                        ),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                shortcut.title.take(1).uppercase(),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            )
-                        }
-                        Text(
-                            shortcut.title,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuForId == shortcut.id,
-                        onDismissRequest = { menuForId = null },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Move to front") },
-                            onClick = {
-                                onMoveShortcutToFront(shortcut.id)
-                                menuForId = null
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Remove") },
-                            onClick = {
-                                onRemoveShortcut(shortcut.id)
-                                menuForId = null
-                            },
-                        )
-                    }
-                }
+            Spacer(modifier = Modifier.height(OrbitSpacing.xxl))
+            Text(
+                if (isIncognito) "Incognito" else "Andromeda",
+                style = orbitDisplay,
+                color = if (isIncognito) scheme.text.primary else scheme.accent.solid,
+            )
+            if (!isIncognito && showGreeting) {
+                Spacer(modifier = Modifier.height(OrbitSpacing.xs))
+                Text(greeting(), style = orbitBody, color = scheme.text.secondary)
             }
-            item(key = "add-tile") {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.combinedClickable(onClick = { showAddDialog = true }),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = "Add shortcut",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        "Add",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-        }
-        // ── Privacy stats (C3) — under the shortcut grid, hidden until anything's blocked ──
-        if (!isIncognito && lifetimeBlocked > 0) {
-            val (blockedLine, savedLine) = PrivacyStatsFormat.format(lifetimeBlocked)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(top = 40.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Shield,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp),
+            if (isIncognito) {
+                Spacer(modifier = Modifier.height(OrbitSpacing.md))
+                Text(
+                    "Pages you view in this tab won't appear in your history,\nand the tab disappears when you close the app.",
+                    style = orbitBody,
+                    color = scheme.text.secondary,
+                    textAlign = TextAlign.Center,
                 )
-                Column(modifier = Modifier.padding(start = 12.dp)) {
-                    Text(
-                        blockedLine,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+            }
+            Spacer(modifier = Modifier.height(OrbitSpacing.xl))
+
+            // ── Shortcut row/grid (C1) — user-curated, so shown in incognito too. No
+            // centered search pill anymore (v3.1): the shared OmniBar lives bottom-anchored
+            // below this whole canvas — tapping it enters edit mode exactly like on a web
+            // page. Density (Task 5/7) picks between one calm row and the full grid. ──
+            if (shortcutDensity == ShortcutDensity.MORE) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+                    verticalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(shortcuts, key = { it.id }) { shortcut ->
+                        ShortcutTile(
+                            shortcut = shortcut,
+                            isMenuOpen = menuForId == shortcut.id,
+                            onOpen = { onOpenUrl(shortcut.url) },
+                            onLongClick = { menuForId = shortcut.id },
+                            onDismissMenu = { menuForId = null },
+                            onMoveToFront = { onMoveShortcutToFront(shortcut.id) },
+                            onRemove = { onRemoveShortcut(shortcut.id) },
+                        )
+                    }
+                    item(key = "add-tile") { AddShortcutTile(onClick = { showAddDialog = true }) }
+                }
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
+                    shortcuts.forEach { shortcut ->
+                        ShortcutTile(
+                            shortcut = shortcut,
+                            isMenuOpen = menuForId == shortcut.id,
+                            onOpen = { onOpenUrl(shortcut.url) },
+                            onLongClick = { menuForId = shortcut.id },
+                            onDismissMenu = { menuForId = null },
+                            onMoveToFront = { onMoveShortcutToFront(shortcut.id) },
+                            onRemove = { onRemoveShortcut(shortcut.id) },
+                        )
+                    }
+                    AddShortcutTile(onClick = { showAddDialog = true })
+                }
+            }
+
+            // ── Privacy stats (C3) — opt-in (Task 5/7), never on incognito, and still
+            // hidden until anything's actually blocked (nothing to show otherwise). ──
+            if (!isIncognito && showHomeStats && lifetimeBlocked > 0) {
+                val (blockedLine, savedLine) = PrivacyStatsFormat.format(lifetimeBlocked)
+                Spacer(modifier = Modifier.height(OrbitSpacing.xxl))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = scheme.accent.solid,
+                        modifier = Modifier.size(28.dp),
                     )
-                    Text(
-                        savedLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column(modifier = Modifier.padding(start = OrbitSpacing.md)) {
+                        Text(blockedLine, style = orbitBody, color = scheme.text.primary)
+                        Text(savedLine, style = orbitCaption, color = scheme.text.muted)
+                    }
                 }
             }
         }

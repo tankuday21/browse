@@ -144,6 +144,10 @@ fun BrowserScreen(
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
+    val showGreeting by viewModel.showGreeting.collectAsStateWithLifecycle()
+    val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
+    val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
+    val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -456,6 +460,10 @@ fun BrowserScreen(
                             .navigationBarsPadding()
                             .padding(bottom = OmniBarReservedHeight),
                         lifetimeBlocked = lifetimeBlocked,
+                        showGreeting = showGreeting,
+                        showHomeStats = showHomeStats,
+                        shortcutDensity = shortcutDensity,
+                        homeWallpaper = homeWallpaper,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(

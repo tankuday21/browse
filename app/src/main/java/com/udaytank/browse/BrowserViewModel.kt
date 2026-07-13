@@ -46,6 +46,7 @@ import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupDao
 import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.data.ReaderTheme
+import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.reading.ArticleStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -555,6 +556,23 @@ class BrowserViewModel(
     /** Persisted lifetime blocked-request count, for the home page stats block (C3). */
     val lifetimeBlocked: StateFlow<Long> = settings.lifetimeBlocked
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    // ── Home canvas customization (v3.1 Focused home) ──────────────────────
+    /** Greeting line ("Good morning" etc.) under the wordmark. Off by default. */
+    val showGreeting: StateFlow<Boolean> = settings.showGreeting
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Privacy stats card on home. Off by default; never shown on incognito regardless. */
+    val showHomeStats: StateFlow<Boolean> = settings.showHomeStats
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** FEW (one calm row) or MORE (full grid) of home shortcuts. Defaults to FEW. */
+    val shortcutDensity: StateFlow<ShortcutDensity> = settings.shortcutDensity
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ShortcutDensity.FEW)
+
+    /** Id of a bundled home backdrop ("aurora"/"nebula"), or "" for none. */
+    val homeWallpaper: StateFlow<String> = settings.homeWallpaper
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /**
      * Blocks not yet flushed to DataStore. Atomic because [onRequestBlocked] arrives on
