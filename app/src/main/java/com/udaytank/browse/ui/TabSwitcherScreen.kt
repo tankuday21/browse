@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -55,7 +56,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -78,7 +79,13 @@ import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupEntity
-import com.udaytank.browse.ui.theme.Orbit
+import com.udaytank.browse.ui.components.OrbitListRow
+import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 
 /** Orbit's tab-group accent palette; index stored on [TabGroupEntity.color]. */
 private val GroupColors = listOf(
@@ -143,26 +150,32 @@ fun TabSwitcherScreen(
 
     Scaffold(
         topBar = {
+            val scheme = orbit()
             Column {
-                TopAppBar(
-                    title = { Text("Tabs (${tabs.size})") },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
+                OrbitTopBar(
+                    title = "Tabs (${tabs.size})",
+                    onBack = onBack,
                     actions = {
                         IconButton(onClick = { searchQuery = if (searchQuery == null) "" else null }) {
-                            Icon(Icons.Filled.Search, contentDescription = "Search tabs")
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = "Search tabs",
+                                tint = scheme.text.primary,
+                            )
                         }
                         IconButton(onClick = { viewModel.onSwitcherLayoutToggled() }) {
                             Icon(
                                 if (listLayout) Icons.Filled.GridView else Icons.AutoMirrored.Filled.List,
                                 contentDescription = "Toggle layout",
+                                tint = scheme.text.primary,
                             )
                         }
                         IconButton(onClick = { showRecentlyClosed = true }) {
-                            Icon(Icons.Filled.History, contentDescription = "Recently closed")
+                            Icon(
+                                Icons.Filled.History,
+                                contentDescription = "Recently closed",
+                                tint = scheme.text.primary,
+                            )
                         }
                     },
                 )
@@ -174,7 +187,7 @@ fun TabSwitcherScreen(
                         placeholder = { Text("Search tabs") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
                     )
                 }
             }
@@ -234,10 +247,10 @@ fun TabSwitcherScreen(
     ) { innerPadding ->
         LazyVerticalGrid(
             columns = if (listLayout) GridCells.Fixed(1) else GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(12.dp),
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.md),
             // List rows are compact (P6 improve pass) — tighter spacing so ~8+ fit a screen.
-            verticalArrangement = Arrangement.spacedBy(if (listLayout) 8.dp else 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (listLayout) OrbitSpacing.sm else OrbitSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
         ) {
             renderItems.forEach { entry ->
                 when (entry) {
@@ -336,20 +349,27 @@ fun TabSwitcherScreen(
     }
 
     if (showRecentlyClosed) {
-        ModalBottomSheet(onDismissRequest = { showRecentlyClosed = false }) {
+        val scheme = orbit()
+        ModalBottomSheet(
+            onDismissRequest = { showRecentlyClosed = false },
+            containerColor = scheme.surfaces.elevated,
+            shape = RoundedCornerShape(topStart = OrbitRadii.bar, topEnd = OrbitRadii.bar),
+        ) {
             if (recentlyClosed.isEmpty()) {
                 Text(
                     "No recently closed tabs",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp),
+                    style = orbitBody,
+                    color = scheme.text.muted,
+                    modifier = Modifier.padding(OrbitSpacing.lg),
                 )
             } else {
-                Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                Column(modifier = Modifier.padding(bottom = OrbitSpacing.lg)) {
                     recentlyClosed.sortedByDescending { it.closedAt }.forEach { entry: ClosedTabEntity ->
-                        ListItem(
-                            headlineContent = { Text(entry.title.ifBlank { entry.url }, maxLines = 1) },
-                            supportingContent = { Text(entry.url, maxLines = 1) },
-                            modifier = Modifier.clickable {
+                        OrbitListRow(
+                            leadingIcon = null,
+                            title = entry.title.ifBlank { entry.url },
+                            subtitle = entry.url,
+                            onClick = {
                                 viewModel.onReopenClosed(entry)
                                 showRecentlyClosed = false
                                 onTabChosen()
@@ -442,14 +462,15 @@ private fun GroupHeader(
     onRename: () -> Unit,
     onUngroup: () -> Unit,
 ) {
+    val scheme = orbit()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = OrbitSpacing.xs)
             .clickable { onToggleCollapse() },
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
     ) {
         Box(
             modifier = Modifier
@@ -459,17 +480,23 @@ private fun GroupHeader(
         )
         Text(
             "${group.name} ($count)",
-            style = MaterialTheme.typography.titleSmall,
+            style = orbitBody,
+            color = scheme.text.primary,
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
         Icon(
             if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
             contentDescription = if (collapsed) "Expand group" else "Collapse group",
+            tint = scheme.text.secondary,
         )
         Box {
             IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Group options")
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Group options",
+                    tint = scheme.text.secondary,
+                )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
@@ -502,6 +529,8 @@ private fun TabCard(
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
 ) {
+    val scheme = orbit()
+    val cardShape = RoundedCornerShape(OrbitRadii.card)
     val thumbnail = remember(tab.id, tab.url) {
         holder.thumbnails.load(tab.id)?.asImageBitmap()
     }
@@ -509,13 +538,14 @@ private fun TabCard(
 
     Box {
         Surface(
-            shape = MaterialTheme.shapes.medium,
+            shape = cardShape,
+            color = scheme.surfaces.surface,
             tonalElevation = 2.dp,
             modifier = Modifier
-                .clip(MaterialTheme.shapes.medium)
+                .clip(cardShape)
                 .then(
                     if (isActive) {
-                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium)
+                        Modifier.border(2.dp, scheme.accent.solid, cardShape)
                     } else {
                         Modifier
                     }
@@ -535,13 +565,13 @@ private fun TabCard(
                         tab.isIncognito -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                .background(scheme.surfaces.elevated),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 "Incognito",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = orbitBody,
+                                color = scheme.text.secondary,
                             )
                         }
 
@@ -556,7 +586,7 @@ private fun TabCard(
                         else -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Orbit.Gradient),
+                                .background(Brush.horizontalGradient(scheme.accent.gradient)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -577,7 +607,7 @@ private fun TabCard(
                             if (tab.pinned) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                    color = scheme.surfaces.surface.copy(alpha = 0.85f),
                                     modifier = Modifier.size(20.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -592,7 +622,7 @@ private fun TabCard(
                             if (tab.locked) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                    color = scheme.surfaces.surface.copy(alpha = 0.85f),
                                     modifier = Modifier.size(20.dp),
                                 ) {
                                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -609,7 +639,7 @@ private fun TabCard(
 
                     Surface(
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        color = scheme.surfaces.surface.copy(alpha = 0.85f),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
@@ -627,7 +657,7 @@ private fun TabCard(
                                         Icons.Filled.Check,
                                         contentDescription = "Selected",
                                         modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = scheme.accent.solid,
                                     )
                                 }
                             } else {
@@ -642,9 +672,10 @@ private fun TabCard(
                 }
                 Text(
                     text = if (tab.isIncognito) "Incognito" else tab.title,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = orbitBody,
+                    color = scheme.text.primary,
                     maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
                 )
             }
         }
@@ -685,6 +716,8 @@ private fun TabListRow(
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
 ) {
+    val scheme = orbit()
+    val cardShape = RoundedCornerShape(OrbitRadii.card)
     val thumbnail = remember(tab.id, tab.url) {
         holder.thumbnails.load(tab.id)?.asImageBitmap()
     }
@@ -692,13 +725,14 @@ private fun TabListRow(
 
     Box {
         Surface(
-            shape = MaterialTheme.shapes.small,
+            shape = cardShape,
+            color = scheme.surfaces.surface,
             tonalElevation = 2.dp,
             modifier = Modifier
-                .clip(MaterialTheme.shapes.small)
+                .clip(cardShape)
                 .then(
                     if (isActive) {
-                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small)
+                        Modifier.border(2.dp, scheme.accent.solid, cardShape)
                     } else {
                         Modifier
                     }
@@ -713,19 +747,19 @@ private fun TabListRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = OrbitSpacing.sm),
             ) {
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(MaterialTheme.shapes.small),
+                        .clip(cardShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     when {
                         tab.isIncognito -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                .background(scheme.surfaces.elevated),
                         )
 
                         thumbnail != null -> Image(
@@ -739,7 +773,7 @@ private fun TabListRow(
                         else -> Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Orbit.Gradient),
+                                .background(Brush.horizontalGradient(scheme.accent.gradient)),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -753,17 +787,18 @@ private fun TabListRow(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 10.dp),
+                        .padding(horizontal = OrbitSpacing.md),
                 ) {
                     Text(
                         if (tab.isIncognito) "Incognito" else tab.title.ifBlank { tab.url },
-                        style = MaterialTheme.typography.labelLarge,
+                        style = orbitBody,
+                        color = scheme.text.primary,
                         maxLines = 1,
                     )
                     Text(
                         if (tab.isIncognito) "Private tab" else UrlHosts.of(tab.url) ?: tab.url,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = orbitCaption,
+                        color = scheme.text.muted,
                         maxLines = 1,
                     )
                 }
@@ -772,7 +807,7 @@ private fun TabListRow(
                         Icons.Filled.PushPin,
                         contentDescription = "Pinned",
                         modifier = Modifier.size(16.dp).padding(end = 2.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = scheme.text.secondary,
                     )
                 }
                 if (tab.locked) {
@@ -780,7 +815,7 @@ private fun TabListRow(
                         Icons.Filled.Lock,
                         contentDescription = "Locked",
                         modifier = Modifier.size(16.dp).padding(end = 2.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = scheme.text.secondary,
                     )
                 }
                 if (selectionMode) {
@@ -788,7 +823,7 @@ private fun TabListRow(
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = "Selected",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = scheme.accent.solid,
                             modifier = Modifier.padding(horizontal = 12.dp).size(20.dp),
                         )
                     }
@@ -882,7 +917,7 @@ private fun TabContextMenu(
                         Icon(
                             Icons.Filled.Check,
                             contentDescription = "Current group",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = orbit().accent.solid,
                         )
                     }
                 },
