@@ -1,6 +1,7 @@
 package com.udaytank.browse.ui.components
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,9 @@ val OmniBarHeight = 56.dp
 
 /** Collapsed grab-pill height shown while [BarState.Slim] (not editing). */
 private val OmniBarSlimHeight = 30.dp
-private val OmniBarSlimWidth = 64.dp
+
+/** Slim-pill hit target — kept comfortably tappable (2x [OrbitSpacing.xxl]) rather than a bare literal. */
+private val OmniBarSlimWidth = OrbitSpacing.xxl * 2
 
 /** Side/bottom insets that float the bar off the screen edges (Orbit spacing scale). */
 val OmniBarInset: androidx.compose.ui.unit.Dp = OrbitSpacing.md
@@ -87,9 +90,13 @@ fun OmniBar(
 ) {
     val scheme = orbit()
     val expanded = isEditing || barState == BarState.Full
+    // Slim -> Full snaps immediately (no grow animation): CommandBar's Row (back/address/
+    // tab-count/menu) is measured at its natural 56dp the instant it's composed, so it's never
+    // laid out under a too-small, still-animating height and can't clip/squish. Full -> Slim
+    // still shrinks smoothly via OrbitMotion, since only the simple grab-pill is on screen then.
     val height by animateDpAsState(
         targetValue = if (expanded) OmniBarHeight else OmniBarSlimHeight,
-        animationSpec = OrbitMotion.structuralDp(),
+        animationSpec = if (expanded) snap() else OrbitMotion.structuralDp(),
         label = "OmniBarHeight",
     )
     Box(

@@ -149,7 +149,9 @@ fun BrowserScreen(
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
     // forces it Full here — mirrors the old barVisible-forcing logic, one state richer.
     val vmBarState by viewModel.barState.collectAsStateWithLifecycle()
-    val forceBarFull = isHome || isEditing || readerActive ||
+    // Reader mode is NOT in this list: reader hides the bar entirely (spec §3, same treatment
+    // as fullscreen video) instead of forcing it Full — see the omniBar() call site below.
+    val forceBarFull = isHome || isEditing ||
         menuOpen || siteSheetOpen || state.findQuery != null
     val effectiveBarState = if (forceBarFull) BarState.Full else vmBarState
 
@@ -487,6 +489,10 @@ fun BrowserScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.surface)
+                            // Bar-inset: this interstitial shows the (Full) OmniBar per spec,
+                            // it just must never be drawn underneath it — reserve the same
+                            // bottom footprint so "Try again" / "Tap to play" stay clear.
+                            .padding(bottom = OmniBarReservedHeight)
                             .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -528,26 +534,34 @@ fun BrowserScreen(
                     }
                 }
                 state.sslWarningUrl?.let { blockedUrl ->
-                    Card(
+                    // Bar-inset: centered within a box that reserves the OmniBar's footprint at
+                    // the bottom, so a tall card (long URL, wrapped text) can never grow into the
+                    // bar's "OK" dismissal being covered by it.
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            .fillMaxSize()
+                            .padding(bottom = OmniBarReservedHeight),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text(
-                                "Connection not secure",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                            )
-                            Text(
-                                "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
-                            TextButton(onClick = viewModel::onSslWarningDismissed) {
-                                Text("OK")
+                        Card(
+                            modifier = Modifier.padding(24.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        ) {
+                            Column(modifier = Modifier.padding(20.dp)) {
+                                Text(
+                                    "Connection not secure",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Text(
+                                    "Andromeda blocked $blockedUrl because its security certificate is not trustworthy.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                )
+                                TextButton(onClick = viewModel::onSslWarningDismissed) {
+                                    Text("OK")
+                                }
                             }
                         }
                     }
@@ -558,6 +572,9 @@ fun BrowserScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.surface)
+                            // Bar-inset: reserve the OmniBar's footprint so "Go back" / "Proceed
+                            // anyway" never render underneath the (Full) bar shown over this.
+                            .padding(bottom = OmniBarReservedHeight)
                             .padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -660,11 +677,16 @@ fun BrowserScreen(
                         viewModel.onFindClose()
                     },
                 )
-            } else {
+            } else if (!readerActive) {
                 // The ONE shared OmniBar — home and web both render it from this exact
                 // bottom-anchored spot; it animates its own Full/Slim/editing states
                 // internally (see the omniBar composable above), so nothing here needs to
                 // hide or reposition it.
+                //
+                // Reader mode (spec §3) hides the bar entirely rather than forcing it Full —
+                // it would otherwise compete with ReaderOverlay's own Aa/Listen bottom
+                // controls. The bar isn't composed at all here; exiting reader mode still
+                // works via the system BackHandler and ReaderOverlay's own controls/menu.
                 omniBar()
             }
         }
