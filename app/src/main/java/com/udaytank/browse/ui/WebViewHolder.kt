@@ -155,7 +155,7 @@ class WebViewHolder(
      * interface (attached to every non-incognito tab) is inert unless the feature is running.
      */
     @Volatile
-    var mediaStateListener: ((title: String, playing: Boolean) -> Unit)? = null
+    var mediaStateListener: ((title: String, playing: Boolean, positionMs: Int, durationMs: Int) -> Unit)? = null
 
     @Volatile
     var mediaEndedListener: (() -> Unit)? = null
@@ -177,8 +177,8 @@ class WebViewHolder(
      */
     private inner class MediaJsBridge(private val tabId: Long) {
         @android.webkit.JavascriptInterface
-        fun onMediaState(title: String?, playing: Boolean) {
-            if (tabId in keepAliveTabs) mediaStateListener?.invoke(title ?: "", playing)
+        fun onMediaState(title: String?, playing: Boolean, positionMs: Int, durationMs: Int) {
+            if (tabId in keepAliveTabs) mediaStateListener?.invoke(title ?: "", playing, positionMs, durationMs)
         }
 
         @android.webkit.JavascriptInterface

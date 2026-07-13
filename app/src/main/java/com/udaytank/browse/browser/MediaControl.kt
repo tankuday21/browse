@@ -91,6 +91,15 @@ object MediaControl {
         }catch(e){}})();
     """.trimIndent()
 
+    /** Seek the primary media element to [positionMs] (from a lock-screen scrubber drag). */
+    fun seekTo(positionMs: Long): String = """
+        (function(){try{
+          var pick=$PICK_MEDIA;
+          var m=pick();
+          if(m&&isFinite(m.duration)){m.currentTime=$positionMs/1000;}
+        }catch(e){}})();
+    """.trimIndent()
+
     /**
      * One-time monitor: reports title + playing state on media events and a slow poll, and
      * auto-advances on `ended`. The `ended` handler waits [1.5s] before clicking "next" so
@@ -111,7 +120,9 @@ object MediaControl {
           function report(){try{
             var m=pick();
             var playing=!!(m&&!m.paused&&!m.ended);
-            if(window.$BRIDGE_NAME&&$BRIDGE_NAME.onMediaState){$BRIDGE_NAME.onMediaState(title(),playing);}
+            var pos=(m&&isFinite(m.currentTime))?Math.round(m.currentTime*1000):-1;
+            var dur=(m&&isFinite(m.duration)&&m.duration>0)?Math.round(m.duration*1000):-1;
+            if(window.$BRIDGE_NAME&&$BRIDGE_NAME.onMediaState){$BRIDGE_NAME.onMediaState(title(),playing,pos,dur);}
           }catch(e){}}
           function onEnded(){try{
             if(window.$BRIDGE_NAME&&$BRIDGE_NAME.onEnded){$BRIDGE_NAME.onEnded();}
@@ -121,10 +132,16 @@ object MediaControl {
             }catch(e){}},1500);
           }catch(e){}}
           document.addEventListener('play',report,true);
+          document.addEventListener('playing',report,true);
           document.addEventListener('pause',report,true);
           document.addEventListener('loadedmetadata',report,true);
+          document.addEventListener('durationchange',report,true);
+          document.addEventListener('seeked',report,true);
+          document.addEventListener('ratechange',report,true);
           document.addEventListener('ended',onEnded,true);
-          if(!window.__andromedaMediaPoll){window.__andromedaMediaPoll=setInterval(report,4000);}
+          // A slow poll refreshes the reported position so the lock-screen scrubber's
+          // extrapolation stays accurate; the OS ticks it smoothly between reports.
+          if(!window.__andromedaMediaPoll){window.__andromedaMediaPoll=setInterval(report,3000);}
           report();
         }catch(e){}})();
     """.trimIndent()

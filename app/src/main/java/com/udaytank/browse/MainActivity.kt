@@ -177,10 +177,13 @@ class MainActivity : FragmentActivity() {
             holder.mediaStateListener = null
             holder.mediaEndedListener = null
         }
+        com.udaytank.browse.media.MediaHoldService.onSeek = { positionMs ->
+            holder.runMediaCommand(tabId, com.udaytank.browse.browser.MediaControl.seekTo(positionMs))
+        }
         // Page monitor -> session/notification. Bridge callbacks arrive on a WebView binder
         // thread; startService is thread-safe, so forward straight through.
-        holder.mediaStateListener = { title, playing ->
-            com.udaytank.browse.media.MediaHoldService.updateState(appContext, title, playing)
+        holder.mediaStateListener = { title, playing, positionMs, durationMs ->
+            com.udaytank.browse.media.MediaHoldService.updateState(appContext, title, playing, positionMs, durationMs)
         }
         holder.mediaEndedListener = {
             // The monitor's own `ended` handler clicks "next"; native side just refreshes state.

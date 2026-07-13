@@ -41,6 +41,8 @@ class MediaHoldService : Service() {
 
     private var title = ""
     private var playing = true
+    private var positionMs = -1
+    private var durationMs = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -55,6 +57,7 @@ class MediaHoldService : Service() {
             onNext = { mainHandler.post { onNext?.invoke() } },
             onPrevious = { mainHandler.post { onPrevious?.invoke() } },
             onStop = { stop(this) },
+            onSeek = { pos -> mainHandler.post { onSeek?.invoke(pos) } },
         )
     }
 
@@ -75,7 +78,9 @@ class MediaHoldService : Service() {
             ACTION_UPDATE -> {
                 title = intent.getStringExtra(EXTRA_TITLE) ?: title
                 playing = intent.getBooleanExtra(EXTRA_PLAYING, playing)
-                session?.update(title, playing)
+                positionMs = intent.getIntExtra(EXTRA_POSITION, positionMs)
+                durationMs = intent.getIntExtra(EXTRA_DURATION, durationMs)
+                session?.update(title, playing, positionMs, durationMs)
                 getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification())
                 return START_STICKY
             }
@@ -90,7 +95,7 @@ class MediaHoldService : Service() {
                 title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
                     ?: intent?.getStringExtra(EXTRA_HOST) ?: ""
                 playing = true
-                session?.update(title, playing)
+                session?.update(title, playing, positionMs, durationMs)
                 startForegroundCompat(buildNotification())
                 return START_STICKY
             }
@@ -113,6 +118,7 @@ class MediaHoldService : Service() {
         onNext = null
         onPrevious = null
         onStopped = null
+        onSeek = null
     }
 
     private fun createNotificationChannel() {
@@ -184,6 +190,8 @@ class MediaHoldService : Service() {
         private const val EXTRA_HOST = "com.udaytank.browse.media.extra.HOST"
         private const val EXTRA_TITLE = "com.udaytank.browse.media.extra.TITLE"
         private const val EXTRA_PLAYING = "com.udaytank.browse.media.extra.PLAYING"
+        private const val EXTRA_POSITION = "com.udaytank.browse.media.extra.POSITION"
+        private const val EXTRA_DURATION = "com.udaytank.browse.media.extra.DURATION"
         private const val CHANNEL_ID = "media"
         private const val NOTIFICATION_ID = 0x6D656469 // arbitrary, stable, distinct from other services
 
@@ -202,6 +210,9 @@ class MediaHoldService : Service() {
         /** Invoked when the service stops (Stop action, session Stop, or the OS tearing it down). */
         var onStopped: (() -> Unit)? = null
 
+        /** Lock-screen scrubber drag → seek the page's media (ms). Invoked on the main thread. */
+        var onSeek: ((positionMs: Long) -> Unit)? = null
+
         fun start(context: Context, tabId: Long, host: String, title: String) {
             val intent = Intent(context, MediaHoldService::class.java)
                 .putExtra(EXTRA_HOST, host)
@@ -209,12 +220,14 @@ class MediaHoldService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
-        /** Pushes fresh title/playing state (from the page's JS monitor) to the session + notification. */
-        fun updateState(context: Context, title: String, playing: Boolean) {
+        /** Pushes fresh title/playing/timeline state (from the page's JS monitor) to the session + notification. */
+        fun updateState(context: Context, title: String, playing: Boolean, positionMs: Int, durationMs: Int) {
             val intent = Intent(context, MediaHoldService::class.java)
                 .setAction(ACTION_UPDATE)
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_PLAYING, playing)
+                .putExtra(EXTRA_POSITION, positionMs)
+                .putExtra(EXTRA_DURATION, durationMs)
             context.startService(intent)
         }
 

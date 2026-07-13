@@ -18,6 +18,7 @@ class MediaControlTest {
         MediaControl.NEXT,
         MediaControl.PREVIOUS,
         MediaControl.MONITOR,
+        MediaControl.seekTo(12_000L),
     )
 
     @Test
@@ -26,6 +27,24 @@ class MediaControlTest {
             assertTrue(js.isNotBlank())
             assertTrue("snippet must be wrapped in try/catch", js.contains("try{") || js.contains("try {"))
         }
+    }
+
+    @Test
+    fun `monitor reports the media timeline for a live lock-screen scrubber`() {
+        val monitor = MediaControl.MONITOR
+        assertTrue("reports position", monitor.contains("currentTime"))
+        assertTrue("reports duration", monitor.contains("duration"))
+        // onMediaState now carries (title, playing, positionMs, durationMs).
+        assertTrue("state callback carries the timeline", monitor.contains("onMediaState(title(),playing,pos,dur)"))
+        assertTrue("refreshes on seek", monitor.contains("'seeked'"))
+        assertTrue("refreshes on duration change", monitor.contains("'durationchange'"))
+    }
+
+    @Test
+    fun `seekTo sets the media element current time from milliseconds`() {
+        val js = MediaControl.seekTo(45_000L)
+        assertTrue(js.contains("currentTime"))
+        assertTrue(js.contains("45000/1000"))
     }
 
     @Test

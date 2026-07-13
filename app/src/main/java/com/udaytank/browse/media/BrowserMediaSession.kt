@@ -25,6 +25,7 @@ class BrowserMediaSession(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onStop: () -> Unit,
+    onSeek: (positionMs: Long) -> Unit,
 ) {
     private val session = MediaSession(context, "AndromedaMedia").apply {
         setCallback(object : MediaSession.Callback() {
@@ -35,6 +36,7 @@ class BrowserMediaSession(
             override fun onSkipToNext() = onNext()
             override fun onSkipToPrevious() = onPrevious()
             override fun onStop() = onStop()
+            override fun onSeekTo(pos: Long) = onSeek(pos)
         })
         isActive = true
     }
@@ -42,24 +44,33 @@ class BrowserMediaSession(
     /** Token for binding a [android.app.Notification.MediaStyle] to this session. */
     val token: MediaSession.Token get() = session.sessionToken
 
-    /** Pushes the current page/video title and playing state to the lock screen. */
-    fun update(title: String, playing: Boolean) {
-        session.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title.ifBlank { "Playing in background" })
-                .build()
-        )
-        val actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
+    /**
+     * Pushes the current page/video title, playing state, and timeline to the lock screen.
+     *
+     * [positionMs]/[durationMs] are -1 when the page doesn't expose a finite timeline (live
+     * streams, or before metadata loads) — then we report an unknown position so the OS shows
+     * transport controls without a bogus scrubber. When they ARE known, we publish position +
+     * a playback speed of 1.0 while playing, and the OS *extrapolates* the scrubber forward
+     * from the report time — so the elapsed/total time ticks live between our periodic updates.
+     */
+    fun update(title: String, playing: Boolean, positionMs: Int, durationMs: Int) {
+        val metadata = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, title.ifBlank { "Playing in background" })
+        if (durationMs > 0) metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs.toLong())
+        session.setMetadata(metadata.build())
+
+        var actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
             PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_STOP or
             PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS
-        // Web media has no reliable timeline we can drive here: report an unknown position so
-        // the lock screen shows transport controls without a bogus scrubber.
+        if (durationMs > 0) actions = actions or PlaybackState.ACTION_SEEK_TO
+
+        val position = if (positionMs >= 0) positionMs.toLong() else PlaybackState.PLAYBACK_POSITION_UNKNOWN
         session.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(actions)
                 .setState(
                     if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                    PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                    position,
                     if (playing) 1f else 0f,
                 )
                 .build()
