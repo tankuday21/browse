@@ -22,6 +22,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 enum class ReaderTheme { SYSTEM, LIGHT, SEPIA, DARK }
 
+/** Home canvas shortcut layout (v3.1 Focused home): one calm row, or the full grid. */
+enum class ShortcutDensity { FEW, MORE }
+
 interface SettingsRepository {
     val searchEngine: Flow<SearchEngine>
     val themeMode: Flow<ThemeMode>
@@ -84,6 +87,18 @@ interface SettingsRepository {
     /** Best score in the offline-page asteroid game (K1). Never negative. */
     val asteroidHighScore: Flow<Int>
     suspend fun setAsteroidHighScore(score: Int)
+
+    /** Home canvas customization (v3.1 Focused home). */
+    val showGreeting: Flow<Boolean>
+    suspend fun setShowGreeting(enabled: Boolean)
+    /** Non-incognito only — enforced by the caller, never by this flow. */
+    val showHomeStats: Flow<Boolean>
+    suspend fun setShowHomeStats(enabled: Boolean)
+    val shortcutDensity: Flow<ShortcutDensity>
+    suspend fun setShortcutDensity(density: ShortcutDensity)
+    /** Id of a bundled backdrop ("aurora"/"nebula"), or "" for none. */
+    val homeWallpaper: Flow<String>
+    suspend fun setHomeWallpaper(id: String)
 }
 
 class DataStoreSettingsRepository(
@@ -305,6 +320,40 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[THEME_MODE_KEY] = mode.name }
     }
 
+    override val showGreeting: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SHOW_GREETING_KEY] ?: false
+    }
+
+    override suspend fun setShowGreeting(enabled: Boolean) {
+        dataStore.edit { it[SHOW_GREETING_KEY] = enabled }
+    }
+
+    override val showHomeStats: Flow<Boolean> = dataStore.data.map { prefs ->
+        prefs[SHOW_HOME_STATS_KEY] ?: false
+    }
+
+    override suspend fun setShowHomeStats(enabled: Boolean) {
+        dataStore.edit { it[SHOW_HOME_STATS_KEY] = enabled }
+    }
+
+    override val shortcutDensity: Flow<ShortcutDensity> = dataStore.data.map { prefs ->
+        prefs[SHORTCUT_DENSITY_KEY]?.let { stored ->
+            ShortcutDensity.entries.find { it.name == stored }
+        } ?: ShortcutDensity.FEW
+    }
+
+    override suspend fun setShortcutDensity(density: ShortcutDensity) {
+        dataStore.edit { it[SHORTCUT_DENSITY_KEY] = density.name }
+    }
+
+    override val homeWallpaper: Flow<String> = dataStore.data.map { prefs ->
+        prefs[HOME_WALLPAPER_KEY] ?: ""
+    }
+
+    override suspend fun setHomeWallpaper(id: String) {
+        dataStore.edit { it[HOME_WALLPAPER_KEY] = id }
+    }
+
     private companion object {
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
@@ -332,5 +381,9 @@ class DataStoreSettingsRepository(
         val ONBOARDING_DONE_KEY = booleanPreferencesKey("onboarding_done")
         val TEXT_SCALE_KEY = intPreferencesKey("text_scale")
         val ASTEROID_HIGH_SCORE_KEY = intPreferencesKey("asteroid_high_score")
+        val SHOW_GREETING_KEY = booleanPreferencesKey("show_greeting")
+        val SHOW_HOME_STATS_KEY = booleanPreferencesKey("show_home_stats")
+        val SHORTCUT_DENSITY_KEY = stringPreferencesKey("shortcut_density")
+        val HOME_WALLPAPER_KEY = stringPreferencesKey("home_wallpaper")
     }
 }
