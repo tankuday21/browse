@@ -21,10 +21,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -46,7 +47,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,6 +66,12 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.data.DownloadEntry
+import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -91,23 +97,26 @@ private fun bytesHuman(bytes: Long): String {
 @Composable
 fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
     val entries by viewModel.downloads.collectAsStateWithLifecycle()
+    val scheme = orbit()
     var previewEntry by remember { mutableStateOf<DownloadEntry?>(null) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Downloads") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
+        topBar = { OrbitTopBar(title = "Downloads", onBack = onBack) },
+        containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
-            Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp)) {
-                Text("No downloads yet", style = MaterialTheme.typography.bodyLarge)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = null,
+                    tint = scheme.text.muted,
+                    modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
+                )
+                Text("No downloads yet", style = orbitBody, color = scheme.text.muted)
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -138,7 +147,7 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
 @Composable
 private fun stateChipColors(state: String) = when (state) {
     "RUNNING" -> AssistChipDefaults.assistChipColors(
-        containerColor = MaterialTheme.colorScheme.primary,
+        containerColor = orbit().accent.solid,
         labelColor = MaterialTheme.colorScheme.onPrimary,
     )
     "FAILED" -> AssistChipDefaults.assistChipColors(
@@ -192,15 +201,16 @@ private fun DownloadRow(
         }
     }
 
+    val scheme = orbit()
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = isLegacy || entry.state == "DONE") { onOpenPreview() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(entry.fileName, maxLines = 1, style = MaterialTheme.typography.bodyLarge)
+                Text(entry.fileName, maxLines = 1, style = orbitBody, color = scheme.text.primary)
                 Spacer(modifier = Modifier.height(4.dp))
                 AssistChip(
                     onClick = {},
@@ -229,7 +239,7 @@ private fun DownloadRow(
                         }
                     }
                 }
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                Text(subtitle, style = orbitCaption, color = scheme.text.muted, maxLines = 1)
             }
             if (!isLegacy && entry.state == "RUNNING" && speedSamples.size >= 2) {
                 Spacer(modifier = Modifier.size(8.dp))
@@ -354,7 +364,7 @@ private fun DownloadRow(
 
 @Composable
 private fun SpeedSparkline(samples: List<Long>) {
-    val color = MaterialTheme.colorScheme.primary
+    val color = orbit().accent.solid
     Canvas(modifier = Modifier.size(width = 80.dp, height = 24.dp)) {
         val max = (samples.maxOrNull() ?: 1L).coerceAtLeast(1L)
         val stepX = size.width / (samples.size - 1).coerceAtLeast(1)
@@ -483,10 +493,15 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
     val mime = entry.mimeType ?: ""
     val isLegacy = path == null && entry.downloadId > 0
     val fileExists = remember(path) { path != null && File(path).exists() }
+    val scheme = orbit()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(entry.fileName, style = MaterialTheme.typography.titleMedium)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaces.elevated,
+        shape = RoundedCornerShape(topStart = OrbitRadii.bar, topEnd = OrbitRadii.bar),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(OrbitSpacing.lg)) {
+            Text(entry.fileName, style = orbitBody, color = scheme.text.primary)
             Spacer(modifier = Modifier.height(12.dp))
 
             if (isLegacy) {

@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
@@ -41,7 +41,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +63,11 @@ import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.reading.ReadAloudService
+import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 import kotlinx.coroutines.launch
 
 /** "Just now", "5 min. ago", "Yesterday"… via the framework's relative formatter. */
@@ -88,15 +92,12 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
 
     val context = LocalContext.current
     val ensureNotificationPermission = rememberNotificationPermissionRequest()
+    val scheme = orbit()
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Reading list") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+            OrbitTopBar(
+                title = "Reading list",
+                onBack = onBack,
                 actions = {
                     // Podcast mode: read every unread article aloud, oldest first.
                     if (entries.any { it.readAt == null }) {
@@ -107,6 +108,7 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
                             Icon(
                                 Icons.AutoMirrored.Filled.PlaylistPlay,
                                 contentDescription = "Play all unread",
+                                tint = scheme.text.primary,
                             )
                         }
                     }
@@ -114,23 +116,36 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
             ) {
                 FilterChip(selected = !showRead, onClick = { showRead = false }, label = { Text("Unread") })
                 FilterChip(selected = showRead, onClick = { showRead = true }, label = { Text("Read") })
             }
             val visible = entries.filter { (it.readAt != null) == showRead }
             if (visible.isEmpty()) {
-                Text(
-                    if (showRead) "Nothing read yet"
-                    else "Nothing saved — use \"Save for later\" in the menu",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(24.dp),
-                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(OrbitSpacing.xl),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = null,
+                        tint = scheme.text.muted,
+                        modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
+                    )
+                    Text(
+                        if (showRead) "Nothing read yet"
+                        else "Nothing saved — use \"Save for later\" in the menu",
+                        style = orbitBody,
+                        color = scheme.text.muted,
+                    )
+                }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(visible, key = { it.id }) { entry ->
@@ -179,6 +194,7 @@ private fun ReadingListRow(
     onDelete: () -> Unit,
     onSwipeDelete: () -> Unit,
 ) {
+    val scheme = orbit()
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value != SwipeToDismissBoxValue.Settled) {
@@ -196,7 +212,7 @@ private fun ReadingListRow(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = OrbitSpacing.xl),
             ) {
                 Icon(
                     Icons.Filled.Delete,
@@ -218,16 +234,17 @@ private fun ReadingListRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
+                .background(scheme.surfaces.surface)
                 .clickable { onOpen() }
-                .padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
+                .padding(start = OrbitSpacing.lg, top = OrbitSpacing.md, bottom = OrbitSpacing.md),
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     entry.title,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = orbitBody,
+                    color = scheme.text.primary,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,7 +252,7 @@ private fun ReadingListRow(
                         Icon(
                             Icons.Filled.OfflinePin,
                             contentDescription = "Available offline",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = scheme.accent.solid,
                             modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -243,15 +260,19 @@ private fun ReadingListRow(
                     Text(
                         listOfNotNull(UrlHosts.of(entry.url), relativeDate(entry.addedAt))
                             .joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = orbitCaption,
+                        color = scheme.text.muted,
                         maxLines = 1,
                     )
                 }
             }
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "More options",
+                        tint = scheme.text.secondary,
+                    )
                 }
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                     DropdownMenuItem(
@@ -298,16 +319,7 @@ private fun SavedArticleReader(
 
     BackHandler { onBack() }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(entry.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
+        topBar = { OrbitTopBar(title = entry.title, onBack = onBack) },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             if (!loaded) return@Box

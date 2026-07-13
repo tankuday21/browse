@@ -1,40 +1,43 @@
 package com.udaytank.browse.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
+import com.udaytank.browse.ui.components.OrbitListRow
+import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
     viewModel: BrowserViewModel,
@@ -42,6 +45,7 @@ fun HistoryScreen(
     onBack: () -> Unit,
 ) {
     val allEntries by viewModel.historyEntries.collectAsStateWithLifecycle()
+    val scheme = orbit()
     var query by remember { mutableStateOf("") }
     val entries = remember(allEntries, query) {
         if (query.isBlank()) allEntries
@@ -55,34 +59,45 @@ fun HistoryScreen(
     Scaffold(
         topBar = {
             Column {
-            TopAppBar(
-                title = { Text("History") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::onClearHistory) {
-                        Icon(Icons.Filled.DeleteSweep, contentDescription = "Clear all history")
-                    }
-                },
-            )
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = { Text("Search history") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+                OrbitTopBar(
+                    title = "History",
+                    onBack = onBack,
+                    actions = {
+                        IconButton(onClick = viewModel::onClearHistory) {
+                            Icon(
+                                Icons.Filled.DeleteSweep,
+                                contentDescription = "Clear all history",
+                                tint = scheme.text.primary,
+                            )
+                        }
+                    },
+                )
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search history") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                )
             }
         },
+        containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
-            Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(24.dp)) {
-                Text("No history yet", style = MaterialTheme.typography.bodyLarge)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.xl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.History,
+                    contentDescription = null,
+                    tint = scheme.text.muted,
+                    modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
+                )
+                Text("No history yet", style = orbitBody, color = scheme.text.muted)
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -90,22 +105,26 @@ fun HistoryScreen(
                     item(key = "header-$date") {
                         Text(
                             text = formatDay(date),
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = orbitCaption,
+                            color = scheme.text.muted,
+                            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
                         )
                     }
                     items(dayEntries, key = { it.id }) { entry ->
-                        ListItem(
-                            headlineContent = { Text(entry.title, maxLines = 1) },
-                            supportingContent = { Text(entry.url, maxLines = 1) },
-                            trailingContent = {
+                        OrbitListRow(
+                            leadingIcon = null,
+                            title = entry.title,
+                            subtitle = entry.url,
+                            onClick = { onOpenUrl(entry.url) },
+                            trailing = {
                                 IconButton(onClick = { viewModel.onDeleteHistoryEntry(entry.id) }) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "Delete entry",
+                                        tint = scheme.text.secondary,
+                                    )
                                 }
                             },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenUrl(entry.url) },
                         )
                     }
                 }
