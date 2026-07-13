@@ -172,23 +172,29 @@ class BrowserViewModel(
     // Scroll hysteresis lives in the pure BarScrollPolicy; this layer only forwards
     // events for the ACTIVE tab and pushes a state change when visibility actually
     // flips (scroll events are high-frequency — recompositions must not be).
+    //
+    // TEMPORARY SHIM (v3.1 Task 2): BarScrollPolicy now reports BarState.Full/Slim
+    // instead of a visible Boolean. Slim isn't "hidden" — Task 3 wires the real
+    // shrink-not-hide OmniBar and BarState StateFlow. Until then, keep the bar
+    // visible unconditionally so existing behavior/compile stays intact.
 
-    private val barScrollPolicy = BarScrollPolicy()
+    private var barScrollPolicy = BarScrollPolicy()
 
     /** True while the bottom command bar is scrolled away (Chrome-style auto-hide). */
     private val _barHidden = MutableStateFlow(false)
     val barHidden: StateFlow<Boolean> = _barHidden.asStateFlow()
 
-    /** Density-corrected hide threshold (≈24dp in px); set once by the UI layer. */
+    /** Density-corrected shrink threshold (≈24dp in px); set once by the UI layer. */
     fun setBarHideThresholdPx(px: Int) {
-        if (px > 0) barScrollPolicy.hideThresholdPx = px
+        if (px > 0) barScrollPolicy = BarScrollPolicy(shrinkThresholdPx = px)
     }
 
     /** High-frequency WebView scroll callback; cheap by contract (see holder Listener docs). */
     fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) {
         if (tabId != activeTabId.value) return
-        val visible = barScrollPolicy.onScroll(scrollY, dy)
-        if (_barHidden.value == visible) _barHidden.value = !visible // push only on flips
+        barScrollPolicy.onScroll(scrollY, dy)
+        // Shim: BarState.Slim doesn't mean "hidden" (see note above) — keep visible for now.
+        if (_barHidden.value) _barHidden.value = false
     }
 
     /**
