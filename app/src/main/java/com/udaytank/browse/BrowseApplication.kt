@@ -42,6 +42,7 @@ class BrowseApplication : Application() {
         super.onCreate()
         appScope.launch { reloadAdblock() }
         FilterListUpdater.schedulePeriodic(this)
+        com.udaytank.browse.feed.FeedRefreshWorker.schedulePeriodic(this)
         appScope.launch {
             // The download engine lives in this process: at process start no download
             // can actually be running, so any row still marked RUNNING is an orphan
