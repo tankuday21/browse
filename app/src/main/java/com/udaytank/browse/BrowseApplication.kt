@@ -11,7 +11,9 @@ import com.udaytank.browse.browser.adblock.FilterListUpdater
 import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.BrowseDatabase
 import com.udaytank.browse.data.DataStoreSettingsRepository
+import com.udaytank.browse.data.FeedRepository
 import com.udaytank.browse.data.SettingsRepository
+import com.udaytank.browse.data.WeatherRepository
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -91,4 +93,10 @@ class BrowseApplication : Application() {
     val settingsRepository: SettingsRepository by lazy {
         DataStoreSettingsRepository(settingsDataStore)
     }
+
+    /** v3.2 home feed: RSS cache + source-direct fetch. */
+    val feedRepository: FeedRepository by lazy { FeedRepository(database.feedDao()) }
+
+    /** v3.2 weather via Open-Meteo (keyless). */
+    val weatherRepository: WeatherRepository by lazy { WeatherRepository() }
 }

@@ -99,6 +99,18 @@ interface SettingsRepository {
     /** Id of a bundled backdrop ("aurora"/"nebula"), or "" for none. */
     val homeWallpaper: Flow<String>
     suspend fun setHomeWallpaper(id: String)
+
+    /** v3.2 home feed. Master toggle (off → the calm focused home); weather sub-controls. */
+    val showFeed: Flow<Boolean>
+    suspend fun setShowFeed(enabled: Boolean)
+    val showWeather: Flow<Boolean>
+    suspend fun setShowWeather(enabled: Boolean)
+    /** City name for weather when not using location; "" if unset. */
+    val weatherCity: Flow<String>
+    suspend fun setWeatherCity(city: String)
+    /** Use opt-in coarse location for weather instead of [weatherCity]. */
+    val weatherUseLocation: Flow<Boolean>
+    suspend fun setWeatherUseLocation(enabled: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -354,7 +366,32 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[HOME_WALLPAPER_KEY] = id }
     }
 
+    override val showFeed: Flow<Boolean> = dataStore.data.map { it[SHOW_FEED_KEY] ?: true }
+    override suspend fun setShowFeed(enabled: Boolean) {
+        dataStore.edit { it[SHOW_FEED_KEY] = enabled }
+    }
+
+    override val showWeather: Flow<Boolean> = dataStore.data.map { it[SHOW_WEATHER_KEY] ?: true }
+    override suspend fun setShowWeather(enabled: Boolean) {
+        dataStore.edit { it[SHOW_WEATHER_KEY] = enabled }
+    }
+
+    override val weatherCity: Flow<String> = dataStore.data.map { it[WEATHER_CITY_KEY] ?: "" }
+    override suspend fun setWeatherCity(city: String) {
+        dataStore.edit { it[WEATHER_CITY_KEY] = city }
+    }
+
+    override val weatherUseLocation: Flow<Boolean> =
+        dataStore.data.map { it[WEATHER_USE_LOCATION_KEY] ?: false }
+    override suspend fun setWeatherUseLocation(enabled: Boolean) {
+        dataStore.edit { it[WEATHER_USE_LOCATION_KEY] = enabled }
+    }
+
     private companion object {
+        val SHOW_FEED_KEY = booleanPreferencesKey("show_feed")
+        val SHOW_WEATHER_KEY = booleanPreferencesKey("show_weather")
+        val WEATHER_CITY_KEY = stringPreferencesKey("weather_city")
+        val WEATHER_USE_LOCATION_KEY = booleanPreferencesKey("weather_use_location")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")

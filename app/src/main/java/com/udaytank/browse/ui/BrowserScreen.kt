@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.browser.BarState
+import com.udaytank.browse.data.WeatherLocation
 import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.OmniBar
@@ -126,6 +127,16 @@ fun BrowserScreen(
     val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
     val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
     val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
+    // v3.2 feed state
+    val quickDials by viewModel.quickDials.collectAsStateWithLifecycle()
+    val weather by viewModel.weather.collectAsStateWithLifecycle()
+    val newsItems by viewModel.newsItems.collectAsStateWithLifecycle()
+    val sportsItems by viewModel.sportsItems.collectAsStateWithLifecycle()
+    val showFeed by viewModel.showFeed.collectAsStateWithLifecycle()
+    val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
+    val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
+    val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
+    var weatherPlaceLabel by remember { mutableStateOf("") }
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -145,6 +156,24 @@ fun BrowserScreen(
 
     LaunchedEffect(isEditing) {
         if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
+    }
+
+    // v3.2: on the (non-incognito) home, recompute quick dials + throttled feed refresh.
+    LaunchedEffect(isHome, isIncognito) {
+        if (isHome && !isIncognito) viewModel.onHomeShown(isIncognito)
+    }
+    // Weather: resolve a place (opt-in coarse location, else the set city) then load it.
+    LaunchedEffect(isHome, isIncognito, showFeed, showWeather, weatherCity, weatherUseLocation) {
+        if (isHome && !isIncognito && showFeed && showWeather) {
+            val place = when {
+                weatherUseLocation -> WeatherLocation.lastKnownCoarse(context)
+                    ?: weatherCity.takeIf { it.isNotBlank() }?.let { viewModel.geocodeCity(it) }
+                weatherCity.isNotBlank() -> viewModel.geocodeCity(weatherCity)
+                else -> null
+            }
+            weatherPlaceLabel = place?.label ?: ""
+            if (place != null) viewModel.loadWeather(place)
+        }
     }
 
     // A6 clipboard chip: the ONE clipboard read per bar-focus event (never polled). A copied
@@ -334,6 +363,13 @@ fun BrowserScreen(
                         showHomeStats = showHomeStats,
                         shortcutDensity = shortcutDensity,
                         homeWallpaper = homeWallpaper,
+                        quickDials = quickDials,
+                        weather = weather,
+                        weatherPlace = weatherPlaceLabel,
+                        newsItems = newsItems,
+                        sportsItems = sportsItems,
+                        showFeed = showFeed,
+                        showWeather = showWeather,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(

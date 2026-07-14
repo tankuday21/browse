@@ -159,4 +159,13 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setHomeWallpaper(id: String) {
         homeWallpaper.value = id
     }
+
+    override val showFeed = MutableStateFlow(true)
+    override suspend fun setShowFeed(enabled: Boolean) { showFeed.value = enabled }
+    override val showWeather = MutableStateFlow(true)
+    override suspend fun setShowWeather(enabled: Boolean) { showWeather.value = enabled }
+    override val weatherCity = MutableStateFlow("")
+    override suspend fun setWeatherCity(city: String) { weatherCity.value = city }
+    override val weatherUseLocation = MutableStateFlow(false)
+    override suspend fun setWeatherUseLocation(enabled: Boolean) { weatherUseLocation.value = enabled }
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -55,8 +56,15 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
+import com.udaytank.browse.browser.feed.FeedItem
+import com.udaytank.browse.browser.feed.QuickDial
+import com.udaytank.browse.browser.feed.Weather
 import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ShortcutDensity
+import com.udaytank.browse.ui.components.FeedItemCard
+import com.udaytank.browse.ui.components.HomeSectionLabel
+import com.udaytank.browse.ui.components.QuickDialsRow
+import com.udaytank.browse.ui.components.WeatherCard
 import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -199,6 +207,14 @@ fun HomePage(
     showHomeStats: Boolean = false,
     shortcutDensity: ShortcutDensity = ShortcutDensity.FEW,
     homeWallpaper: String = "",
+    // v3.2 feed (non-incognito only; gated by showFeed).
+    quickDials: List<QuickDial> = emptyList(),
+    weather: Weather? = null,
+    weatherPlace: String = "",
+    newsItems: List<FeedItem> = emptyList(),
+    sportsItems: List<FeedItem> = emptyList(),
+    showFeed: Boolean = false,
+    showWeather: Boolean = true,
 ) {
     val scheme = orbit()
     val clipboard = LocalClipboardManager.current
@@ -253,6 +269,7 @@ fun HomePage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .offset(y = enterRise)
                 .alpha(enterAlpha)
                 .padding(OrbitSpacing.xl),
@@ -290,24 +307,42 @@ fun HomePage(
             // below this whole canvas — tapping it enters edit mode exactly like on a web
             // page. Density (Task 5/7) picks between one calm row and the full grid. ──
             if (shortcutDensity == ShortcutDensity.MORE) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
+                // Manual 4-column grid — a LazyVerticalGrid can't nest inside this verticalScroll
+                // Column (both scroll vertically). Shortcut counts are small, so non-lazy is fine.
+                // Cell index maps: [0..shortcuts) = tiles, then one Add cell, then blanks to pad.
+                val cells = shortcuts.size + 1
+                val rowCount = (cells + 3) / 4
+                Column(
                     modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
                 ) {
-                    items(shortcuts, key = { it.id }) { shortcut ->
-                        ShortcutTile(
-                            shortcut = shortcut,
-                            isMenuOpen = menuForId == shortcut.id,
-                            onOpen = { onOpenUrl(shortcut.url) },
-                            onLongClick = { menuForId = shortcut.id },
-                            onDismissMenu = { menuForId = null },
-                            onMoveToFront = { onMoveShortcutToFront(shortcut.id) },
-                            onRemove = { onRemoveShortcut(shortcut.id) },
-                        )
+                    for (row in 0 until rowCount) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+                        ) {
+                            for (col in 0 until 4) {
+                                val i = row * 4 + col
+                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                                    when {
+                                        i < shortcuts.size -> {
+                                            val sc = shortcuts[i]
+                                            ShortcutTile(
+                                                shortcut = sc,
+                                                isMenuOpen = menuForId == sc.id,
+                                                onOpen = { onOpenUrl(sc.url) },
+                                                onLongClick = { menuForId = sc.id },
+                                                onDismissMenu = { menuForId = null },
+                                                onMoveToFront = { onMoveShortcutToFront(sc.id) },
+                                                onRemove = { onRemoveShortcut(sc.id) },
+                                            )
+                                        }
+                                        i == shortcuts.size -> AddShortcutTile(onClick = { showAddDialog = true })
+                                    }
+                                }
+                            }
+                        }
                     }
-                    item(key = "add-tile") { AddShortcutTile(onClick = { showAddDialog = true }) }
                 }
             } else {
                 Row(
@@ -326,6 +361,34 @@ fun HomePage(
                         )
                     }
                     AddShortcutTile(onClick = { showAddDialog = true })
+                }
+            }
+
+            // ── v3.2 feed — non-incognito, opt-in (showFeed). Quick dials, weather, news, sports.
+            // Each section renders only when it has content, so an offline/empty feed just
+            // collapses back to the calm focused home. ──
+            if (!isIncognito && showFeed) {
+                if (quickDials.isNotEmpty()) {
+                    HomeSectionLabel("Shortcuts you visit")
+                    QuickDialsRow(dials = quickDials, onOpen = onOpenUrl)
+                }
+                if (showWeather && weather != null) {
+                    HomeSectionLabel("Weather")
+                    WeatherCard(weather = weather, place = weatherPlace)
+                }
+                if (newsItems.isNotEmpty()) {
+                    HomeSectionLabel("News")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+                    ) { newsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
+                }
+                if (sportsItems.isNotEmpty()) {
+                    HomeSectionLabel("Sports")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+                    ) { sportsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
                 }
             }
 
