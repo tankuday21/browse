@@ -12,3 +12,6 @@ captures/
 *.aab
 keystore.properties
 *.jks
+
+# Subagent-driven-development scratch ledger
+.superpowers/

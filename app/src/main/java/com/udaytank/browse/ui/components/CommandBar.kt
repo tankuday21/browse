@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -108,8 +109,12 @@ fun CommandBar(
             .animateContentSize(tween(Orbit.MotionMs, easing = Orbit.Easing)),
         shape = RoundedCornerShape(OrbitRadii.bar),
         color = orbit().surfaces.surface,
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp,
+        // Hairline border for definition + a whisper of shadow, instead of a heavy 8dp
+        // drop-shadow. On the near-white light home canvas the old shadow read as a grey
+        // rectangle "halo"; the border keeps the pill crisp in both themes without it.
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, orbit().text.muted.copy(alpha = 0.18f)),
     ) {
         Box {
             Row(verticalAlignment = Alignment.CenterVertically) {

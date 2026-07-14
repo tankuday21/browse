@@ -2,12 +2,16 @@ package com.udaytank.browse.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -106,6 +110,16 @@ fun BrowserMenuSheet(
         containerColor = scheme.surfaces.elevated,
         shape = RoundedCornerShape(topStart = OrbitRadii.bar, topEnd = OrbitRadii.bar),
     ) {
+        // Scrollable so every row stays reachable: the full action list (~13 rows) is
+        // taller than the sheet's partially-expanded height, so without this the tail
+        // (Settings, the ad-block footer) was clipped below the fold and unreachable.
+        // navigationBarsPadding keeps the last row clear of the gesture bar.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding(),
+        ) {
         // ── Icon-only action row: the five most-reached page actions plus the bookmark
         // star (the star toggle predates the reorg; nothing is lost). ──
         Row(
@@ -219,6 +233,7 @@ fun BrowserMenuSheet(
                 label = if (isAdAllowedOnSite) "Block ads on this site" else "Allow ads on this site",
                 onClick = onToggleAdAllowlist,
             )
+        }
         }
     }
 }

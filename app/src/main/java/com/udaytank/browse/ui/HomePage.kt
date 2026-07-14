@@ -1,5 +1,8 @@
 package com.udaytank.browse.ui
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -31,13 +35,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -192,6 +199,21 @@ fun HomePage(
     var showAddDialog by remember { mutableStateOf(false) }
     var menuForId by remember { mutableStateOf<Long?>(null) }
 
+    // Gentle entrance: the canvas fades in and rises a few dp when Home appears (and each time
+    // you return to it), so it arrives rather than snapping in.
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val enterAlpha by animateFloatAsState(
+        if (appeared) 1f else 0f,
+        animationSpec = tween(400),
+        label = "homeEnterAlpha",
+    )
+    val enterRise by animateDpAsState(
+        if (appeared) 0.dp else OrbitSpacing.md,
+        animationSpec = tween(400),
+        label = "homeEnterRise",
+    )
+
     Box(modifier = modifier) {
         homeBackdropBrush(homeWallpaper, scheme)?.let { brush ->
             Box(modifier = Modifier.matchParentSize().background(brush))
@@ -199,15 +221,23 @@ fun HomePage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .offset(y = enterRise)
+                .alpha(enterAlpha)
                 .padding(OrbitSpacing.xl),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(OrbitSpacing.xxl))
-            Text(
-                if (isIncognito) "Incognito" else "Andromeda",
-                style = orbitDisplay,
-                color = if (isIncognito) scheme.text.primary else scheme.accent.solid,
-            )
+            if (isIncognito) {
+                Text("Incognito", style = orbitDisplay, color = scheme.text.primary)
+            } else {
+                // Wordmark painted with the brand gradient rather than a flat accent fill.
+                Text(
+                    "Andromeda",
+                    style = orbitDisplay.merge(
+                        TextStyle(brush = Brush.horizontalGradient(scheme.accent.gradient)),
+                    ),
+                )
+            }
             if (!isIncognito && showGreeting) {
                 Spacer(modifier = Modifier.height(OrbitSpacing.xs))
                 Text(greeting(), style = orbitBody, color = scheme.text.secondary)

@@ -134,6 +134,12 @@ fun BrowserScreen(
         menuOpen || siteSheetOpen || state.findQuery != null
     val effectiveBarState = if (forceBarFull) BarState.Full else vmBarState
 
+    // The WebView's bottom inset is FIXED at the bar's full footprint — it must never change
+    // while a page is on screen. An earlier version shrank this inset when the bar collapsed
+    // (to fill the gap below the slim pill), but resizing the live WebView mid-scroll disrupted
+    // the SwipeRefreshLayout gesture: scrolling up stuttered and pull-to-refresh misfired. A
+    // constant inset is correct and jank-free; only the floating bar animates its own size.
+
     LaunchedEffect(isEditing) {
         if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
     }
@@ -338,10 +344,8 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        // Content-above-bar: a stable inset at the bar's Full height, held
-                        // constant across Full/Slim so the page never reflows on scroll (a
-                        // fixed inset is correct and jank-free; only the floating bar itself
-                        // animates its own size on top of this space).
+                        // Content-above-bar with a FIXED inset at the bar's full height — never
+                        // resized on scroll (see the note where effectiveBarState is computed).
                         modifier = Modifier
                             .fillMaxSize()
                             .navigationBarsPadding()
