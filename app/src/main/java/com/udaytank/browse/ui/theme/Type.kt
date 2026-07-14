@@ -2,62 +2,66 @@ package com.udaytank.browse.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.udaytank.browse.R
 
-// Set of Material typography styles to start with
-val Typography = Typography(
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
-    )
-    /* Other default text styles to override
-    titleLarge = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp
-    ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    )
-    */
+// ── Andromeda official type system (v3.2) ─────────────────────
+// Space Grotesk (display) + DM Sans (body), bundled as variable fonts in res/font.
+// minSdk 26 supports variable fonts: passing a FontWeight to a variable Font makes Compose
+// apply the matching `wght` axis via the default variationSettings — no per-weight static files.
+//
+// Role split (see design spec): Display = brand/structure (wordmark, titles, section labels,
+// numbers); Body = everything read (menus, settings, feed body, long text).
+val Display = FontFamily(
+    Font(R.font.space_grotesk, FontWeight.Medium),
+    Font(R.font.space_grotesk, FontWeight.Bold),
 )
 
-// ── Orbit v3.1 named text styles ──────────────────────────────
-// Used via MaterialTheme/LocalOrbit-aware composables (later tasks); defined
-// here so Task 1 establishes the full token surface up front.
+val Body = FontFamily(
+    Font(R.font.dm_sans, FontWeight.Normal),
+    Font(R.font.dm_sans, FontWeight.Medium),
+)
+
+// Material typography — mapped onto the Andromeda families so Material-based screens match.
+val Typography = Typography(
+    displaySmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 36.sp, lineHeight = 44.sp),
+    headlineSmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 32.sp),
+    titleLarge = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 22.sp, lineHeight = 28.sp),
+    titleMedium = TextStyle(fontFamily = Display, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 24.sp),
+    bodyLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Normal, fontSize = 16.sp, lineHeight = 24.sp, letterSpacing = 0.3.sp),
+    bodyMedium = TextStyle(fontFamily = Body, fontWeight = FontWeight.Normal, fontSize = 14.sp, lineHeight = 20.sp),
+    labelLarge = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+    labelSmall = TextStyle(fontFamily = Body, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp),
+)
+
+// ── Orbit named text styles ───────────────────────────────────
 val orbitDisplay = TextStyle(
-    fontFamily = FontFamily.Default,
-    fontWeight = FontWeight.W800,
-    fontSize = 24.sp,
-    letterSpacing = (-0.3).sp,
+    fontFamily = Display,
+    fontWeight = FontWeight.Bold,
+    fontSize = 30.sp,
+    letterSpacing = (-0.4).sp,
 )
 
 val orbitTitle = TextStyle(
-    fontFamily = FontFamily.Default,
-    fontWeight = FontWeight.W700,
-    fontSize = 17.sp,
+    fontFamily = Display,
+    fontWeight = FontWeight.Medium,
+    fontSize = 18.sp,
+    letterSpacing = (-0.2).sp,
 )
 
 val orbitBody = TextStyle(
-    fontFamily = FontFamily.Default,
-    fontWeight = FontWeight.W400,
+    fontFamily = Body,
+    fontWeight = FontWeight.Normal,
     fontSize = 13.sp,
     lineHeight = 20.sp,
 )
 
 val orbitCaption = TextStyle(
-    fontFamily = FontFamily.Default,
-    fontWeight = FontWeight.W400,
+    fontFamily = Body,
+    fontWeight = FontWeight.Normal,
     fontSize = 11.sp,
+    lineHeight = 15.sp,
 )

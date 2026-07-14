@@ -33,20 +33,22 @@ val DayOnContainer = Color(0xFF10307E)
 
 val OrbitError = Color(0xFFFF6B6B)
 
-// ── Orbit v3.1 design tokens (premium UI redesign) ───────────
-// Dark (signature) scheme — distinct base/surface/elevated layers.
-val OrbitDarkBase = Color(0xFF08081C)
-val OrbitDarkSurface = Color(0xFF12122E)
-val OrbitDarkElevated = Color(0xFF181840)
-val OrbitDarkTextPrimary = Color(0xFFE6E8F5)
-val OrbitDarkTextSecondary = Color(0xFFC6C8E0)
-val OrbitDarkTextMuted = Color(0xFF8A8CB5)
+// ── Orbit design tokens (v3.2 premium refresh) ───────────────
+// Dark (signature) scheme — deeper near-OLED space surfaces, brighter premium whites.
+val OrbitDarkBase = Color(0xFF070716)
+val OrbitDarkSurface = Color(0xFF111228)
+val OrbitDarkElevated = Color(0xFF1A1B3C)
+val OrbitDarkTextPrimary = Color(0xFFF2F3FF)
+val OrbitDarkTextSecondary = Color(0xFFC4C7E8)
+val OrbitDarkTextMuted = Color(0xFF868AB4)
 
 // Light scheme — inverted neutrals (reuses the existing Day*/Ink* palette
 // above), same accent as dark. Only the missing "muted" tier is new.
 val OrbitLightTextMuted = Color(0xFF8A8FB0)
 
-// Accent (brand gradient) — shared by both schemes.
-val OrbitAccentSolid = Color(0xFF1E4FD8)
-val OrbitAccentGradientStart = Color(0xFF1E4FD8)
-val OrbitAccentGradientEnd = Color(0xFF35C3F3)
+// Accent — brand blue→cyan gradient, enriched with the cosmic violet from the hero art.
+// Solid is the single-color brand blue; the 3-stop gradient is for wordmark/emphasis.
+val OrbitAccentSolid = Color(0xFF2C5BE6)
+val OrbitAccentGradientStart = Color(0xFF2C5BE6) // launch blue
+val OrbitAccentGradientMid = Color(0xFF7A5CFF)   // cosmic violet
+val OrbitAccentGradientEnd = Color(0xFF46D0F5)   // cyan
