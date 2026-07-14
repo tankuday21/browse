@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +46,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.udaytank.browse.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
@@ -215,8 +221,34 @@ fun HomePage(
     )
 
     Box(modifier = modifier) {
-        homeBackdropBrush(homeWallpaper, scheme)?.let { brush ->
-            Box(modifier = Modifier.matchParentSize().background(brush))
+        // Cosmic backdrop (v3.2): the hero art as a soft, borderless wash across the top,
+        // faded into the base by a vertical scrim so content below stays readable. Not in
+        // incognito — the private home is bare by design.
+        if (!isIncognito) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.62f)
+                    .align(Alignment.TopCenter),
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.home_backdrop),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    modifier = Modifier.matchParentSize().alpha(0.42f),
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to scheme.surfaces.base,
+                            ),
+                        ),
+                )
+            }
         }
         Column(
             modifier = Modifier

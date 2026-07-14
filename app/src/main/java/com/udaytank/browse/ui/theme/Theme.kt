@@ -63,3 +63,22 @@ fun BrowseTheme(
         )
     }
 }
+
+/**
+ * Re-themes a subtree to a specific [OrbitScheme] (v3.2). Used to force the home page and any
+ * incognito context to the dark scheme regardless of the app/system theme — the always-dark
+ * cosmic home and the "separate world" incognito mode both flow through this. Provides both the
+ * Orbit tokens (`LocalOrbit`) and the matching Material color scheme so token-based and
+ * Material-based widgets in the subtree stay in sync.
+ */
+@Composable
+fun OrbitSchemeOverride(scheme: OrbitScheme, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalOrbit provides scheme) {
+        MaterialTheme(
+            colorScheme = if (scheme.dark) OrbitDarkScheme else OrbitLightScheme,
+            typography = Typography,
+            shapes = OrbitShapes,
+            content = content,
+        )
+    }
+}

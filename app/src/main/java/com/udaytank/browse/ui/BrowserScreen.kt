@@ -62,6 +62,9 @@ import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
 import com.udaytank.browse.ui.components.SuggestionsPanel
+import com.udaytank.browse.ui.theme.OrbitSchemeOverride
+import com.udaytank.browse.ui.theme.darkOrbit
+import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
 
@@ -289,6 +292,10 @@ fun BrowserScreen(
     BackHandler(enabled = isEditing) { isEditing = false }
     BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
 
+    // v3.2: the home page and any incognito context render always-dark (their own dark Orbit
+    // scheme) regardless of the app/system theme; normal web browsing follows the app theme.
+    val screenScheme = if (isHome || isIncognito) darkOrbit else orbit()
+    OrbitSchemeOverride(screenScheme) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -760,6 +767,7 @@ fun BrowserScreen(
             )
         }
     }
+    } // OrbitSchemeOverride
 }
 
 /**
