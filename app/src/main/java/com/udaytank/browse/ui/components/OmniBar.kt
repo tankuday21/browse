@@ -94,6 +94,7 @@ fun OmniBar(
     onBarTap: () -> Unit,
     modifier: Modifier = Modifier,
     pageUrl: String? = null,
+    incognito: Boolean = false,
     onVoiceSubmit: ((String) -> Unit)? = null,
 ) {
     val scheme = orbit()
@@ -132,6 +133,7 @@ fun OmniBar(
                 menu = menu,
                 pageUrl = pageUrl,
                 homePill = homePill,
+                incognito = incognito,
                 onVoiceSubmit = onVoiceSubmit,
                 modifier = Modifier.fillMaxWidth(),
             )

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -93,6 +94,8 @@ fun CommandBar(
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     pageUrl: String? = null,
+    /** Incognito active: show a persistent mask indicator in the bar. */
+    incognito: Boolean = false,
     /**
      * Home-page (Chrome-NTP) mode: the display state renders as a prominent search pill —
      * search icon + "Search or type URL" + mic (A2 voice) — with no back button. The tab
@@ -156,12 +159,22 @@ fun CommandBar(
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
+                            if (incognito) {
+                                Icon(
+                                    Icons.Filled.VisibilityOff,
+                                    contentDescription = "Incognito",
+                                    tint = orbit().text.secondary,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
                             if (isSecure) {
                                 Icon(
                                     Icons.Filled.Lock,
                                     contentDescription = "Secure connection",
                                     tint = orbit().text.secondary,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier
+                                        .padding(start = if (incognito) 6.dp else 0.dp)
+                                        .size(14.dp),
                                 )
                             }
                             Text(
@@ -175,7 +188,7 @@ fun CommandBar(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(
-                                    start = if (isSecure || homePill) 8.dp else 0.dp,
+                                    start = if (isSecure || homePill || incognito) 8.dp else 0.dp,
                                 ),
                             )
                         }

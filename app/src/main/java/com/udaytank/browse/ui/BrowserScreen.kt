@@ -176,6 +176,7 @@ fun BrowserScreen(
                 viewModel.onGoPressed()
             },
             pageUrl = if (isHome) null else state.currentUrl,
+            incognito = isIncognito,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
             isSecure = state.currentUrl?.startsWith("https://") == true,
