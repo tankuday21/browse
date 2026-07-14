@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.androidx.fragment)
     implementation(libs.work.runtime)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver)
     androidTestImplementation(libs.androidx.junit)

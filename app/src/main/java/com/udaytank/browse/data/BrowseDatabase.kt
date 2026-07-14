@@ -4,6 +4,9 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.udaytank.browse.data.feed.FeedDao
+import com.udaytank.browse.data.feed.FeedItemEntity
+import com.udaytank.browse.data.feed.RssSourceEntity
 
 @Database(
     entities = [
@@ -16,8 +19,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReadingListEntry::class,
         SiteSettingsEntity::class,
         HomeShortcutEntity::class,
+        FeedItemEntity::class,
+        RssSourceEntity::class,
     ],
-    version = 9,
+    version = 10,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -29,8 +34,36 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun readingListDao(): ReadingListDao
     abstract fun siteSettingsDao(): SiteSettingsDao
     abstract fun homeShortcutDao(): HomeShortcutDao
+    abstract fun feedDao(): FeedDao
 
     companion object {
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `feed_items` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`sourceId` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`link` TEXT NOT NULL, " +
+                        "`publishedAt` INTEGER NOT NULL, " +
+                        "`thumbnailUrl` TEXT, " +
+                        "`category` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_feed_items_link` ON `feed_items` (`link`)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `rss_sources` (" +
+                        "`id` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, " +
+                        "`url` TEXT NOT NULL, " +
+                        "`category` TEXT NOT NULL, " +
+                        "`enabled` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+            }
+        }
+
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
