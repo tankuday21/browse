@@ -48,7 +48,8 @@ class FeedRepository(
     }
 
     suspend fun addCustomSource(url: String, title: String, category: FeedCategory) = withContext(io) {
-        val id = "custom:" + url.hashCode().toString()
+        // Stable, collision-free id from the URL itself (hashCode could collide / go negative).
+        val id = "custom:$url"
         dao.upsertSources(listOf(RssSourceEntity(id, title.ifBlank { url }, url, category.name, enabled = true)))
     }
 
@@ -62,7 +63,7 @@ class FeedRepository(
         ensureSeeded()
         val fresh = mutableListOf<FeedItemEntity>()
         for (source in dao.enabledSources()) {
-            if (!source.url.startsWith("https://")) continue // HTTPS only (cleartext blocked)
+            if (!source.url.startsWith("https://", ignoreCase = true)) continue // HTTPS only
             val category = runCatching { FeedCategory.valueOf(source.category) }.getOrNull() ?: continue
             val xml = fetch(source.url) ?: continue
             RssParser.parse(xml, source.id, category).forEach { fresh.add(toEntity(it)) }

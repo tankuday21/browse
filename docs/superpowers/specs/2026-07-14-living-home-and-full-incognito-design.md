@@ -179,6 +179,10 @@ for weather · System WebView (unchanged).
 - Full-text article extraction for feed items (reuses existing reader mode when the user opens one).
 - Feed personalization/ranking beyond user-chosen sources + recency (no behavioral profiling — by design).
 - Push notifications for feed items.
+- **Offline weather cache (deferred to v3.2.1):** weather is fetched on home open (throttled) and
+  held in memory; it is not yet persisted, so a cold start while offline shows no weather card
+  until the next online open (it degrades gracefully — the card simply collapses). News/sports DO
+  persist (Room cache) and render offline.
 
 ## Rollout
 

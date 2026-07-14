@@ -47,7 +47,8 @@ class FeedRefreshWorker(
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                // UPDATE so a future cadence/constraint change propagates to existing installs.
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request,
             )
         }

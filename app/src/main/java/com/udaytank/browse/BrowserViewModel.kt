@@ -1420,15 +1420,37 @@ class BrowserViewModel(
         }
     }
 
-    /** Loads weather for an already-resolved place (coarse location or geocoded city). */
+    private var lastWeatherAt = 0L
+    private var lastWeatherKey: String? = null
+    private var geocodeCache: Pair<String, WeatherPlace?>? = null
+
+    /**
+     * Loads weather for a resolved place. Throttled: skips a network forecast if the same place
+     * was fetched within [FEED_REFRESH_THROTTLE_MS] (so bouncing in and out of home doesn't spam
+     * Open-Meteo); always refetches when the place changes.
+     */
     fun loadWeather(place: WeatherPlace?) {
         val repo = weatherRepository ?: return
         if (place == null) return
-        viewModelScope.launch { _weather.value = repo.forecast(place.lat, place.lon) }
+        val key = "${place.lat},${place.lon}"
+        val now = System.currentTimeMillis()
+        if (key == lastWeatherKey && _weather.value != null &&
+            now - lastWeatherAt < FEED_REFRESH_THROTTLE_MS
+        ) {
+            return
+        }
+        lastWeatherAt = now
+        lastWeatherKey = key
+        viewModelScope.launch { repo.forecast(place.lat, place.lon)?.let { _weather.value = it } }
     }
 
-    /** Geocode a typed city → place (for the weather city setting). */
-    suspend fun geocodeCity(name: String): WeatherPlace? = weatherRepository?.geocodeCity(name)
+    /** Geocode a typed city → place, cached per city string (avoids a lookup on every home entry). */
+    suspend fun resolveCity(name: String): WeatherPlace? {
+        geocodeCache?.let { if (it.first == name) return it.second }
+        val place = weatherRepository?.geocodeCity(name)
+        geocodeCache = name to place
+        return place
+    }
 
     companion object {
         const val HOME_URL = "browse://home"

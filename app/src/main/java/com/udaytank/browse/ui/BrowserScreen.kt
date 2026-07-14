@@ -136,7 +136,7 @@ fun BrowserScreen(
     val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
     val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
     val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
-    var weatherPlaceLabel by remember { mutableStateOf("") }
+    var weatherPlaceLabel by rememberSaveable { mutableStateOf("") }
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -167,8 +167,8 @@ fun BrowserScreen(
         if (isHome && !isIncognito && showFeed && showWeather) {
             val place = when {
                 weatherUseLocation -> WeatherLocation.lastKnownCoarse(context)
-                    ?: weatherCity.takeIf { it.isNotBlank() }?.let { viewModel.geocodeCity(it) }
-                weatherCity.isNotBlank() -> viewModel.geocodeCity(weatherCity)
+                    ?: weatherCity.takeIf { it.isNotBlank() }?.let { viewModel.resolveCity(it) }
+                weatherCity.isNotBlank() -> viewModel.resolveCity(weatherCity)
                 else -> null
             }
             weatherPlaceLabel = place?.label ?: ""
