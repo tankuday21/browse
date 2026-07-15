@@ -21,8 +21,9 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         HomeShortcutEntity::class,
         FeedItemEntity::class,
         RssSourceEntity::class,
+        ZappedElementEntity::class,
     ],
-    version = 10,
+    version = 11,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -35,8 +36,25 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun siteSettingsDao(): SiteSettingsDao
     abstract fun homeShortcutDao(): HomeShortcutDao
     abstract fun feedDao(): FeedDao
+    abstract fun zappedElementDao(): ZappedElementDao
 
     companion object {
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `zapped_elements` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`host` TEXT NOT NULL, " +
+                        "`selector` TEXT NOT NULL, " +
+                        "`label` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_zapped_elements_host` ON `zapped_elements` (`host`)"
+                )
+            }
+        }
+
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
