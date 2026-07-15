@@ -2,7 +2,7 @@
 
 A fast, private, power-user mobile web browser for Android, built from scratch in Kotlin.
 
-**Status:** v3.1 — the "Power Browser," premium UI. v3.0 added a real download engine, a reading stack, a safety shield, a foundation layer, and a from-scratch full-strength ad blocker; v3.1 unifies the whole app on one "Orbit" design system — a shrink-not-hide bottom bar, a Focused customizable home, a bottom-sheet menu, and shared tokens/components across every screen.
+**Status:** v3.2 "Horizon" — a living home. v3.2 adds a privacy-first home dashboard (RSS news/sports + Open-Meteo weather + most-visited quick dials, all fetched source-direct with no keys or trackers), a fully separate dark incognito mode, and an official type system (Space Grotesk + DM Sans) on a refined "Orbit" palette. v3.1 unified the app on the Orbit design system (shrink-not-hide bottom bar, customizable home, bottom-sheet menu); v3.0 added a real download engine, a reading stack, a safety shield, and a from-scratch full-strength ad blocker.
 
 ## Features
 
