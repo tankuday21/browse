@@ -658,7 +658,35 @@ private fun TabCard(
     }
     var showMenu by remember { mutableStateOf(false) }
 
+    // Swipe a card away to close it (locked tabs excluded — they use the X / confirm dialog).
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled && !tab.locked) { onClose(); true } else false
+        },
+    )
+
     Box(modifier = modifier) {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = !tab.locked,
+            enableDismissFromEndToStart = !tab.locked,
+            backgroundContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(cardShape)
+                        .background(scheme.accent.solid.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = scheme.accent.solid,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        ) {
         Surface(
             shape = cardShape,
             color = scheme.surfaces.surface,
@@ -817,6 +845,7 @@ private fun TabCard(
                 )
             }
         }
+        } // SwipeToDismissBox
 
         TabContextMenu(
             tab = tab,

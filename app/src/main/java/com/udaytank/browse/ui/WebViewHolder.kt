@@ -646,6 +646,10 @@ class WebViewHolder(
                         val annoyCss = annoyance.cosmeticInjectionScript(pageHosts[tabId])
                         if (annoyCss.isNotEmpty()) view.evaluateJavascript(annoyCss, null)
                     }
+                    // Desktop site: a desktop UA alone doesn't defeat a site's
+                    // `<meta viewport width=device-width>`, which forces a mobile layout. Override
+                    // the viewport to a fixed desktop width so the page actually lays out wide.
+                    if (tabId in desktopTabs) view.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
                     listener.onPageFinished(tabId, url, view.title)
                 }
 
@@ -852,6 +856,14 @@ class WebViewHolder(
     private companion object {
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /** Forces a desktop-width viewport so sites can't pin us to a mobile layout via their
+         *  own `width=device-width` meta. Paired with the desktop UA + wide-viewport settings. */
+        const val DESKTOP_VIEWPORT_JS =
+            "(function(){try{var m=document.querySelector('meta[name=viewport]');" +
+                "if(!m){m=document.createElement('meta');m.setAttribute('name','viewport');" +
+                "(document.head||document.documentElement).appendChild(m);}" +
+                "m.setAttribute('content','width=1024');}catch(e){}})();"
 
         /** Exposes `navigator.globalPrivacyControl === true` to page scripts (D5). */
         const val GPC_SHIM =
