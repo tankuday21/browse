@@ -87,6 +87,7 @@ class BrowseApplication : Application() {
                 BrowseDatabase.MIGRATION_7_8,
                 BrowseDatabase.MIGRATION_8_9,
                 BrowseDatabase.MIGRATION_9_10,
+                BrowseDatabase.MIGRATION_10_11,
             )
             .build()
     }
@@ -100,4 +101,9 @@ class BrowseApplication : Application() {
 
     /** v3.2 weather via Open-Meteo (keyless). */
     val weatherRepository: WeatherRepository by lazy { WeatherRepository() }
+
+    /** v4.0 Element Zapper: per-site hidden-element store. */
+    val zapRepository: com.udaytank.browse.data.ZapRepository by lazy {
+        com.udaytank.browse.data.ZapRepository(database.zappedElementDao())
+    }
 }

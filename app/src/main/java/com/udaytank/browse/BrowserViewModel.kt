@@ -48,6 +48,8 @@ import com.udaytank.browse.data.FeedRepository
 import com.udaytank.browse.data.SettingsRepository
 import com.udaytank.browse.data.WeatherPlace
 import com.udaytank.browse.data.WeatherRepository
+import com.udaytank.browse.data.ZapRepository
+import com.udaytank.browse.data.ZappedElementEntity
 import com.udaytank.browse.data.SiteSettingsDao
 import com.udaytank.browse.data.SiteSettingsEntity
 import com.udaytank.browse.data.TabDao
@@ -157,6 +159,7 @@ class BrowserViewModel(
     /** v3.2 home feed (null in tests → empty feed, no network). */
     private val feedRepository: FeedRepository? = null,
     private val weatherRepository: WeatherRepository? = null,
+    private val zapRepository: ZapRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -1452,6 +1455,32 @@ class BrowserViewModel(
         return place
     }
 
+    // ── v4.0 Element Zapper ────────────────────────────────
+    fun hiddenForHost(host: String): kotlinx.coroutines.flow.Flow<List<ZappedElementEntity>> =
+        zapRepository?.observeForHost(host) ?: flowOf(emptyList())
+
+    fun hiddenCountForHost(host: String): kotlinx.coroutines.flow.Flow<Int> =
+        zapRepository?.countForHost(host) ?: flowOf(0)
+
+    /** The picker chose an element. Persists it (repo refuses in incognito — derived from the tab). */
+    fun onZapPicked(tabId: Long, host: String, selector: String, label: String) {
+        val repo = zapRepository ?: return
+        val incognito = tabs.value.find { it.id == tabId }?.isIncognito == true
+        viewModelScope.launch { repo.add(host, selector, label, incognito, System.currentTimeMillis()) }
+    }
+
+    fun removeZap(id: Long) {
+        viewModelScope.launch { zapRepository?.remove(id) }
+    }
+
+    fun clearZapsForHost(host: String) {
+        viewModelScope.launch { zapRepository?.clearForHost(host) }
+    }
+
+    /** Saved selectors for a host, for re-applying hidden elements on page load. */
+    suspend fun zapSelectorsForHost(host: String): List<String> =
+        zapRepository?.selectorsForHost(host) ?: emptyList()
+
     companion object {
         const val HOME_URL = "browse://home"
 
@@ -1484,6 +1513,7 @@ class BrowserViewModel(
                     reloadAdblock = { app.reloadAdblock() },
                     feedRepository = app.feedRepository,
                     weatherRepository = app.weatherRepository,
+                    zapRepository = app.zapRepository,
                 )
             }
         }
