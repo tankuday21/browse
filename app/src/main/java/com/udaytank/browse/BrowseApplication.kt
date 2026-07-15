@@ -101,4 +101,9 @@ class BrowseApplication : Application() {
 
     /** v3.2 weather via Open-Meteo (keyless). */
     val weatherRepository: WeatherRepository by lazy { WeatherRepository() }
+
+    /** v4.0 Element Zapper: per-site hidden-element store. */
+    val zapRepository: com.udaytank.browse.data.ZapRepository by lazy {
+        com.udaytank.browse.data.ZapRepository(database.zappedElementDao())
+    }
 }

@@ -36,6 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.udaytank.browse.browser.UrlHosts
+import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
@@ -325,8 +328,17 @@ class MainActivity : FragmentActivity() {
                         adBlock = (application as BrowseApplication).adBlockEngine,
                         annoyance = (application as BrowseApplication).annoyanceEngine,
                         listener = object : WebViewHolder.Listener {
-                        override fun onPageStarted(tabId: Long, url: String) =
+                        override fun onPageStarted(tabId: Long, url: String) {
                             viewModel.onPageStarted(tabId, url)
+                            // v4.0: re-apply this host's zapped elements as the page starts (CSS
+                            // hides matching nodes whenever they appear, so no flash).
+                            UrlHosts.of(url)?.let { host ->
+                                this@MainActivity.lifecycleScope.launch {
+                                    val sels = viewModel.zapSelectorsForHost(host)
+                                    if (sels.isNotEmpty()) holderRef[0]?.applyZaps(tabId, sels)
+                                }
+                            }
+                        }
 
                         override fun onProgressChanged(tabId: Long, percent: Int) =
                             viewModel.onProgressChanged(tabId, percent)
@@ -379,6 +391,9 @@ class MainActivity : FragmentActivity() {
 
                         override fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int) =
                             viewModel.onPageScrolled(tabId, scrollY, dy)
+
+                        override fun onZapPicked(tabId: Long, host: String, selector: String, label: String) =
+                            viewModel.onZapPicked(tabId, host, selector, label)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }

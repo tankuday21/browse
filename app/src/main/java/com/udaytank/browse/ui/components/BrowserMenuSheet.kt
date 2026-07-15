@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddHome
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Computer
@@ -97,6 +98,10 @@ fun BrowserMenuSheet(
     currentHost: String?,
     onOpenSiteSettings: () -> Unit,
     onPrint: () -> Unit,
+    // ── Element Zapper (v4.0) ──
+    onZapElement: () -> Unit,
+    onOpenHiddenElements: () -> Unit,
+    hiddenCount: Int,
     // ── App ──
     onOpenSettings: () -> Unit,
     // ── Ad-block footer (only shown when there is a current host, exactly as before) ──
@@ -214,6 +219,19 @@ fun BrowserMenuSheet(
             label = "Print / Save as PDF",
             enabled = hasPage,
             onClick = onPrint,
+        )
+        MenuRow(
+            icon = Icons.Filled.Bolt,
+            label = "Zap element",
+            enabled = !isHome,
+            onClick = onZapElement,
+        )
+        MenuRow(
+            icon = Icons.Filled.VisibilityOff,
+            label = "Hidden elements",
+            enabled = hiddenCount > 0,
+            badgeCount = hiddenCount,
+            onClick = onOpenHiddenElements,
         )
         HorizontalDivider()
 

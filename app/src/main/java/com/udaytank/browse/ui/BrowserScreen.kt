@@ -113,6 +113,8 @@ fun BrowserScreen(
     val permissionPrompt by viewModel.permissionPrompt.collectAsStateWithLifecycle()
     val blockedOnPage = blockedCounts[activeTabId] ?: 0
     val currentHost = viewModel.currentHost()
+    val hiddenCount by viewModel.hiddenCountForHost(currentHost ?: "").collectAsStateWithLifecycle(0)
+    var showHiddenSheet by remember { mutableStateOf(false) }
     val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     // In-flight or queued downloads drive the menu's Downloads badge.
@@ -279,6 +281,12 @@ fun BrowserScreen(
                         currentHost = currentHost,
                         onOpenSiteSettings = { siteSheetOpen = true; menuOpen = false },
                         onPrint = { onPrint(); menuOpen = false },
+                        onZapElement = {
+                            menuOpen = false
+                            activeTabId?.let { holder.enterZapMode(it) }
+                        },
+                        onOpenHiddenElements = { menuOpen = false; showHiddenSheet = true },
+                        hiddenCount = hiddenCount,
                         onOpenSettings = { onOpenSettings(); menuOpen = false },
                         blockedOnPage = blockedOnPage,
                         isAdAllowedOnSite = currentHost in adAllowedSites,
@@ -790,6 +798,66 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 ) { Text("Clear for this site") }
+            }
+        }
+
+        // ── v4.0 Element Zapper: manage this site's hidden elements ──
+        if (showHiddenSheet) {
+            ModalBottomSheet(
+                onDismissRequest = { showHiddenSheet = false },
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                val hidden by viewModel.hiddenForHost(currentHost ?: "")
+                    .collectAsStateWithLifecycle(emptyList())
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(bottom = 16.dp),
+                ) {
+                    Text(
+                        "Hidden on ${currentHost ?: "this site"}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(16.dp),
+                    )
+                    if (hidden.isEmpty()) {
+                        Text(
+                            "Nothing hidden here yet.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    } else {
+                        hidden.forEach { z ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    z.label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { viewModel.removeZap(z.id) }) { Text("Remove") }
+                            }
+                        }
+                        TextButton(
+                            onClick = { viewModel.clearZapsForHost(currentHost ?: ""); showHiddenSheet = false },
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) { Text("Clear all") }
+                        Text(
+                            "Removing takes effect on the next page load.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
         }
 

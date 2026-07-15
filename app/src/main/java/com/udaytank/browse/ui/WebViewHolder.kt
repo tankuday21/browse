@@ -68,6 +68,9 @@ class WebViewHolder(
          * implementations must stay cheap (drives the auto-hiding command bar).
          */
         fun onPageScrolled(tabId: Long, scrollY: Int, dy: Int)
+
+        /** The Element Zapper picker chose an element (v4.0): host + CSS selector for persistence. */
+        fun onZapPicked(tabId: Long, host: String, selector: String, label: String)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -170,6 +173,25 @@ class WebViewHolder(
         webViews[tabId]?.evaluateJavascript(js, null)
     }
 
+    /** v4.0 Element Zapper: enter the in-page picker on a tab (UI thread). */
+    fun enterZapMode(tabId: Long) {
+        webViews[tabId]?.evaluateJavascript(com.udaytank.browse.browser.zap.ZapScripts.PICKER_JS, null)
+    }
+
+    /** Tear down an active zap picker (e.g. tab switch / navigation). */
+    fun exitZapMode(tabId: Long) {
+        webViews[tabId]?.evaluateJavascript(com.udaytank.browse.browser.zap.ZapScripts.TEARDOWN_JS, null)
+    }
+
+    /** Hide the saved [selectors] on a tab (re-applied on every load; no-op if empty). */
+    fun applyZaps(tabId: Long, selectors: List<String>) {
+        if (selectors.isEmpty()) return
+        webViews[tabId]?.evaluateJavascript(
+            com.udaytank.browse.browser.zap.ZapScripts.applyHiddenJs(selectors),
+            null,
+        )
+    }
+
     /**
      * The JavascriptInterface the monitor reports through. Only our own methods, both
      * @JavascriptInterface-annotated, exposing nothing sensitive; minSdk 26 makes the pre-17
@@ -184,6 +206,16 @@ class WebViewHolder(
         @android.webkit.JavascriptInterface
         fun onEnded() {
             if (tabId in keepAliveTabs) mediaEndedListener?.invoke()
+        }
+    }
+
+    /** Bridge the Element Zapper picker posts a chosen selector through (v4.0). Persistence is
+     *  gated downstream (never persisted in incognito); only a CSS selector + host cross here. */
+    private inner class ZapJsBridge(private val tabId: Long) {
+        @android.webkit.JavascriptInterface
+        fun picked(host: String?, selector: String?, label: String?) {
+            if (host.isNullOrBlank() || selector.isNullOrBlank()) return
+            listener.onZapPicked(tabId, host, selector, label ?: "")
         }
     }
 
@@ -474,6 +506,10 @@ class WebViewHolder(
                 // report titles/state to the media session/notification.
                 addJavascriptInterface(MediaJsBridge(tabId), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
             }
+
+            // Element Zapper bridge (v4.0): attached to ALL tabs (incognito can pick in-session);
+            // persistence is refused for incognito downstream, so nothing private is written.
+            addJavascriptInterface(ZapJsBridge(tabId), com.udaytank.browse.browser.zap.ZapScripts.BRIDGE_NAME)
 
             // GPC JS shim (D5): registered once per WebView at creation, before any page loads.
             val gpcShimAtDocumentStart = gpcEnabled &&
