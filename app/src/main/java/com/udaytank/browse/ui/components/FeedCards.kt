@@ -23,9 +23,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.browser.feed.FeedItem
 import com.udaytank.browse.browser.feed.QuickDial
@@ -49,6 +56,46 @@ fun HomeSectionLabel(text: String, modifier: Modifier = Modifier) {
     )
 }
 
+/**
+ * A site favicon inside a circle of [size], loaded source-direct from `https://<host>/favicon.ico`
+ * (host derived from [url] via [UrlHosts]). Never a third-party favicon proxy — privacy. While the
+ * icon loads, when the site exposes none, or when [url] has no host, it degrades to a letter avatar
+ * built from [label] so the tile is never blank.
+ */
+@Composable
+fun FaviconOrLetter(url: String, label: String, size: Dp, modifier: Modifier = Modifier) {
+    val scheme = orbit()
+    val host = UrlHosts.of(url)
+    val letterAvatar: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(scheme.surfaces.elevated),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label.take(1).uppercase(), style = orbitTitle, color = scheme.accent.solid)
+        }
+    }
+    if (host.isNullOrBlank()) {
+        Box(modifier = modifier) { letterAvatar() }
+        return
+    }
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data("https://$host/favicon.ico")
+            .crossfade(true)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        loading = { letterAvatar() },
+        error = { letterAvatar() },
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape),
+    )
+}
+
 /** Horizontally-scrolling row of most-visited quick dials. */
 @Composable
 fun QuickDialsRow(dials: List<QuickDial>, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -64,19 +111,7 @@ fun QuickDialsRow(dials: List<QuickDial>, onOpen: (String) -> Unit, modifier: Mo
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.clickable { onOpen(dial.url) },
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(scheme.surfaces.elevated),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        dial.label.take(1).uppercase(),
-                        style = orbitTitle,
-                        color = scheme.accent.solid,
-                    )
-                }
+                FaviconOrLetter(url = dial.url, label = dial.label, size = 48.dp)
                 Text(
                     dial.label,
                     style = orbitCaption,
@@ -138,7 +173,12 @@ fun WeatherCard(weather: Weather, place: String, modifier: Modifier = Modifier) 
     }
 }
 
-/** One feed headline card: gradient initial tile + title + source · relative time. */
+/**
+ * One Chrome-style feed card: a thumbnail image (source-direct from [FeedItem.thumbnailUrl],
+ * cropped and rounded) with a gradient-initial tile fallback, a title, a 1–2 line snippet from
+ * [FeedItem.description] (omitted when blank), and the source · relative-time line. Tapping opens
+ * the article.
+ */
 @Composable
 fun FeedItemCard(item: FeedItem, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
     val scheme = orbit()
@@ -153,30 +193,28 @@ fun FeedItemCard(item: FeedItem, onOpen: (String) -> Unit, modifier: Modifier = 
     ) {
         Row(
             modifier = Modifier.padding(OrbitSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(OrbitRadii.chip))
-                    .background(Brush.linearGradient(scheme.accent.gradient)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    (host ?: item.title).take(1).uppercase(),
-                    style = orbitTitle,
-                    color = androidx.compose.ui.graphics.Color.White,
-                )
-            }
+            FeedThumbnail(url = item.thumbnailUrl, fallbackLabel = host ?: item.title)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     item.title,
-                    style = orbitBody.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                    style = orbitBody.copy(fontWeight = FontWeight.Medium),
                     color = scheme.text.primary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (item.description.isNotBlank()) {
+                    Text(
+                        item.description,
+                        style = orbitCaption,
+                        color = scheme.text.secondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
                 Text(
                     listOfNotNull(host, relativeTime(item.publishedAt)).joinToString(" · "),
                     style = orbitCaption,
@@ -187,6 +225,45 @@ fun FeedItemCard(item: FeedItem, onOpen: (String) -> Unit, modifier: Modifier = 
             }
         }
     }
+}
+
+/**
+ * The feed card's leading visual: an ~80dp thumbnail cropped and rounded to [OrbitRadii.chip],
+ * loaded source-direct from [url]. Falls back to a gradient tile with [fallbackLabel]'s initial
+ * while loading, when [url] is null/blank, or when the image fails to load.
+ */
+@Composable
+private fun FeedThumbnail(url: String?, fallbackLabel: String) {
+    val scheme = orbit()
+    val shape = RoundedCornerShape(OrbitRadii.chip)
+    val tile: @Composable () -> Unit = {
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .clip(shape)
+                .background(Brush.linearGradient(scheme.accent.gradient)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(fallbackLabel.take(1).uppercase(), style = orbitTitle, color = Color.White)
+        }
+    }
+    if (url.isNullOrBlank()) {
+        tile()
+        return
+    }
+    SubcomposeAsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(url)
+            .crossfade(true)
+            .build(),
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        loading = { tile() },
+        error = { tile() },
+        modifier = Modifier
+            .size(80.dp)
+            .clip(shape),
+    )
 }
 
 /** A big tabular number style for the weather temperature. */

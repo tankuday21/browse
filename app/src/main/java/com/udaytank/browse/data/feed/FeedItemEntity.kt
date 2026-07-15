@@ -21,4 +21,5 @@ data class FeedItemEntity(
     val publishedAt: Long,
     val thumbnailUrl: String?,
     val category: String,
+    val description: String = "",
 )

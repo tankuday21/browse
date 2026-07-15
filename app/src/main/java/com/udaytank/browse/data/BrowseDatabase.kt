@@ -23,7 +23,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         RssSourceEntity::class,
         ZappedElementEntity::class,
     ],
-    version = 11,
+    version = 12,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -39,6 +39,12 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun zappedElementDao(): ZappedElementDao
 
     companion object {
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE feed_items ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

@@ -58,8 +58,9 @@ object RssParser {
         val dateText = firstText(item, "pubDate").ifBlank { firstText(item, "dc:date") }
         val publishedAt = parseRssDate(dateText)
         val thumbnail = rssThumbnail(item)
+        val description = snippet(firstText(item, "description"))
 
-        return FeedItem(sourceId, title, link, publishedAt, thumbnail, category)
+        return FeedItem(sourceId, title, link, publishedAt, thumbnail, category, description)
     }
 
     private fun parseAtomEntry(entry: Element, sourceId: String, category: FeedCategory): FeedItem? {
@@ -69,8 +70,9 @@ object RssParser {
 
         val dateText = firstText(entry, "published").ifBlank { firstText(entry, "updated") }
         val publishedAt = parseAtomDate(dateText)
+        val description = snippet(firstText(entry, "summary").ifBlank { firstText(entry, "content") })
 
-        return FeedItem(sourceId, title, link, publishedAt, thumbnailUrl = null, category)
+        return FeedItem(sourceId, title, link, publishedAt, thumbnailUrl = null, category, description)
     }
 
     /** Thumbnail: first of enclosure@url (image type or none), media:thumbnail@url, media:content@url. */
@@ -112,6 +114,31 @@ object RssParser {
     private fun parseAtomDate(text: String): Long {
         if (text.isBlank()) return 0L
         return runCatching { OffsetDateTime.parse(text).toInstant().toEpochMilli() }.getOrDefault(0L)
+    }
+
+    // --- Snippet cleanup ---
+
+    private val HTML_TAG = Regex("<[^>]*>")
+    private val WHITESPACE = Regex("\\s+")
+    private const val SNIPPET_MAX = 160
+
+    /**
+     * Turn a raw RSS/Atom description/summary into a short plain-text snippet: strip HTML tags,
+     * unescape the common entities, collapse whitespace, and trim to ~[SNIPPET_MAX] chars.
+     * Returns "" when the source had nothing usable.
+     */
+    private fun snippet(raw: String): String {
+        if (raw.isBlank()) return ""
+        val text = HTML_TAG.replace(raw, "")
+            .replace("&nbsp;", " ")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&") // last, so "&amp;lt;" → "&lt;" not "<"
+            .let { WHITESPACE.replace(it, " ") }
+            .trim()
+        return if (text.length > SNIPPET_MAX) text.take(SNIPPET_MAX).trimEnd() + "…" else text
     }
 
     // --- DOM helpers (namespace-unaware: tags matched by literal "prefix:local" name) ---

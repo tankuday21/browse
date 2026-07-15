@@ -4,9 +4,11 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,14 +29,19 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,10 +68,12 @@ import com.udaytank.browse.browser.feed.QuickDial
 import com.udaytank.browse.browser.feed.Weather
 import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ShortcutDensity
+import com.udaytank.browse.ui.components.FaviconOrLetter
 import com.udaytank.browse.ui.components.FeedItemCard
 import com.udaytank.browse.ui.components.HomeSectionLabel
 import com.udaytank.browse.ui.components.QuickDialsRow
 import com.udaytank.browse.ui.components.WeatherCard
+import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -126,18 +135,7 @@ private fun ShortcutTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onLongClick),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(scheme.surfaces.elevated, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    shortcut.title.take(1).uppercase(),
-                    style = orbitBody,
-                    color = scheme.accent.solid,
-                )
-            }
+            FaviconOrLetter(url = shortcut.url, label = shortcut.title, size = 56.dp)
             Text(
                 shortcut.title,
                 style = orbitCaption,
@@ -186,11 +184,75 @@ private fun AddShortcutTile(onClick: () -> Unit) {
 }
 
 /**
+ * The Home search entry (v4.1): a prominent centered pill under the wordmark. Tapping anywhere on
+ * it calls [onSearchClick] (which opens the shared address entry); the trailing mic calls
+ * [onVoiceSearch]. Purely a launcher — it holds no text of its own.
+ */
+@Composable
+private fun HomeSearchPill(onSearchClick: () -> Unit, onVoiceSearch: () -> Unit) {
+    val scheme = orbit()
+    Surface(
+        shape = RoundedCornerShape(OrbitRadii.bar),
+        color = scheme.surfaces.surface,
+        border = BorderStroke(1.dp, scheme.text.muted.copy(alpha = 0.16f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSearchClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = scheme.text.muted,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "Search or type URL",
+                style = orbitBody,
+                color = scheme.text.muted,
+                maxLines = 1,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = OrbitSpacing.md),
+            )
+            Icon(
+                Icons.Filled.Mic,
+                contentDescription = "Voice search",
+                tint = scheme.accent.solid,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable { onVoiceSearch() },
+            )
+        }
+    }
+}
+
+/**
+ * A feed section's header: a subtle full-width hairline divider above the [HomeSectionLabel], so
+ * the quick-dials / Weather / News / Sports sections read as clearly separate bands.
+ */
+@Composable
+private fun FeedSectionHeader(label: String) {
+    val scheme = orbit()
+    HorizontalDivider(
+        color = scheme.text.muted.copy(alpha = 0.15f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = OrbitSpacing.md),
+    )
+    HomeSectionLabel(label)
+}
+
+/**
  * Focused default: logo/wordmark + ONE calm shortcut row. [showGreeting]/[showHomeStats]/
  * [shortcutDensity]/[homeWallpaper] (v3.1 Home prefs, Task 5) opt back into a richer canvas —
  * greeting line, privacy stats card (never on incognito), the full shortcut grid, and a subtle
- * built-in backdrop, respectively. No centered search pill: the shared OmniBar (Task 3/4) sits
- * bottom-anchored below this canvas and owns all address-entry.
+ * built-in backdrop, respectively. A prominent centered search pill (Task 3, v4.1) sits under the
+ * wordmark and owns address-entry on Home via [onSearchClick] / [onVoiceSearch]; the caller hides
+ * the bottom bar while Home is showing.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -202,6 +264,8 @@ fun HomePage(
     onRemoveShortcut: (Long) -> Unit,
     onMoveShortcutToFront: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onSearchClick: () -> Unit = {},
+    onVoiceSearch: () -> Unit = {},
     lifetimeBlocked: Long = 0L,
     showGreeting: Boolean = false,
     showHomeStats: Boolean = false,
@@ -300,6 +364,10 @@ fun HomePage(
                     textAlign = TextAlign.Center,
                 )
             }
+            if (!isIncognito) {
+                Spacer(modifier = Modifier.height(OrbitSpacing.xl))
+                HomeSearchPill(onSearchClick = onSearchClick, onVoiceSearch = onVoiceSearch)
+            }
             Spacer(modifier = Modifier.height(OrbitSpacing.xl))
 
             // ── Shortcut row/grid (C1) — user-curated, so shown in incognito too. No
@@ -369,22 +437,22 @@ fun HomePage(
             // collapses back to the calm focused home. ──
             if (!isIncognito && showFeed) {
                 if (quickDials.isNotEmpty()) {
-                    HomeSectionLabel("Shortcuts you visit")
+                    FeedSectionHeader("Shortcuts you visit")
                     QuickDialsRow(dials = quickDials, onOpen = onOpenUrl)
                 }
                 if (showWeather && weather != null) {
-                    HomeSectionLabel("Weather")
+                    FeedSectionHeader("Weather")
                     WeatherCard(weather = weather, place = weatherPlace)
                 }
                 if (newsItems.isNotEmpty()) {
-                    HomeSectionLabel("News")
+                    FeedSectionHeader("News")
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
                     ) { newsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
                 }
                 if (sportsItems.isNotEmpty()) {
-                    HomeSectionLabel("Sports")
+                    FeedSectionHeader("Sports")
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
