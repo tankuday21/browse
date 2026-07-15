@@ -359,6 +359,10 @@ fun BrowserScreen(
                         },
                         onRemoveShortcut = viewModel::onRemoveShortcut,
                         onMoveShortcutToFront = viewModel::onMoveShortcutToFront,
+                        // #7: the home's middle search pill opens the address editor (the bottom
+                        // bar is hidden on home while not editing — see the omniBar() gate below).
+                        onSearchClick = { isEditing = true },
+                        onVoiceSearch = { isEditing = true },
                         // Content-above-bar: the home canvas stops exactly where the shared
                         // OmniBar starts (no centered pill anymore — see the omniBar composable
                         // below, rendered bottom-anchored for home exactly like on web).
@@ -597,16 +601,14 @@ fun BrowserScreen(
                         viewModel.onFindClose()
                     },
                 )
-            } else if (!readerActive) {
-                // The ONE shared OmniBar — home and web both render it from this exact
-                // bottom-anchored spot; it animates its own Full/Slim/editing states
-                // internally (see the omniBar composable above), so nothing here needs to
-                // hide or reposition it.
+            } else if (!readerActive && !(isHome && !isEditing)) {
+                // The shared OmniBar. v4.1 (#7): on HOME it's hidden while not editing — the
+                // home's own middle search pill is the entry point there; tapping it sets
+                // isEditing=true, which brings this bar up as the edit field (above the keyboard)
+                // for typing/suggestions. On web pages the bar shows as before.
                 //
-                // Reader mode (spec §3) hides the bar entirely rather than forcing it Full —
-                // it would otherwise compete with ReaderOverlay's own Aa/Listen bottom
-                // controls. The bar isn't composed at all here; exiting reader mode still
-                // works via the system BackHandler and ReaderOverlay's own controls/menu.
+                // Reader mode (spec §3) hides the bar entirely (ReaderOverlay has its own bottom
+                // controls); exiting still works via BackHandler / ReaderOverlay.
                 omniBar()
             }
         }
