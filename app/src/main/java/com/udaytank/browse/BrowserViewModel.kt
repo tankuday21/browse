@@ -10,6 +10,12 @@ import com.udaytank.browse.browser.BarScrollPolicy
 import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.browser.BrowserCommand
 import com.udaytank.browse.browser.UrlHosts
+import com.udaytank.browse.browser.feed.FeedCategory
+import com.udaytank.browse.browser.feed.FeedItem
+import com.udaytank.browse.browser.feed.QuickDial
+import com.udaytank.browse.browser.feed.QuickDialPolicy
+import com.udaytank.browse.browser.feed.VisitedUrl
+import com.udaytank.browse.browser.feed.Weather
 import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
@@ -38,7 +44,10 @@ import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
+import com.udaytank.browse.data.FeedRepository
 import com.udaytank.browse.data.SettingsRepository
+import com.udaytank.browse.data.WeatherPlace
+import com.udaytank.browse.data.WeatherRepository
 import com.udaytank.browse.data.SiteSettingsDao
 import com.udaytank.browse.data.SiteSettingsEntity
 import com.udaytank.browse.data.TabDao
@@ -145,6 +154,9 @@ class BrowserViewModel(
      * plain ViewModel never touches the Application; tests keep the no-op default.
      */
     private val reloadAdblock: suspend () -> Unit = {},
+    /** v3.2 home feed (null in tests → empty feed, no network). */
+    private val feedRepository: FeedRepository? = null,
+    private val weatherRepository: WeatherRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -573,6 +585,32 @@ class BrowserViewModel(
     /** Id of a bundled home backdrop ("aurora"/"nebula"), or "" for none. */
     val homeWallpaper: StateFlow<String> = settings.homeWallpaper
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /** v3.2 feed prefs. */
+    val showFeed: StateFlow<Boolean> = settings.showFeed
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val showWeather: StateFlow<Boolean> = settings.showWeather
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val weatherCity: StateFlow<String> = settings.weatherCity
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+    val weatherUseLocation: StateFlow<Boolean> = settings.weatherUseLocation
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onShowFeedToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowFeed(enabled) }
+    }
+
+    fun onShowWeatherToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowWeather(enabled) }
+    }
+
+    fun onWeatherCityChanged(city: String) {
+        viewModelScope.launch { settings.setWeatherCity(city) }
+    }
+
+    fun onWeatherUseLocationToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setWeatherUseLocation(enabled) }
+    }
 
     fun onShowGreetingToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setShowGreeting(enabled) }
@@ -1346,8 +1384,79 @@ class BrowserViewModel(
         }
     }
 
+    // ── v3.2 home feed ─────────────────────────────────────
+    /** Cached feed items per section (empty when no feed repo — e.g. tests). Cache-only reads. */
+    val newsItems: StateFlow<List<FeedItem>> = feedItemsFlow(FeedCategory.NEWS)
+    val sportsItems: StateFlow<List<FeedItem>> = feedItemsFlow(FeedCategory.SPORTS)
+
+    private fun feedItemsFlow(category: FeedCategory): StateFlow<List<FeedItem>> =
+        (feedRepository?.observe(category) ?: flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _quickDials = MutableStateFlow<List<QuickDial>>(emptyList())
+    val quickDials: StateFlow<List<QuickDial>> = _quickDials.asStateFlow()
+
+    private val _weather = MutableStateFlow<Weather?>(null)
+    val weather: StateFlow<Weather?> = _weather.asStateFlow()
+
+    private var lastFeedRefreshAt = 0L
+
+    /**
+     * Home shown (non-incognito): recompute quick dials from history and kick a throttled feed
+     * refresh. Privacy: a no-op in incognito — no history read, no network, nothing rendered.
+     */
+    fun onHomeShown(isIncognito: Boolean) {
+        if (isIncognito) return
+        viewModelScope.launch {
+            val excludeHosts = homeShortcuts.value.mapNotNull { UrlHosts.of(it.url) }.toSet()
+            val visited = historyDao.topVisited(60).map { VisitedUrl(it.url, it.title, it.visits) }
+            _quickDials.value = QuickDialPolicy.rank(visited, excludeHosts)
+
+            val now = System.currentTimeMillis()
+            if (feedRepository != null && now - lastFeedRefreshAt > FEED_REFRESH_THROTTLE_MS) {
+                lastFeedRefreshAt = now
+                runCatching { feedRepository.refresh() }
+            }
+        }
+    }
+
+    private var lastWeatherAt = 0L
+    private var lastWeatherKey: String? = null
+    private var geocodeCache: Pair<String, WeatherPlace?>? = null
+
+    /**
+     * Loads weather for a resolved place. Throttled: skips a network forecast if the same place
+     * was fetched within [FEED_REFRESH_THROTTLE_MS] (so bouncing in and out of home doesn't spam
+     * Open-Meteo); always refetches when the place changes.
+     */
+    fun loadWeather(place: WeatherPlace?) {
+        val repo = weatherRepository ?: return
+        if (place == null) return
+        val key = "${place.lat},${place.lon}"
+        val now = System.currentTimeMillis()
+        if (key == lastWeatherKey && _weather.value != null &&
+            now - lastWeatherAt < FEED_REFRESH_THROTTLE_MS
+        ) {
+            return
+        }
+        lastWeatherAt = now
+        lastWeatherKey = key
+        viewModelScope.launch { repo.forecast(place.lat, place.lon)?.let { _weather.value = it } }
+    }
+
+    /** Geocode a typed city → place, cached per city string (avoids a lookup on every home entry). */
+    suspend fun resolveCity(name: String): WeatherPlace? {
+        geocodeCache?.let { if (it.first == name) return it.second }
+        val place = weatherRepository?.geocodeCity(name)
+        geocodeCache = name to place
+        return place
+    }
+
     companion object {
         const val HOME_URL = "browse://home"
+
+        /** Min gap between background feed refreshes triggered by opening the home page. */
+        const val FEED_REFRESH_THROTTLE_MS = 30 * 60 * 1000L
 
         /** How many blocked requests accumulate before the lifetime counter is persisted. */
         const val LIFETIME_FLUSH_BATCH = 25
@@ -1373,6 +1482,8 @@ class BrowserViewModel(
                             .remove(id)
                     },
                     reloadAdblock = { app.reloadAdblock() },
+                    feedRepository = app.feedRepository,
+                    weatherRepository = app.weatherRepository,
                 )
             }
         }

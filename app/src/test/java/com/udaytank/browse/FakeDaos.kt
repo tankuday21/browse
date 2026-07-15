@@ -4,6 +4,7 @@ import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.BookmarkDao
 import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.data.TopVisitedRow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -44,6 +45,16 @@ class FakeHistoryDao : HistoryDao {
     override suspend fun clearAll() {
         entries.value = emptyList()
     }
+
+    override suspend fun topVisited(limit: Int): List<TopVisitedRow> =
+        entries.value
+            .groupBy { it.url }
+            .map { (url, rows) ->
+                val newest = rows.maxByOrNull { it.visitedAt }!!
+                TopVisitedRow(url = url, title = newest.title, visits = rows.size)
+            }
+            .sortedWith(compareByDescending<TopVisitedRow> { it.visits })
+            .take(limit)
 }
 
 class FakeBookmarkDao : BookmarkDao {

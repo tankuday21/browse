@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,6 +77,14 @@ fun SettingsScreen(
     val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
     val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
     val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
+    val showFeed by viewModel.showFeed.collectAsStateWithLifecycle()
+    val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
+    val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
+    val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
+    // Enabling location-based weather requests the coarse permission; the grant decides the pref.
+    val locationPermLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> viewModel.onWeatherUseLocationToggled(granted) }
     var draftTextScale by remember { mutableStateOf<Int?>(null) }
     var showClearDialog by remember { mutableStateOf(false) }
     var pendingRestore by remember { mutableStateOf<com.udaytank.browse.browser.Backup?>(null) }
@@ -357,6 +366,64 @@ fun SettingsScreen(
                         modifier = Modifier.padding(start = OrbitSpacing.sm),
                     )
                 }
+            }
+            // ── v3.2 feed controls ──
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+            ) {
+                Text("Show news, sports & weather feed", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
+                Switch(checked = showFeed, onCheckedChange = viewModel::onShowFeedToggled)
+            }
+            if (showFeed) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                ) {
+                    Text("Weather card", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
+                    Switch(checked = showWeather, onCheckedChange = viewModel::onShowWeatherToggled)
+                }
+                if (showWeather) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                    ) {
+                        Text("Use my location", style = orbitBody, color = scheme.text.primary, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = weatherUseLocation,
+                            onCheckedChange = { on ->
+                                if (on) {
+                                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context,
+                                        android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (granted) viewModel.onWeatherUseLocationToggled(true)
+                                    else locationPermLauncher.launch(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                                } else {
+                                    viewModel.onWeatherUseLocationToggled(false)
+                                }
+                            },
+                        )
+                    }
+                    if (!weatherUseLocation) {
+                        OutlinedTextField(
+                            value = weatherCity,
+                            onValueChange = viewModel::onWeatherCityChanged,
+                            label = { Text("City for weather") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                        )
+                    }
+                }
+                Text(
+                    "News & sports come from public RSS feeds, fetched straight from the source. " +
+                        "Weather uses Open-Meteo. No tracking, no accounts.",
+                    style = orbitCaption,
+                    color = scheme.text.muted,
+                    modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                )
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
             Text(

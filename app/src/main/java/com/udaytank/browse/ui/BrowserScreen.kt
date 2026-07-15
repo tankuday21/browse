@@ -56,12 +56,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.DownloadWhen
 import com.udaytank.browse.browser.BarState
+import com.udaytank.browse.data.WeatherLocation
 import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
 import com.udaytank.browse.ui.components.SuggestionsPanel
+import com.udaytank.browse.ui.theme.OrbitSchemeOverride
+import com.udaytank.browse.ui.theme.darkOrbit
+import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.game.AsteroidGame
 import kotlin.math.roundToInt
 
@@ -123,6 +127,16 @@ fun BrowserScreen(
     val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
     val shortcutDensity by viewModel.shortcutDensity.collectAsStateWithLifecycle()
     val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
+    // v3.2 feed state
+    val quickDials by viewModel.quickDials.collectAsStateWithLifecycle()
+    val weather by viewModel.weather.collectAsStateWithLifecycle()
+    val newsItems by viewModel.newsItems.collectAsStateWithLifecycle()
+    val sportsItems by viewModel.sportsItems.collectAsStateWithLifecycle()
+    val showFeed by viewModel.showFeed.collectAsStateWithLifecycle()
+    val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
+    val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
+    val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
+    var weatherPlaceLabel by rememberSaveable { mutableStateOf("") }
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -134,8 +148,32 @@ fun BrowserScreen(
         menuOpen || siteSheetOpen || state.findQuery != null
     val effectiveBarState = if (forceBarFull) BarState.Full else vmBarState
 
+    // The WebView's bottom inset is FIXED at the bar's full footprint — it must never change
+    // while a page is on screen. An earlier version shrank this inset when the bar collapsed
+    // (to fill the gap below the slim pill), but resizing the live WebView mid-scroll disrupted
+    // the SwipeRefreshLayout gesture: scrolling up stuttered and pull-to-refresh misfired. A
+    // constant inset is correct and jank-free; only the floating bar animates its own size.
+
     LaunchedEffect(isEditing) {
         if (isEditing) viewModel.onBarShouldShow() else viewModel.onSuggestionsDismissed()
+    }
+
+    // v3.2: on the (non-incognito) home, recompute quick dials + throttled feed refresh.
+    LaunchedEffect(isHome, isIncognito) {
+        if (isHome && !isIncognito) viewModel.onHomeShown(isIncognito)
+    }
+    // Weather: resolve a place (opt-in coarse location, else the set city) then load it.
+    LaunchedEffect(isHome, isIncognito, showFeed, showWeather, weatherCity, weatherUseLocation) {
+        if (isHome && !isIncognito && showFeed && showWeather) {
+            val place = when {
+                weatherUseLocation -> WeatherLocation.lastKnownCoarse(context)
+                    ?: weatherCity.takeIf { it.isNotBlank() }?.let { viewModel.resolveCity(it) }
+                weatherCity.isNotBlank() -> viewModel.resolveCity(weatherCity)
+                else -> null
+            }
+            weatherPlaceLabel = place?.label ?: ""
+            if (place != null) viewModel.loadWeather(place)
+        }
     }
 
     // A6 clipboard chip: the ONE clipboard read per bar-focus event (never polled). A copied
@@ -167,6 +205,7 @@ fun BrowserScreen(
                 viewModel.onGoPressed()
             },
             pageUrl = if (isHome) null else state.currentUrl,
+            incognito = isIncognito,
             displayHost = if (isHome) null else currentHost ?: state.currentUrl,
             addressBarText = state.addressBarText,
             isSecure = state.currentUrl?.startsWith("https://") == true,
@@ -283,6 +322,10 @@ fun BrowserScreen(
     BackHandler(enabled = isEditing) { isEditing = false }
     BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
 
+    // v3.2: the home page and any incognito context render always-dark (their own dark Orbit
+    // scheme) regardless of the app/system theme; normal web browsing follows the app theme.
+    val screenScheme = if (isHome || isIncognito) darkOrbit else orbit()
+    OrbitSchemeOverride(screenScheme) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -320,6 +363,13 @@ fun BrowserScreen(
                         showHomeStats = showHomeStats,
                         shortcutDensity = shortcutDensity,
                         homeWallpaper = homeWallpaper,
+                        quickDials = quickDials,
+                        weather = weather,
+                        weatherPlace = weatherPlaceLabel,
+                        newsItems = newsItems,
+                        sportsItems = sportsItems,
+                        showFeed = showFeed,
+                        showWeather = showWeather,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(
@@ -338,10 +388,8 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        // Content-above-bar: a stable inset at the bar's Full height, held
-                        // constant across Full/Slim so the page never reflows on scroll (a
-                        // fixed inset is correct and jank-free; only the floating bar itself
-                        // animates its own size on top of this space).
+                        // Content-above-bar with a FIXED inset at the bar's full height — never
+                        // resized on scroll (see the note where effectiveBarState is computed).
                         modifier = Modifier
                             .fillMaxSize()
                             .navigationBarsPadding()
@@ -756,6 +804,7 @@ fun BrowserScreen(
             )
         }
     }
+    } // OrbitSchemeOverride
 }
 
 /**

@@ -25,8 +25,8 @@ android {
         applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "3.1"
+        versionCode = 7
+        versionName = "3.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.androidx.fragment)
     implementation(libs.work.runtime)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver)
     androidTestImplementation(libs.androidx.junit)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.DropdownMenu
@@ -53,14 +55,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
@@ -81,8 +92,10 @@ import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.ui.components.OrbitListRow
 import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.LocalOrbit
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.darkOrbit
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
@@ -132,7 +145,16 @@ fun TabSwitcherScreen(
     var renameTarget by remember { mutableStateOf<TabGroupEntity?>(null) }
     var renameInput by remember { mutableStateOf("") }
 
-    val filteredTabs = TabSearchFilter.filter(tabs, searchQuery.orEmpty())
+    // Chrome-style incognito separation: normal and incognito tabs live on their own screens,
+    // switched by a toggle up top. Open onto whichever side the active tab belongs to.
+    val normalTabs = tabs.filter { !it.isIncognito }
+    val incognitoTabs = tabs.filter { it.isIncognito }
+    var incognitoMode by rememberSaveable {
+        mutableStateOf(tabs.find { it.id == activeTabId }?.isIncognito == true)
+    }
+
+    val sourceTabs = if (incognitoMode) incognitoTabs else normalTabs
+    val filteredTabs = TabSearchFilter.filter(sourceTabs, searchQuery.orEmpty())
     val ordered = TabOrderPolicy.ordered(filteredTabs, groups)
 
     val groupById = groups.associateBy { it.id }
@@ -153,7 +175,7 @@ fun TabSwitcherScreen(
             val scheme = orbit()
             Column {
                 OrbitTopBar(
-                    title = "Tabs (${tabs.size})",
+                    title = "Tabs",
                     onBack = onBack,
                     actions = {
                         IconButton(onClick = { searchQuery = if (searchQuery == null) "" else null }) {
@@ -179,6 +201,30 @@ fun TabSwitcherScreen(
                         }
                     },
                 )
+                // Normal | Incognito toggle — each side is its own screen (Chrome-style).
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
+                ) {
+                    SegmentedButton(
+                        selected = !incognitoMode,
+                        onClick = { incognitoMode = false; selection = emptySet() },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) { Text("Tabs (${normalTabs.size})") }
+                    SegmentedButton(
+                        selected = incognitoMode,
+                        onClick = { incognitoMode = true; selection = emptySet() },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        icon = {
+                            Icon(
+                                Icons.Filled.VisibilityOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                    ) { Text("Incognito (${incognitoTabs.size})") }
+                }
                 if (searchQuery != null) {
                     OutlinedTextField(
                         value = searchQuery.orEmpty(),
@@ -194,13 +240,22 @@ fun TabSwitcherScreen(
         },
         floatingActionButton = {
             if (selection.isEmpty()) {
+                val scheme = orbit()
                 FloatingActionButton(
                     onClick = {
-                        viewModel.onNewTab()
+                        // New tab opens on the side you're viewing.
+                        if (incognitoMode) viewModel.onNewIncognitoTab() else viewModel.onNewTab()
                         onTabChosen()
                     },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    // Clean circular button, filled with the Orbit accent gradient. Shape and
+                    // gradient use the SAME CircleShape so the shadow and fill line up exactly.
+                    shape = CircleShape,
+                    containerColor = Color.Transparent,
+                    contentColor = Color.White,
+                    modifier = Modifier.background(
+                        Brush.linearGradient(scheme.accent.gradient),
+                        CircleShape,
+                    ),
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = "New tab")
                 }
@@ -245,14 +300,37 @@ fun TabSwitcherScreen(
             }
         },
     ) { innerPadding ->
-        LazyVerticalGrid(
-            columns = if (listLayout) GridCells.Fixed(1) else GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.md),
-            // List rows are compact (P6 improve pass) — tighter spacing so ~8+ fit a screen.
-            verticalArrangement = Arrangement.spacedBy(if (listLayout) OrbitSpacing.sm else OrbitSpacing.md),
-            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
-        ) {
-            renderItems.forEach { entry ->
+        // On the incognito side the whole canvas goes dark regardless of the phone theme
+        // (that's the signature "you're private now" cue), by swapping the Orbit scheme the
+        // cards/headers below read from. The top bar + toggle stay outside this, normal-themed.
+        val contentScheme = if (incognitoMode) darkOrbit else orbit()
+        CompositionLocalProvider(LocalOrbit provides contentScheme) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .background(if (incognitoMode) darkOrbit.surfaces.base else Color.Transparent),
+            ) {
+                if (renderItems.isEmpty()) {
+                    TabsEmptyState(
+                        incognito = incognitoMode,
+                        searching = !searchQuery.isNullOrBlank(),
+                        query = searchQuery.orEmpty(),
+                    )
+                } else {
+                    LazyVerticalGrid(
+                        columns = if (listLayout) GridCells.Fixed(1) else GridCells.Fixed(2),
+                        modifier = Modifier.fillMaxSize().padding(OrbitSpacing.md),
+                        // List rows are compact (P6 improve pass) — tighter spacing so ~8+ fit a screen.
+                        verticalArrangement = Arrangement.spacedBy(if (listLayout) OrbitSpacing.sm else OrbitSpacing.md),
+                        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+                    ) {
+                        if (incognitoMode) {
+                            item(key = "incognito-banner", span = { GridItemSpan(maxLineSpan) }) {
+                                IncognitoBanner()
+                            }
+                        }
+                        renderItems.forEach { entry ->
                 when (entry) {
                     is SwitcherItem.Header -> item(
                         key = "group-${entry.group.id}",
@@ -274,6 +352,7 @@ fun TabSwitcherScreen(
                                 renameInput = entry.group.name
                             },
                             onUngroup = { viewModel.onDeleteGroup(entry.group.id) },
+                            modifier = Modifier.animateItem(),
                         )
                     }
 
@@ -322,6 +401,7 @@ fun TabSwitcherScreen(
                                         onToggleLocked = onToggleLocked,
                                         onAssignToGroup = onAssignToGroup,
                                         onRequestNewGroup = onRequestNewGroup,
+                                        modifier = Modifier.animateItem(),
                                     )
                                 } else {
                                     TabCard(
@@ -338,6 +418,7 @@ fun TabSwitcherScreen(
                                         onToggleLocked = onToggleLocked,
                                         onAssignToGroup = onAssignToGroup,
                                         onRequestNewGroup = onRequestNewGroup,
+                                        modifier = Modifier.animateItem(),
                                     )
                                 }
                             }
@@ -346,6 +427,9 @@ fun TabSwitcherScreen(
                 }
             }
         }
+                    } // else (has tabs)
+                } // Box
+            } // CompositionLocalProvider
     }
 
     if (showRecentlyClosed) {
@@ -461,30 +545,44 @@ private fun GroupHeader(
     onToggleCollapse: () -> Unit,
     onRename: () -> Unit,
     onUngroup: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = orbit()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = OrbitSpacing.xs)
             .clickable { onToggleCollapse() },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
     ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(GroupColors[group.color % GroupColors.size]),
-        )
-        Text(
-            "${group.name} ($count)",
-            style = orbitBody,
-            color = scheme.text.primary,
-            maxLines = 1,
-            modifier = Modifier.weight(1f),
-        )
+        val groupColor = GroupColors[group.color % GroupColors.size]
+        // Group name as a chip tinted with the group color — clearer than a bare dot + label.
+        Surface(
+            shape = RoundedCornerShape(percent = OrbitRadii.pill),
+            color = groupColor.copy(alpha = 0.16f),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.xs),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.md, vertical = 6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(groupColor),
+                )
+                Text(
+                    "${group.name} ($count)",
+                    style = orbitCaption,
+                    color = scheme.text.primary,
+                    maxLines = 1,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.weight(1f))
         Icon(
             if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
             contentDescription = if (collapsed) "Expand group" else "Collapse group",
@@ -528,6 +626,7 @@ private fun TabCard(
     onToggleLocked: () -> Unit,
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = orbit()
     val cardShape = RoundedCornerShape(OrbitRadii.card)
@@ -536,11 +635,13 @@ private fun TabCard(
     }
     var showMenu by remember { mutableStateOf(false) }
 
-    Box {
+    Box(modifier = modifier) {
         Surface(
             shape = cardShape,
             color = scheme.surfaces.surface,
-            tonalElevation = 2.dp,
+            // Active tab reads as lifted (elevation) + accent-ringed, not just outlined.
+            tonalElevation = if (isActive) 6.dp else 2.dp,
+            shadowElevation = if (isActive) 6.dp else 0.dp,
             modifier = Modifier
                 .clip(cardShape)
                 .then(
@@ -562,16 +663,24 @@ private fun TabCard(
                         .aspectRatio(0.9f),
                 ) {
                     when {
-                        tab.isIncognito -> Box(
+                        tab.isIncognito -> Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(scheme.surfaces.elevated),
-                            contentAlignment = Alignment.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
                         ) {
+                            Icon(
+                                Icons.Filled.VisibilityOff,
+                                contentDescription = null,
+                                tint = scheme.text.secondary,
+                                modifier = Modifier.size(28.dp),
+                            )
                             Text(
                                 "Incognito",
-                                style = orbitBody,
+                                style = orbitCaption,
                                 color = scheme.text.secondary,
+                                modifier = Modifier.padding(top = OrbitSpacing.xs),
                             )
                         }
 
@@ -715,6 +824,7 @@ private fun TabListRow(
     onToggleLocked: () -> Unit,
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = orbit()
     val cardShape = RoundedCornerShape(OrbitRadii.card)
@@ -723,11 +833,44 @@ private fun TabListRow(
     }
     var showMenu by remember { mutableStateOf(false) }
 
-    Box {
+    // Swipe a row away to close it. Locked tabs don't swipe (closing them needs the confirm
+    // dialog) — the X button / long-press menu still handle those.
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled && !tab.locked) {
+                onClose(); true
+            } else {
+                false
+            }
+        },
+    )
+
+    Box(modifier = modifier) {
+        SwipeToDismissBox(
+            state = dismissState,
+            enableDismissFromStartToEnd = !tab.locked,
+            enableDismissFromEndToStart = !tab.locked,
+            backgroundContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(cardShape)
+                        .background(scheme.accent.solid.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = scheme.accent.solid,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        ) {
         Surface(
             shape = cardShape,
             color = scheme.surfaces.surface,
-            tonalElevation = 2.dp,
+            tonalElevation = if (isActive) 6.dp else 2.dp,
             modifier = Modifier
                 .clip(cardShape)
                 .then(
@@ -760,7 +903,15 @@ private fun TabListRow(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .background(scheme.surfaces.elevated),
-                        )
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.VisibilityOff,
+                                contentDescription = null,
+                                tint = scheme.text.secondary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
 
                         thumbnail != null -> Image(
                             bitmap = thumbnail,
@@ -838,6 +989,7 @@ private fun TabListRow(
                 }
             }
         }
+        } // SwipeToDismissBox
 
         TabContextMenu(
             tab = tab,
@@ -928,6 +1080,75 @@ private fun TabContextMenu(
             text = { Text("New group…") },
             leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
             onClick = { onRequestNewGroup(); onDismiss() },
+        )
+    }
+}
+
+/**
+ * Full-screen empty state: the Chrome-style incognito explainer, a "no results" message while
+ * searching, or a plain "no tabs". Reads the ambient (possibly dark, on the incognito side)
+ * Orbit scheme so it matches whichever screen it fills.
+ */
+@Composable
+private fun TabsEmptyState(incognito: Boolean, searching: Boolean, query: String) {
+    val scheme = orbit()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(OrbitSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            if (incognito) Icons.Filled.VisibilityOff else Icons.AutoMirrored.Filled.List,
+            contentDescription = null,
+            tint = scheme.text.secondary,
+            modifier = Modifier.size(48.dp),
+        )
+        Spacer(modifier = Modifier.height(OrbitSpacing.md))
+        Text(
+            when {
+                searching -> "No tabs match “$query”"
+                incognito -> "You’ve gone Incognito"
+                else -> "No open tabs"
+            },
+            style = orbitBody,
+            color = scheme.text.primary,
+        )
+        if (incognito && !searching) {
+            Spacer(modifier = Modifier.height(OrbitSpacing.sm))
+            Text(
+                "Pages you view here won’t stay in your history, and these tabs vanish when you " +
+                    "close them. Tap + to open one.",
+                style = orbitCaption,
+                color = scheme.text.secondary,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Slim privacy reminder pinned above the incognito grid when private tabs are open. */
+@Composable
+private fun IncognitoBanner() {
+    val scheme = orbit()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = OrbitSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+    ) {
+        Icon(
+            Icons.Filled.VisibilityOff,
+            contentDescription = null,
+            tint = scheme.text.secondary,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            "You’re browsing privately",
+            style = orbitCaption,
+            color = scheme.text.secondary,
         )
     }
 }

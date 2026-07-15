@@ -1,6 +1,10 @@
 package com.udaytank.browse.ui
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -10,15 +14,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -31,19 +38,33 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import com.udaytank.browse.R
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
+import com.udaytank.browse.browser.feed.FeedItem
+import com.udaytank.browse.browser.feed.QuickDial
+import com.udaytank.browse.browser.feed.Weather
 import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ShortcutDensity
+import com.udaytank.browse.ui.components.FeedItemCard
+import com.udaytank.browse.ui.components.HomeSectionLabel
+import com.udaytank.browse.ui.components.QuickDialsRow
+import com.udaytank.browse.ui.components.WeatherCard
 import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -186,28 +207,86 @@ fun HomePage(
     showHomeStats: Boolean = false,
     shortcutDensity: ShortcutDensity = ShortcutDensity.FEW,
     homeWallpaper: String = "",
+    // v3.2 feed (non-incognito only; gated by showFeed).
+    quickDials: List<QuickDial> = emptyList(),
+    weather: Weather? = null,
+    weatherPlace: String = "",
+    newsItems: List<FeedItem> = emptyList(),
+    sportsItems: List<FeedItem> = emptyList(),
+    showFeed: Boolean = false,
+    showWeather: Boolean = true,
 ) {
     val scheme = orbit()
     val clipboard = LocalClipboardManager.current
     var showAddDialog by remember { mutableStateOf(false) }
     var menuForId by remember { mutableStateOf<Long?>(null) }
 
+    // Gentle entrance: the canvas fades in and rises a few dp when Home appears (and each time
+    // you return to it), so it arrives rather than snapping in.
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val enterAlpha by animateFloatAsState(
+        if (appeared) 1f else 0f,
+        animationSpec = tween(400),
+        label = "homeEnterAlpha",
+    )
+    val enterRise by animateDpAsState(
+        if (appeared) 0.dp else OrbitSpacing.md,
+        animationSpec = tween(400),
+        label = "homeEnterRise",
+    )
+
     Box(modifier = modifier) {
-        homeBackdropBrush(homeWallpaper, scheme)?.let { brush ->
-            Box(modifier = Modifier.matchParentSize().background(brush))
+        // Cosmic backdrop (v3.2): the hero art as a soft, borderless wash across the top,
+        // faded into the base by a vertical scrim so content below stays readable. Not in
+        // incognito — the private home is bare by design.
+        if (!isIncognito) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.62f)
+                    .align(Alignment.TopCenter),
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.home_backdrop),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
+                    modifier = Modifier.matchParentSize().alpha(0.42f),
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                1f to scheme.surfaces.base,
+                            ),
+                        ),
+                )
+            }
         }
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .offset(y = enterRise)
+                .alpha(enterAlpha)
                 .padding(OrbitSpacing.xl),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(OrbitSpacing.xxl))
-            Text(
-                if (isIncognito) "Incognito" else "Andromeda",
-                style = orbitDisplay,
-                color = if (isIncognito) scheme.text.primary else scheme.accent.solid,
-            )
+            if (isIncognito) {
+                Text("Incognito", style = orbitDisplay, color = scheme.text.primary)
+            } else {
+                // Wordmark painted with the brand gradient rather than a flat accent fill.
+                Text(
+                    "Andromeda",
+                    style = orbitDisplay.merge(
+                        TextStyle(brush = Brush.horizontalGradient(scheme.accent.gradient)),
+                    ),
+                )
+            }
             if (!isIncognito && showGreeting) {
                 Spacer(modifier = Modifier.height(OrbitSpacing.xs))
                 Text(greeting(), style = orbitBody, color = scheme.text.secondary)
@@ -228,24 +307,42 @@ fun HomePage(
             // below this whole canvas — tapping it enters edit mode exactly like on a web
             // page. Density (Task 5/7) picks between one calm row and the full grid. ──
             if (shortcutDensity == ShortcutDensity.MORE) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
+                // Manual 4-column grid — a LazyVerticalGrid can't nest inside this verticalScroll
+                // Column (both scroll vertically). Shortcut counts are small, so non-lazy is fine.
+                // Cell index maps: [0..shortcuts) = tiles, then one Add cell, then blanks to pad.
+                val cells = shortcuts.size + 1
+                val rowCount = (cells + 3) / 4
+                Column(
                     modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
                 ) {
-                    items(shortcuts, key = { it.id }) { shortcut ->
-                        ShortcutTile(
-                            shortcut = shortcut,
-                            isMenuOpen = menuForId == shortcut.id,
-                            onOpen = { onOpenUrl(shortcut.url) },
-                            onLongClick = { menuForId = shortcut.id },
-                            onDismissMenu = { menuForId = null },
-                            onMoveToFront = { onMoveShortcutToFront(shortcut.id) },
-                            onRemove = { onRemoveShortcut(shortcut.id) },
-                        )
+                    for (row in 0 until rowCount) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+                        ) {
+                            for (col in 0 until 4) {
+                                val i = row * 4 + col
+                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.TopCenter) {
+                                    when {
+                                        i < shortcuts.size -> {
+                                            val sc = shortcuts[i]
+                                            ShortcutTile(
+                                                shortcut = sc,
+                                                isMenuOpen = menuForId == sc.id,
+                                                onOpen = { onOpenUrl(sc.url) },
+                                                onLongClick = { menuForId = sc.id },
+                                                onDismissMenu = { menuForId = null },
+                                                onMoveToFront = { onMoveShortcutToFront(sc.id) },
+                                                onRemove = { onRemoveShortcut(sc.id) },
+                                            )
+                                        }
+                                        i == shortcuts.size -> AddShortcutTile(onClick = { showAddDialog = true })
+                                    }
+                                }
+                            }
+                        }
                     }
-                    item(key = "add-tile") { AddShortcutTile(onClick = { showAddDialog = true }) }
                 }
             } else {
                 Row(
@@ -264,6 +361,34 @@ fun HomePage(
                         )
                     }
                     AddShortcutTile(onClick = { showAddDialog = true })
+                }
+            }
+
+            // ── v3.2 feed — non-incognito, opt-in (showFeed). Quick dials, weather, news, sports.
+            // Each section renders only when it has content, so an offline/empty feed just
+            // collapses back to the calm focused home. ──
+            if (!isIncognito && showFeed) {
+                if (quickDials.isNotEmpty()) {
+                    HomeSectionLabel("Shortcuts you visit")
+                    QuickDialsRow(dials = quickDials, onOpen = onOpenUrl)
+                }
+                if (showWeather && weather != null) {
+                    HomeSectionLabel("Weather")
+                    WeatherCard(weather = weather, place = weatherPlace)
+                }
+                if (newsItems.isNotEmpty()) {
+                    HomeSectionLabel("News")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+                    ) { newsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
+                }
+                if (sportsItems.isNotEmpty()) {
+                    HomeSectionLabel("Sports")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+                    ) { sportsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
                 }
             }
 

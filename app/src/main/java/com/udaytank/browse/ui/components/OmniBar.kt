@@ -2,6 +2,7 @@ package com.udaytank.browse.ui.components
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,13 @@ val OmniBarInset: androidx.compose.ui.unit.Dp = OrbitSpacing.md
 val OmniBarReservedHeight: androidx.compose.ui.unit.Dp = OmniBarHeight + OmniBarInset
 
 /**
+ * Footprint the bar occupies while [BarState.Slim] (just the grab-pill + its inset). Content
+ * tracks this smaller value when the bar shrinks, so the page grows to fill the space the bar
+ * vacates instead of leaving an empty band below the pill.
+ */
+val OmniBarSlimReservedHeight: androidx.compose.ui.unit.Dp = OmniBarSlimHeight + OmniBarInset
+
+/**
  * Andromeda's ONE bottom bar (v3.1 OmniBar). Home and every web page render this exact
  * composable, in the exact same bottom-anchored position — that's what removes the old
  * home <-> web layout jump (a centered pill moving to a bottom-anchored one on first navigation).
@@ -86,6 +94,7 @@ fun OmniBar(
     onBarTap: () -> Unit,
     modifier: Modifier = Modifier,
     pageUrl: String? = null,
+    incognito: Boolean = false,
     onVoiceSubmit: ((String) -> Unit)? = null,
 ) {
     val scheme = orbit()
@@ -124,15 +133,20 @@ fun OmniBar(
                 menu = menu,
                 pageUrl = pageUrl,
                 homePill = homePill,
+                incognito = incognito,
                 onVoiceSubmit = onVoiceSubmit,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
             Surface(
                 shape = RoundedCornerShape(percent = OrbitRadii.pill),
-                color = scheme.surfaces.surface,
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp,
+                // Elevated fill + hairline border, not a stark pure-white box: in light
+                // theme surfaces.surface is #FFFFFF, so the old slim pill was a hard white
+                // nub with a heavy shadow. The elevated tone + border reads as a refined chip.
+                color = scheme.surfaces.elevated,
+                tonalElevation = 0.dp,
+                shadowElevation = 2.dp,
+                border = BorderStroke(1.dp, scheme.text.muted.copy(alpha = 0.20f)),
                 modifier = Modifier
                     .size(width = OmniBarSlimWidth, height = OmniBarSlimHeight)
                     .clickable { onBarTap() }

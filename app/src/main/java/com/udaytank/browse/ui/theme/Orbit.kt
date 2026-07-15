@@ -99,7 +99,7 @@ val darkOrbit = OrbitScheme(
     ),
     accent = OrbitAccent(
         solid = OrbitAccentSolid,
-        gradient = listOf(OrbitAccentGradientStart, OrbitAccentGradientEnd),
+        gradient = listOf(OrbitAccentGradientStart, OrbitAccentGradientMid, OrbitAccentGradientEnd),
     ),
     dark = true,
 )
@@ -117,7 +117,7 @@ val lightOrbit = OrbitScheme(
     ),
     accent = OrbitAccent(
         solid = OrbitAccentSolid,
-        gradient = listOf(OrbitAccentGradientStart, OrbitAccentGradientEnd),
+        gradient = listOf(OrbitAccentGradientStart, OrbitAccentGradientMid, OrbitAccentGradientEnd),
     ),
     dark = false,
 )

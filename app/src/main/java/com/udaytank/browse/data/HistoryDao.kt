@@ -33,4 +33,15 @@ interface HistoryDao {
 
     @Query("DELETE FROM history")
     suspend fun clearAll()
+
+    /** Most-visited URLs (for home quick dials): grouped by url, ordered by visit count. */
+    @Query(
+        "SELECT url, title, COUNT(*) AS visits FROM history " +
+            "GROUP BY url ORDER BY visits DESC, MAX(visitedAt) DESC LIMIT :limit"
+    )
+    suspend fun topVisited(limit: Int): List<TopVisitedRow>
 }
+
+/** Projection for [HistoryDao.topVisited]; mapped to the pure quick-dial model at the repo boundary. */
+data class TopVisitedRow(val url: String, val title: String, val visits: Int)
+

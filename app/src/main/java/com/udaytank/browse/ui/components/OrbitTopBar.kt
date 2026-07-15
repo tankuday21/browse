@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -38,8 +39,11 @@ fun OrbitTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp)
+            // Base color fills up behind the status bar; the 56dp bar content sits BELOW it, so
+            // the title/back never hide under the clock/battery/network icons.
             .background(scheme.surfaces.base)
+            .statusBarsPadding()
+            .height(56.dp)
             .padding(horizontal = OrbitSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
