@@ -2,7 +2,7 @@
 
 A fast, private, power-user mobile web browser for Android, built from scratch in Kotlin.
 
-**Status:** v3.2 "Horizon" — a living home. v3.2 adds a privacy-first home dashboard (RSS news/sports + Open-Meteo weather + most-visited quick dials, all fetched source-direct with no keys or trackers), a fully separate dark incognito mode, and an official type system (Space Grotesk + DM Sans) on a refined "Orbit" palette. v3.1 unified the app on the Orbit design system (shrink-not-hide bottom bar, customizable home, bottom-sheet menu); v3.0 added a real download engine, a reading stack, a safety shield, and a from-scratch full-strength ad blocker.
+**Status:** v4.0 "Fortress" (in progress) — Element Zapper: tap any element on a page to hide it forever, per-site, re-applied at document start. First of the Fortress features (profiles, password manager, and a cookie/tracker Black Hole to follow). v3.2 "Horizon" — a living home. v3.2 adds a privacy-first home dashboard (RSS news/sports + Open-Meteo weather + most-visited quick dials, all fetched source-direct with no keys or trackers), a fully separate dark incognito mode, and an official type system (Space Grotesk + DM Sans) on a refined "Orbit" palette. v3.1 unified the app on the Orbit design system (shrink-not-hide bottom bar, customizable home, bottom-sheet menu); v3.0 added a real download engine, a reading stack, a safety shield, and a from-scratch full-strength ad blocker.
 
 ## Features
 
