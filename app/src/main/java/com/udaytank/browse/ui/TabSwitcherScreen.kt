@@ -58,6 +58,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -70,16 +73,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import com.udaytank.browse.R
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -170,6 +178,20 @@ fun TabSwitcherScreen(
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // Close a tab with an Undo affordance (reopens the just-closed tab from recently-closed).
+    val closeWithUndo: (Long) -> Unit = { id ->
+        onCloseTabView(id)
+        viewModel.onCloseTab(id)
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(message = "Tab closed", actionLabel = "Undo")
+            if (result == SnackbarResult.ActionPerformed) {
+                recentlyClosed.maxByOrNull { it.closedAt }?.let { viewModel.onReopenClosed(it) }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             val scheme = orbit()
@@ -238,26 +260,26 @@ fun TabSwitcherScreen(
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             if (selection.isEmpty()) {
                 val scheme = orbit()
-                FloatingActionButton(
-                    onClick = {
-                        // New tab opens on the side you're viewing.
-                        if (incognitoMode) viewModel.onNewIncognitoTab() else viewModel.onNewTab()
-                        onTabChosen()
-                    },
-                    // Clean circular button, filled with the Orbit accent gradient. Shape and
-                    // gradient use the SAME CircleShape so the shadow and fill line up exactly.
-                    shape = CircleShape,
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White,
-                    modifier = Modifier.background(
-                        Brush.linearGradient(scheme.accent.gradient),
-                        CircleShape,
-                    ),
+                // Custom circular button rather than M3 FloatingActionButton: a transparent-
+                // container FAB still drew its own rounded shape/shadow behind the gradient
+                // circle (the "hexagon"). A single clipped Box is unambiguously one circle.
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .shadow(6.dp, CircleShape)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(scheme.accent.gradient))
+                        .clickable {
+                            if (incognitoMode) viewModel.onNewIncognitoTab() else viewModel.onNewTab()
+                            onTabChosen()
+                        },
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "New tab")
+                    Icon(Icons.Filled.Add, contentDescription = "New tab", tint = Color.White)
                 }
             }
         },
@@ -374,8 +396,9 @@ fun TabSwitcherScreen(
                                     }
                                 }
                                 val onClose = {
-                                    if (!tab.locked) onCloseTabView(tab.id)
-                                    viewModel.onCloseTab(tab.id)
+                                    // Locked tabs go through the confirm dialog; everything else
+                                    // closes immediately with an Undo snackbar.
+                                    if (tab.locked) viewModel.onCloseTab(tab.id) else closeWithUndo(tab.id)
                                 }
                                 val onStartSelection = { selection = setOf(tab.id) }
                                 val onTogglePinned = { viewModel.onTogglePinned(tab.id) }
@@ -684,6 +707,8 @@ private fun TabCard(
                             )
                         }
 
+                        isHomeUrl(tab.url) -> HomeTabPreview()
+
                         thumbnail != null -> Image(
                             bitmap = thumbnail,
                             contentDescription = tab.title,
@@ -780,7 +805,11 @@ private fun TabCard(
                     }
                 }
                 Text(
-                    text = if (tab.isIncognito) "Incognito" else tab.title,
+                    text = when {
+                        tab.isIncognito -> "Incognito"
+                        isHomeUrl(tab.url) -> "Home"
+                        else -> tab.title
+                    },
                     style = orbitBody,
                     color = scheme.text.primary,
                     maxLines = 1,
@@ -913,6 +942,13 @@ private fun TabListRow(
                             )
                         }
 
+                        isHomeUrl(tab.url) -> Image(
+                            painter = painterResource(R.drawable.home_backdrop),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
                         thumbnail != null -> Image(
                             bitmap = thumbnail,
                             contentDescription = tab.title,
@@ -941,13 +977,21 @@ private fun TabListRow(
                         .padding(horizontal = OrbitSpacing.md),
                 ) {
                     Text(
-                        if (tab.isIncognito) "Incognito" else tab.title.ifBlank { tab.url },
+                        when {
+                            tab.isIncognito -> "Incognito"
+                            isHomeUrl(tab.url) -> "Home"
+                            else -> tab.title.ifBlank { tab.url }
+                        },
                         style = orbitBody,
                         color = scheme.text.primary,
                         maxLines = 1,
                     )
                     Text(
-                        if (tab.isIncognito) "Private tab" else UrlHosts.of(tab.url) ?: tab.url,
+                        when {
+                            tab.isIncognito -> "Private tab"
+                            isHomeUrl(tab.url) -> "New tab"
+                            else -> UrlHosts.of(tab.url) ?: tab.url
+                        },
                         style = orbitCaption,
                         color = scheme.text.muted,
                         maxLines = 1,
@@ -1149,6 +1193,30 @@ private fun IncognitoBanner() {
             "You’re browsing privately",
             style = orbitCaption,
             color = scheme.text.secondary,
+        )
+    }
+}
+
+/** True for the internal home tab (browse://home) — shown as "Home" with a cosmic preview. */
+private fun isHomeUrl(url: String) = url == com.udaytank.browse.BrowserViewModel.HOME_URL
+
+/** A glimpse of the home page for a home tab's thumbnail: the cosmic backdrop + wordmark. */
+@Composable
+private fun HomeTabPreview() {
+    val scheme = orbit()
+    Box(modifier = Modifier.fillMaxSize().background(scheme.surfaces.base)) {
+        Image(
+            painter = painterResource(R.drawable.home_backdrop),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopCenter,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Text(
+            "Andromeda",
+            style = orbitBody,
+            color = scheme.accent.solid,
+            modifier = Modifier.align(Alignment.Center),
         )
     }
 }
