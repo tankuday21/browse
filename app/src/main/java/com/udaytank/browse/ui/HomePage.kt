@@ -275,6 +275,12 @@ fun HomePage(
     tabCount: Int = 0,
     onOpenTabs: () -> Unit = {},
     onMenuClick: () -> Unit = {},
+    /**
+     * Task 7 Orbit indicator: the active Orbit's colorArgb, or null to hide it (incognito, or
+     * Orbits not wired). Tapping it opens the Orbit quick-switch sheet.
+     */
+    activeOrbitColor: Int? = null,
+    onOpenOrbitSwitch: () -> Unit = {},
     lifetimeBlocked: Long = 0L,
     showGreeting: Boolean = false,
     showHomeStats: Boolean = false,
@@ -507,6 +513,15 @@ fun HomePage(
                 .padding(OrbitSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (activeOrbitColor != null) {
+                IconButton(onClick = onOpenOrbitSwitch) {
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .background(Color(activeOrbitColor), CircleShape),
+                    )
+                }
+            }
             IconButton(onClick = onOpenTabs) {
                 Text(
                     text = TabBadge.label(tabCount),

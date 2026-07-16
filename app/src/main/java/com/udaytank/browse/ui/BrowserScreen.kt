@@ -65,6 +65,7 @@ import com.udaytank.browse.ui.components.LocalFaviconCache
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
+import com.udaytank.browse.ui.components.OrbitQuickSwitchSheet
 import com.udaytank.browse.ui.components.SuggestionsPanel
 import com.udaytank.browse.ui.theme.OrbitSchemeOverride
 import com.udaytank.browse.ui.theme.darkOrbit
@@ -95,6 +96,11 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var siteSheetOpen by remember { mutableStateOf(false) }
+    // v4.2 Orbits (Task 7): the quick-switch sheet, plus a state flag for the Orbit management
+    // sheet a later task (Task 8) renders — declared here so this task can set it from "Manage
+    // Orbits" without owning that sheet's UI.
+    var orbitSwitchOpen by remember { mutableStateOf(false) }
+    var manageOrbitsOpen by remember { mutableStateOf(false) }
     // K1: the asteroid game over the connectivity-error page. Closes itself if the error
     // clears underneath it (e.g. a background retry succeeded).
     var gameOpen by remember { mutableStateOf(false) }
@@ -145,6 +151,18 @@ fun BrowserScreen(
     // v4.1 site-icon cache (host → Coil model), captured source-direct as you browse.
     val favicons by viewModel.favicons.collectAsStateWithLifecycle()
     var weatherPlaceLabel by rememberSaveable { mutableStateOf("") }
+    // v4.2 Orbits (Task 7): the indicator's color and the quick-switch sheet's list both derive
+    // from these two StateFlows rather than viewModel.activeOrbit() (a plain, non-reactive
+    // function), so recomposition tracks Orbit changes correctly.
+    val orbits by viewModel.orbits.collectAsStateWithLifecycle()
+    val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
+    // Hidden while incognito — the Orbit indicator is about normal browsing, not the
+    // always-dark private context (which already shows its own VisibilityOff cue).
+    val activeOrbitColor = if (isIncognito) {
+        null
+    } else {
+        orbits.find { it.id == activeOrbitId }?.colorArgb
+    }
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -235,6 +253,8 @@ fun BrowserScreen(
             // bottom stack) so it can be opened from BOTH the web bottom bar's ⋮ AND the home
             // top bar's ⋮ — the latter is composed even when this OmniBar is hidden on home.
             menu = {},
+            activeOrbitColor = activeOrbitColor,
+            onOpenOrbitSwitch = { orbitSwitchOpen = true },
             modifier = Modifier
                 .pointerInput(isEditing) {
                     if (isEditing) return@pointerInput
@@ -313,6 +333,8 @@ fun BrowserScreen(
                             onOpenTabs()
                         },
                         onMenuClick = { menuOpen = true },
+                        activeOrbitColor = activeOrbitColor,
+                        onOpenOrbitSwitch = { orbitSwitchOpen = true },
                         // Page fills the space: no bottom-bar footprint to reserve on home, so the
                         // canvas runs to the nav bar (no black strip). navigationBarsPadding keeps
                         // the last feed item clear of the system gesture area.
@@ -652,6 +674,27 @@ fun BrowserScreen(
                 },
             )
         }
+
+        // ── Orbit quick-switch sheet (v4.2 Task 7) ──────────
+        // Hoisted at screen level, same pattern as the overflow menu sheet above, so it can be
+        // opened from the indicator on either bar (web CommandBar or the home top bar).
+        if (orbitSwitchOpen) {
+            OrbitQuickSwitchSheet(
+                orbits = orbits,
+                activeOrbitId = activeOrbitId,
+                tabCountFor = { orbitId -> tabs.count { it.orbitId == orbitId } },
+                onSwitch = {
+                    viewModel.onSwitchOrbit(it)
+                    orbitSwitchOpen = false
+                },
+                onManage = {
+                    orbitSwitchOpen = false
+                    manageOrbitsOpen = true
+                },
+                onDismiss = { orbitSwitchOpen = false },
+            )
+        }
+        // Task 8 renders the Orbit management sheet on `manageOrbitsOpen`; not built here.
 
         // ── Site permission prompt ──────────────────────────
         permissionPrompt?.let { prompt ->

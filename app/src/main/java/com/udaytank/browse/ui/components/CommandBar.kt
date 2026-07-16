@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -105,6 +106,14 @@ fun CommandBar(
     homePill: Boolean = false,
     /** Voice-search result from the home pill's mic; same typed search-or-url path. */
     onVoiceSubmit: ((String) -> Unit)? = null,
+    /**
+     * The active Orbit's [colorArgb][com.udaytank.browse.data.OrbitEntity.colorArgb], or null to
+     * hide the indicator (incognito, or Orbits not wired). Task 7: a small tappable colored dot
+     * that opens the Orbit quick-switch sheet — the Orbit indicator is about normal browsing, so
+     * callers pass null while incognito rather than showing a private Orbit's color.
+     */
+    activeOrbitColor: Int? = null,
+    onOpenOrbitSwitch: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier
@@ -211,6 +220,15 @@ fun CommandBar(
                             IconButton(onClick = launchVoice) {
                                 Icon(Icons.Filled.Mic, contentDescription = "Voice search")
                             }
+                        }
+                    }
+                    if (activeOrbitColor != null) {
+                        IconButton(onClick = onOpenOrbitSwitch) {
+                            Box(
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .background(Color(activeOrbitColor), CircleShape),
+                            )
                         }
                     }
                     IconButton(onClick = onOpenTabs) {
