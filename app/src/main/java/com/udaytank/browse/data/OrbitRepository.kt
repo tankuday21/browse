@@ -18,14 +18,19 @@ class OrbitRepository(
 
     suspend fun create(name: String, colorArgb: Int, now: Long): OrbitEntity = withContext(io) {
         val count = dao.count()
-        val key = "orbit_${now}_$count"
         val row = OrbitEntity(
             name = name.trim().ifBlank { "Orbit" }.take(30),
             colorArgb = colorArgb,
             position = count,
-            profileKey = key,
+            // Temporary placeholder; replaced below with a key derived from the
+            // autoincrement id, which SQLite guarantees is monotonic and never reused
+            // (unlike count(), which drops on delete and can collide or reuse a key).
+            profileKey = "",
         )
-        row.copy(id = dao.insert(row))
+        val id = dao.insert(row)
+        val finalRow = row.copy(id = id, profileKey = "orbit_$id")
+        dao.update(finalRow)
+        finalRow
     }
 
     suspend fun rename(id: Long, name: String) = withContext(io) {

@@ -39,4 +39,21 @@ class OrbitRepositoryTest {
         val again = r.ensureDefault(now = 6L)
         assertEquals(first.id, again.id)          // no duplicate
     }
+
+    @Test fun `create never reuses a profileKey after a delete, even with identical now`() = runTest {
+        val r = repo()
+        val a = r.create("A", 0x1, now = 1000L)
+        val b = r.create("B", 0x2, now = 1000L)   // same `now` as A, would collide under the old count()-based key
+        assertTrue(r.delete(b.id))                // frees up dao.count() back to what it was before B existed
+
+        val c = r.create("C", 0x3, now = 1000L)   // same `now` again, after a delete dropped count()
+
+        // C must not collide with A's still-live key, nor inherit B's now-deleted key.
+        assertNotEquals(a.profileKey, c.profileKey)
+        assertNotEquals(b.profileKey, c.profileKey)
+
+        // All profileKeys ever handed out must be unique across the Orbit's lifetime.
+        val allKeys = listOf(a.profileKey, b.profileKey, c.profileKey)
+        assertEquals(allKeys.size, allKeys.toSet().size)
+    }
 }
