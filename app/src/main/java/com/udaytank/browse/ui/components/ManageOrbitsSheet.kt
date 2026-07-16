@@ -262,7 +262,6 @@ private fun OrbitManageRow(
             colorArgb = entry.colorArgb,
             iconKey = entry.iconKey,
             size = 32.dp,
-            modifier = Modifier.clickable(onClick = onEdit),
         )
         Text(
             entry.name,
