@@ -1252,21 +1252,24 @@ class BrowserViewModel(
             // own rows only (v4.4).
             val orbitId = activeOrbitId.value
 
-            val existingBookmarks = bookmarkDao.getAllForOrbit(orbitId).map { it.url }.toSet()
+            // Whole-DB backups can contain the same URL from several Orbits; since restore folds
+            // everything into the active Orbit, dedupe against a set that grows AS we insert (not
+            // a snapshot taken once) so the count is honest and no duplicate tile/row is written.
+            val seenBookmarkUrls = bookmarkDao.getAllForOrbit(orbitId).map { it.url }.toMutableSet()
             var bookmarksAdded = 0
             backup.bookmarks.forEach { bookmark ->
-                if (bookmark.url !in existingBookmarks) {
+                if (seenBookmarkUrls.add(bookmark.url)) {
                     bookmarkDao.insert(bookmark.copy(id = 0, orbitId = orbitId))
                     bookmarksAdded++
                 }
             }
 
             val currentShortcuts = homeShortcutDao.getAllForOrbit(orbitId)
-            val existingShortcutUrls = currentShortcuts.map { it.url }.toSet()
+            val seenShortcutUrls = currentShortcuts.map { it.url }.toMutableSet()
             var nextPosition = (currentShortcuts.maxOfOrNull { it.position } ?: -1) + 1
             var shortcutsAdded = 0
             backup.homeShortcuts.sortedBy { it.position }.forEach { shortcut ->
-                if (shortcut.url !in existingShortcutUrls) {
+                if (seenShortcutUrls.add(shortcut.url)) {
                     homeShortcutDao.insert(shortcut.copy(id = 0, position = nextPosition++, orbitId = orbitId))
                     shortcutsAdded++
                 }

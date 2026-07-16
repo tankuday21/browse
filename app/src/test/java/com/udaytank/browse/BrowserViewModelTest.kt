@@ -1108,6 +1108,39 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `restoring a multi-orbit backup folds duplicate urls into one row per active orbit`() = runTest {
+        // A whole-DB backup can hold the same URL from two Orbits. Restore folds everything into
+        // the active Orbit; the same URL must land once (honest count, no duplicate shortcut tile).
+        val bookmarkDao = FakeBookmarkDao()
+        val shortcutDao = FakeHomeShortcutDao()
+        val vm = vm(bookmarkDao = bookmarkDao, homeShortcutDao = shortcutDao)
+        advanceUntilIdle()
+        val orbit = vm.activeOrbitId.value
+
+        val backup = com.udaytank.browse.browser.Backup(
+            settings = emptyMap(),
+            bookmarks = listOf(
+                com.udaytank.browse.data.Bookmark(url = "https://x.com", title = "X (personal)", createdAt = 1, orbitId = 100),
+                com.udaytank.browse.data.Bookmark(url = "https://x.com", title = "X (work)", createdAt = 2, orbitId = 200),
+            ),
+            homeShortcuts = listOf(
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://x.com", title = "X", position = 0, orbitId = 100),
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://x.com", title = "X", position = 0, orbitId = 200),
+            ),
+            readingList = emptyList(),
+            tabGroups = emptyList(),
+        )
+
+        val messages = mutableListOf<String>()
+        vm.onRestoreBackup(backup) { messages += it }
+        advanceUntilIdle()
+
+        assertEquals(1, bookmarkDao.bookmarks.value.count { it.url == "https://x.com" && it.orbitId == orbit })
+        assertEquals(1, shortcutDao.shortcuts.value.count { it.url == "https://x.com" && it.orbitId == orbit })
+        assertEquals(listOf("Restored 1 bookmarks, 1 shortcuts, 0 reading list items, 0 tab groups"), messages)
+    }
+
+    @Test
     fun `restore overwrites settings and skips unparseable values`() = runTest {
         val settings = FakeSettingsRepository()
         val vm = vm(settings = settings)
