@@ -89,6 +89,7 @@ class BrowseApplication : Application() {
                 BrowseDatabase.MIGRATION_9_10,
                 BrowseDatabase.MIGRATION_10_11,
                 BrowseDatabase.MIGRATION_11_12,
+                BrowseDatabase.MIGRATION_12_13,
             )
             .build()
     }
@@ -106,5 +107,10 @@ class BrowseApplication : Application() {
     /** v4.0 Element Zapper: per-site hidden-element store. */
     val zapRepository: com.udaytank.browse.data.ZapRepository by lazy {
         com.udaytank.browse.data.ZapRepository(database.zappedElementDao())
+    }
+
+    /** v4.1 site-icon cache, captured source-direct from the WebView as you browse. */
+    val faviconRepository: com.udaytank.browse.data.FaviconRepository by lazy {
+        com.udaytank.browse.data.FaviconRepository(database.faviconDao())
     }
 }

@@ -105,6 +105,9 @@ interface SettingsRepository {
     suspend fun setShowFeed(enabled: Boolean)
     val showWeather: Flow<Boolean>
     suspend fun setShowWeather(enabled: Boolean)
+    /** News section on the home feed. Off by default (v4.1) — opt-in from Settings. */
+    val showNews: Flow<Boolean>
+    suspend fun setShowNews(enabled: Boolean)
     /** City name for weather when not using location; "" if unset. */
     val weatherCity: Flow<String>
     suspend fun setWeatherCity(city: String)
@@ -376,6 +379,11 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[SHOW_WEATHER_KEY] = enabled }
     }
 
+    override val showNews: Flow<Boolean> = dataStore.data.map { it[SHOW_NEWS_KEY] ?: false }
+    override suspend fun setShowNews(enabled: Boolean) {
+        dataStore.edit { it[SHOW_NEWS_KEY] = enabled }
+    }
+
     override val weatherCity: Flow<String> = dataStore.data.map { it[WEATHER_CITY_KEY] ?: "" }
     override suspend fun setWeatherCity(city: String) {
         dataStore.edit { it[WEATHER_CITY_KEY] = city }
@@ -390,6 +398,7 @@ class DataStoreSettingsRepository(
     private companion object {
         val SHOW_FEED_KEY = booleanPreferencesKey("show_feed")
         val SHOW_WEATHER_KEY = booleanPreferencesKey("show_weather")
+        val SHOW_NEWS_KEY = booleanPreferencesKey("show_news")
         val WEATHER_CITY_KEY = stringPreferencesKey("weather_city")
         val WEATHER_USE_LOCATION_KEY = booleanPreferencesKey("weather_use_location")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")

@@ -160,6 +160,8 @@ class BrowserViewModel(
     private val feedRepository: FeedRepository? = null,
     private val weatherRepository: WeatherRepository? = null,
     private val zapRepository: ZapRepository? = null,
+    /** v4.1 site-icon cache (null in tests → letters only). */
+    private val faviconRepository: com.udaytank.browse.data.FaviconRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -594,6 +596,8 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val showWeather: StateFlow<Boolean> = settings.showWeather
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val showNews: StateFlow<Boolean> = settings.showNews
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     val weatherCity: StateFlow<String> = settings.weatherCity
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val weatherUseLocation: StateFlow<Boolean> = settings.weatherUseLocation
@@ -605,6 +609,10 @@ class BrowserViewModel(
 
     fun onShowWeatherToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setShowWeather(enabled) }
+    }
+
+    fun onShowNewsToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setShowNews(enabled) }
     }
 
     fun onWeatherCityChanged(city: String) {
@@ -1481,6 +1489,35 @@ class BrowserViewModel(
     suspend fun zapSelectorsForHost(host: String): List<String> =
         zapRepository?.selectorsForHost(host) ?: emptyList()
 
+    // ── v4.1 site icons (captured source-direct as you browse) ──────────
+    /**
+     * host → Coil-loadable model for that site's cached icon: a high-res touch-icon URL (String)
+     * when the site declared one, else the decoded favicon bytes wrapped in a ByteBuffer. Home
+     * shortcuts / quick dials render this first, falling back to network-guessed icons then a
+     * letter. Empty until you visit sites (never populated from incognito).
+     */
+    val favicons: StateFlow<Map<String, Any>> =
+        (faviconRepository?.observeAll() ?: flowOf(emptyList()))
+            .map { list ->
+                list.mapNotNull { e ->
+                    val model: Any? = e.iconUrl ?: e.iconBytes?.let { java.nio.ByteBuffer.wrap(it) }
+                    if (model != null) e.host to model else null
+                }.toMap()
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** WebView reported a declared touch-icon URL (already incognito-filtered at the source). */
+    fun onTouchIconUrl(host: String, url: String) {
+        val repo = faviconRepository ?: return
+        viewModelScope.launch { repo.saveTouchIcon(host, url, System.currentTimeMillis()) }
+    }
+
+    /** WebView decoded the site favicon (already incognito-filtered at the source). */
+    fun onFaviconBitmap(host: String, bitmap: android.graphics.Bitmap) {
+        val repo = faviconRepository ?: return
+        viewModelScope.launch { repo.saveBitmap(host, bitmap, System.currentTimeMillis()) }
+    }
+
     companion object {
         const val HOME_URL = "browse://home"
 
@@ -1514,6 +1551,7 @@ class BrowserViewModel(
                     feedRepository = app.feedRepository,
                     weatherRepository = app.weatherRepository,
                     zapRepository = app.zapRepository,
+                    faviconRepository = app.faviconRepository,
                 )
             }
         }

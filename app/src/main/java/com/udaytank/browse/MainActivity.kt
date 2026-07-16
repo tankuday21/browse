@@ -394,6 +394,12 @@ class MainActivity : FragmentActivity() {
 
                         override fun onZapPicked(tabId: Long, host: String, selector: String, label: String) =
                             viewModel.onZapPicked(tabId, host, selector, label)
+
+                        override fun onTouchIconUrl(host: String, url: String) =
+                            viewModel.onTouchIconUrl(host, url)
+
+                        override fun onFaviconBitmap(host: String, bitmap: android.graphics.Bitmap) =
+                            viewModel.onFaviconBitmap(host, bitmap)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }

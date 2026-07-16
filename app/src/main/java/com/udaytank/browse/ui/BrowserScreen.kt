@@ -39,6 +39,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,8 @@ import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.data.WeatherLocation
 import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.HomeSearchOverlay
+import com.udaytank.browse.ui.components.LocalFaviconCache
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
@@ -136,8 +139,11 @@ fun BrowserScreen(
     val sportsItems by viewModel.sportsItems.collectAsStateWithLifecycle()
     val showFeed by viewModel.showFeed.collectAsStateWithLifecycle()
     val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
+    val showNews by viewModel.showNews.collectAsStateWithLifecycle()
     val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
     val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
+    // v4.1 site-icon cache (host → Coil model), captured source-direct as you browse.
+    val favicons by viewModel.favicons.collectAsStateWithLifecycle()
     var weatherPlaceLabel by rememberSaveable { mutableStateOf("") }
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
@@ -225,79 +231,10 @@ fun BrowserScreen(
                 onOpenTabs()
             },
             onMenuClick = { menuOpen = true },
-            menu = {
-                // Bottom-sheet menu (Orbit v3.1 §5): container + styling change only — every
-                // action/condition/badge below is the same one the prior DropdownMenu carried,
-                // just wired through BrowserMenuSheet's params instead of DropdownMenuItem.
-                if (menuOpen) {
-                    BrowserMenuSheet(
-                        onDismissRequest = { menuOpen = false },
-                        canGoBack = state.canGoBack,
-                        canGoForward = state.canGoForward,
-                        hasPage = state.currentUrl != null,
-                        isBookmarked = isBookmarked,
-                        onBack = { viewModel.onBackPressed(); menuOpen = false },
-                        onForward = { viewModel.onForwardPressed(); menuOpen = false },
-                        onReload = { viewModel.onReloadPressed(); menuOpen = false },
-                        onShare = {
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, state.currentUrl)
-                            }
-                            context.startActivity(Intent.createChooser(send, "Share page"))
-                            menuOpen = false
-                        },
-                        onToggleBookmark = { viewModel.onToggleBookmark(); menuOpen = false },
-                        onAddToHome = {
-                            viewModel.onAddCurrentPageToHome { message ->
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            }
-                            menuOpen = false
-                        },
-                        onNewTab = { viewModel.onNewTab(); menuOpen = false },
-                        onNewIncognitoTab = { viewModel.onNewIncognitoTab(); menuOpen = false },
-                        onOpenBookmarks = { onOpenBookmarks(); menuOpen = false },
-                        onOpenHistory = { onOpenHistory(); menuOpen = false },
-                        onOpenDownloads = { onOpenDownloads(); menuOpen = false },
-                        activeDownloadCount = activeDownloadCount,
-                        onOpenReadingList = { onOpenReadingList(); menuOpen = false },
-                        unreadCount = unreadCount,
-                        onSaveForLater = {
-                            viewModel.onSaveForLater(holder::extractReaderContent) { message ->
-                                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                            }
-                            menuOpen = false
-                        },
-                        isHome = isHome,
-                        readerActive = readerActive,
-                        onToggleReaderMode = { viewModel.onToggleReaderMode(); menuOpen = false },
-                        onFindInPage = { viewModel.onFindOpen(); menuOpen = false },
-                        isDesktopSite = activeTabId in desktopTabs,
-                        onToggleDesktopSite = {
-                            val desktop = viewModel.onToggleDesktopSite()
-                            activeTabId?.let { holder.setDesktopMode(it, desktop) }
-                            menuOpen = false
-                        },
-                        currentHost = currentHost,
-                        onOpenSiteSettings = { siteSheetOpen = true; menuOpen = false },
-                        onPrint = { onPrint(); menuOpen = false },
-                        onZapElement = {
-                            menuOpen = false
-                            activeTabId?.let { holder.enterZapMode(it) }
-                        },
-                        onOpenHiddenElements = { menuOpen = false; showHiddenSheet = true },
-                        hiddenCount = hiddenCount,
-                        onOpenSettings = { onOpenSettings(); menuOpen = false },
-                        blockedOnPage = blockedOnPage,
-                        isAdAllowedOnSite = currentHost in adAllowedSites,
-                        onToggleAdAllowlist = {
-                            viewModel.onToggleAllowAdsOnCurrentSite()
-                            viewModel.onReloadPressed()
-                            menuOpen = false
-                        },
-                    )
-                }
-            },
+            // The overflow menu sheet is hoisted to screen level (see `if (menuOpen)` below the
+            // bottom stack) so it can be opened from BOTH the web bottom bar's ⋮ AND the home
+            // top bar's ⋮ — the latter is composed even when this OmniBar is hidden on home.
+            menu = {},
             modifier = Modifier
                 .pointerInput(isEditing) {
                     if (isEditing) return@pointerInput
@@ -330,9 +267,11 @@ fun BrowserScreen(
     BackHandler(enabled = isEditing) { isEditing = false }
     BackHandler(enabled = !isEditing && state.canGoBack) { viewModel.onBackPressed() }
 
-    // v3.2: the home page and any incognito context render always-dark (their own dark Orbit
-    // scheme) regardless of the app/system theme; normal web browsing follows the app theme.
-    val screenScheme = if (isHome || isIncognito) darkOrbit else orbit()
+    // The home page now FOLLOWS the app theme (light theme → light home), so a light-theme user
+    // no longer lands on a dark screen. Incognito alone stays always-dark — a deliberate private
+    // affordance — regardless of the chosen theme. Normal web browsing follows the app theme too.
+    val screenScheme = if (isIncognito) darkOrbit else orbit()
+    CompositionLocalProvider(LocalFaviconCache provides favicons) {
     OrbitSchemeOverride(screenScheme) {
     Box(
         modifier = Modifier
@@ -363,13 +302,23 @@ fun BrowserScreen(
                         // bar is hidden on home while not editing — see the omniBar() gate below).
                         onSearchClick = { isEditing = true },
                         onVoiceSearch = { isEditing = true },
-                        // Content-above-bar: the home canvas stops exactly where the shared
-                        // OmniBar starts (no centered pill anymore — see the omniBar composable
-                        // below, rendered bottom-anchored for home exactly like on web).
+                        // Home owns Tabs + overflow-menu at its own top bar (the bottom bar is
+                        // hidden here). Same actions the bottom bar wires: capture a thumbnail of
+                        // the outgoing tab before switching, and open the hoisted menu sheet.
+                        // Count ONLY the current context's tabs so the incognito home starts at 0
+                        // and never shows the normal tabs "merged in".
+                        tabCount = tabs.count { it.isIncognito == isIncognito },
+                        onOpenTabs = {
+                            holder.captureThumbnail(activeTabId ?: -999L)
+                            onOpenTabs()
+                        },
+                        onMenuClick = { menuOpen = true },
+                        // Page fills the space: no bottom-bar footprint to reserve on home, so the
+                        // canvas runs to the nav bar (no black strip). navigationBarsPadding keeps
+                        // the last feed item clear of the system gesture area.
                         modifier = Modifier
                             .fillMaxSize()
-                            .navigationBarsPadding()
-                            .padding(bottom = OmniBarReservedHeight),
+                            .navigationBarsPadding(),
                         lifetimeBlocked = lifetimeBlocked,
                         showGreeting = showGreeting,
                         showHomeStats = showHomeStats,
@@ -382,6 +331,7 @@ fun BrowserScreen(
                         sportsItems = sportsItems,
                         showFeed = showFeed,
                         showWeather = showWeather,
+                        showNews = showNews,
                     )
                 } else if (readerActive) {
                     ReaderOverlay(
@@ -568,7 +518,9 @@ fun BrowserScreen(
                 .imePadding()
                 .padding(bottom = OmniBarInset),
         ) {
-            if (isEditing && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
+            // Web-page editing shows suggestions above the bottom bar. HOME editing uses the
+            // top-anchored HomeSearchOverlay instead (Chrome-NTP style), so nothing here on home.
+            if (isEditing && !isHome && (suggestions.isNotEmpty() || copiedUrlSuggestion != null)) {
                 SuggestionsPanel(
                     suggestions = suggestions,
                     onPick = {
@@ -601,16 +553,103 @@ fun BrowserScreen(
                         viewModel.onFindClose()
                     },
                 )
-            } else if (!readerActive && !(isHome && !isEditing)) {
-                // The shared OmniBar. v4.1 (#7): on HOME it's hidden while not editing — the
-                // home's own middle search pill is the entry point there; tapping it sets
-                // isEditing=true, which brings this bar up as the edit field (above the keyboard)
-                // for typing/suggestions. On web pages the bar shows as before.
+            } else if (!readerActive && !isHome) {
+                // The shared OmniBar — WEB pages only now. HOME never shows a bottom bar: its
+                // centered pill is the entry point and tapping it opens the top HomeSearchOverlay
+                // (Chrome-NTP style), so there's never a competing bottom search bar on home.
                 //
                 // Reader mode (spec §3) hides the bar entirely (ReaderOverlay has its own bottom
                 // controls); exiting still works via BackHandler / ReaderOverlay.
                 omniBar()
             }
+        }
+
+        // ── Home search (Chrome-NTP): full-screen top-anchored search over the home canvas ──
+        // Only on home; tapping the centered pill sets isEditing=true, which animates this in.
+        HomeSearchOverlay(
+            visible = isHome && isEditing,
+            addressText = state.addressBarText,
+            suggestions = suggestions,
+            copiedUrl = copiedUrlSuggestion,
+            onTextChange = viewModel::onAddressBarTextChanged,
+            onSubmit = { viewModel.onGoPressed(); isEditing = false },
+            onPick = { viewModel.onSuggestionPicked(it); isEditing = false },
+            onPickCopied = { url -> viewModel.onOpenUrl(url); isEditing = false },
+            onDismiss = { isEditing = false },
+        )
+
+        // ── Overflow menu sheet (hoisted) ───────────────────
+        // Rendered at screen level (not inside the OmniBar's `menu` slot) so it opens from the
+        // web bottom bar's ⋮ AND the home top bar's ⋮ alike. As a ModalBottomSheet it overlays
+        // the window regardless of where it sits in the tree. Every action/condition/badge is
+        // exactly what the bottom bar carried before the hoist.
+        if (menuOpen) {
+            BrowserMenuSheet(
+                onDismissRequest = { menuOpen = false },
+                canGoBack = state.canGoBack,
+                canGoForward = state.canGoForward,
+                hasPage = state.currentUrl != null,
+                isBookmarked = isBookmarked,
+                onBack = { viewModel.onBackPressed(); menuOpen = false },
+                onForward = { viewModel.onForwardPressed(); menuOpen = false },
+                onReload = { viewModel.onReloadPressed(); menuOpen = false },
+                onShare = {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, state.currentUrl)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Share page"))
+                    menuOpen = false
+                },
+                onToggleBookmark = { viewModel.onToggleBookmark(); menuOpen = false },
+                onAddToHome = {
+                    viewModel.onAddCurrentPageToHome { message ->
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    }
+                    menuOpen = false
+                },
+                onNewTab = { viewModel.onNewTab(); menuOpen = false },
+                onNewIncognitoTab = { viewModel.onNewIncognitoTab(); menuOpen = false },
+                onOpenBookmarks = { onOpenBookmarks(); menuOpen = false },
+                onOpenHistory = { onOpenHistory(); menuOpen = false },
+                onOpenDownloads = { onOpenDownloads(); menuOpen = false },
+                activeDownloadCount = activeDownloadCount,
+                onOpenReadingList = { onOpenReadingList(); menuOpen = false },
+                unreadCount = unreadCount,
+                onSaveForLater = {
+                    viewModel.onSaveForLater(holder::extractReaderContent) { message ->
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                    }
+                    menuOpen = false
+                },
+                isHome = isHome,
+                readerActive = readerActive,
+                onToggleReaderMode = { viewModel.onToggleReaderMode(); menuOpen = false },
+                onFindInPage = { viewModel.onFindOpen(); menuOpen = false },
+                isDesktopSite = activeTabId in desktopTabs,
+                onToggleDesktopSite = {
+                    val desktop = viewModel.onToggleDesktopSite()
+                    activeTabId?.let { holder.setDesktopMode(it, desktop) }
+                    menuOpen = false
+                },
+                currentHost = currentHost,
+                onOpenSiteSettings = { siteSheetOpen = true; menuOpen = false },
+                onPrint = { onPrint(); menuOpen = false },
+                onZapElement = {
+                    menuOpen = false
+                    activeTabId?.let { holder.enterZapMode(it) }
+                },
+                onOpenHiddenElements = { menuOpen = false; showHiddenSheet = true },
+                hiddenCount = hiddenCount,
+                onOpenSettings = { onOpenSettings(); menuOpen = false },
+                blockedOnPage = blockedOnPage,
+                isAdAllowedOnSite = currentHost in adAllowedSites,
+                onToggleAdAllowlist = {
+                    viewModel.onToggleAllowAdsOnCurrentSite()
+                    viewModel.onReloadPressed()
+                    menuOpen = false
+                },
+            )
         }
 
         // ── Site permission prompt ──────────────────────────
@@ -875,6 +914,7 @@ fun BrowserScreen(
         }
     }
     } // OrbitSchemeOverride
+    } // CompositionLocalProvider (site-icon cache)
 }
 
 /**

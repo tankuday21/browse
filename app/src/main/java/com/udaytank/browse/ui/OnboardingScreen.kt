@@ -3,7 +3,8 @@ package com.udaytank.browse.ui
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,37 +12,42 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.udaytank.browse.R
+import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
@@ -94,7 +100,7 @@ fun OnboardingScreen(
                 TextButton(
                     onClick = onDone,
                     modifier = Modifier.padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.xs),
-                ) { Text("Skip") }
+                ) { Text("Skip", style = orbitBody, color = scheme.text.secondary) }
             }
 
             HorizontalPager(
@@ -113,23 +119,29 @@ fun OnboardingScreen(
                 }
             }
 
-            // Page indicator dots.
+            // Page indicator dots — the active page grows into a soft accent pill; the rest stay
+            // small tonal dots. A short, snappy tween keeps the swap feeling alive without fuss.
             Row(
                 horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = OrbitSpacing.md),
             ) {
                 repeat(3) { index ->
+                    val active = index == pagerState.currentPage
+                    val width by animateDpAsState(
+                        if (active) 22.dp else 8.dp,
+                        animationSpec = tween(220),
+                        label = "dotWidth",
+                    )
                     Box(
                         modifier = Modifier
                             .padding(horizontal = OrbitSpacing.xs)
-                            .size(8.dp)
+                            .height(8.dp)
+                            .width(width)
                             .clip(CircleShape)
-                            .background(
-                                if (index == pagerState.currentPage) scheme.accent.solid
-                                else scheme.surfaces.elevated
-                            ),
+                            .background(if (active) scheme.accent.solid else scheme.surfaces.elevated),
                     )
                 }
             }
@@ -142,19 +154,44 @@ fun OnboardingScreen(
                         onDone()
                     }
                 },
+                shape = RoundedCornerShape(OrbitRadii.pill),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = OrbitSpacing.xl)
                     .padding(bottom = OrbitSpacing.lg),
             ) {
-                Text(if (pagerState.currentPage < 2) "Next" else "Get started")
+                Text(
+                    if (pagerState.currentPage < 2) "Next" else "Get started",
+                    style = orbitBody,
+                )
             }
         }
     }
 }
 
+/** A flat tonal circle behind a hero icon — the shared "confident hero" treatment for each page. */
+@Composable
+private fun HeroIcon(icon: ImageVector, size: androidx.compose.ui.unit.Dp = 96.dp) {
+    val scheme = orbit()
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(scheme.accent.solid.copy(alpha = if (scheme.dark) 0.18f else 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = scheme.accent.solid,
+            modifier = Modifier.size(size * 0.42f),
+        )
+    }
+}
+
 @Composable
 private fun BrandingPage() {
+    val scheme = orbit()
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -162,17 +199,17 @@ private fun BrandingPage() {
             .fillMaxSize()
             .padding(horizontal = OrbitSpacing.xxl),
     ) {
-        Image(
-            painter = painterResource(R.drawable.ic_launcher_fg),
-            contentDescription = null,
-            modifier = Modifier.size(120.dp),
+        // Gradient wordmark — the same confident brand treatment as the Home canvas.
+        Text(
+            "Andromeda",
+            style = orbitDisplay.merge(TextStyle(brush = Brush.horizontalGradient(scheme.accent.gradient))),
         )
         Text(
             "Your private power browser",
-            style = orbitDisplay,
-            color = orbit().text.primary,
+            style = orbitBody,
+            color = scheme.text.secondary,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = OrbitSpacing.lg, bottom = OrbitSpacing.xl),
+            modifier = Modifier.padding(top = OrbitSpacing.sm, bottom = OrbitSpacing.xxl),
         )
         FeatureBullet(Icons.Filled.Block, "Ad blocking built in")
         FeatureBullet(Icons.Filled.Lock, "Your data stays on your device")
@@ -183,24 +220,38 @@ private fun BrandingPage() {
 @Composable
 private fun FeatureBullet(icon: ImageVector, text: String) {
     val scheme = orbit()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        color = scheme.surfaces.surface,
+        shape = RoundedCornerShape(OrbitRadii.card),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = OrbitSpacing.sm),
+            .padding(vertical = OrbitSpacing.xs),
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = scheme.accent.solid,
-            modifier = Modifier.size(22.dp),
-        )
-        Text(
-            text,
-            style = orbitBody,
-            color = scheme.text.primary,
-            modifier = Modifier.padding(start = OrbitSpacing.lg),
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(scheme.accent.solid.copy(alpha = if (scheme.dark) 0.18f else 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = scheme.accent.solid,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text,
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(start = OrbitSpacing.lg),
+            )
+        }
     }
 }
 
@@ -214,11 +265,13 @@ private fun ImportPage(onImport: () -> Unit) {
             .fillMaxSize()
             .padding(horizontal = OrbitSpacing.xxl),
     ) {
+        HeroIcon(Icons.Filled.Download)
         Text(
             "Bring your bookmarks",
             style = orbitDisplay,
             color = scheme.text.primary,
             textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = OrbitSpacing.xl),
         )
         Text(
             "Export your bookmarks from your old browser as an HTML file, then pick it here.",
@@ -227,7 +280,14 @@ private fun ImportPage(onImport: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(vertical = OrbitSpacing.lg),
         )
-        OutlinedButton(onClick = onImport) { Text("Import bookmarks") }
+        FilledTonalButton(
+            onClick = onImport,
+            shape = RoundedCornerShape(OrbitRadii.pill),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = scheme.surfaces.elevated,
+                contentColor = scheme.text.primary,
+            ),
+        ) { Text("Import bookmarks", style = orbitBody) }
     }
 }
 
@@ -241,11 +301,13 @@ private fun DefaultBrowserPage(onSetDefault: () -> Unit, onMaybeLater: () -> Uni
             .fillMaxSize()
             .padding(horizontal = OrbitSpacing.xxl),
     ) {
+        HeroIcon(Icons.Filled.Public)
         Text(
             "Make Andromeda your default",
             style = orbitDisplay,
             color = scheme.text.primary,
             textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = OrbitSpacing.xl),
         )
         Text(
             "Links from other apps will open here, with ads blocked and your privacy protected.",
@@ -254,10 +316,17 @@ private fun DefaultBrowserPage(onSetDefault: () -> Unit, onMaybeLater: () -> Uni
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(vertical = OrbitSpacing.lg),
         )
-        OutlinedButton(onClick = onSetDefault) { Text("Set as default browser") }
+        FilledTonalButton(
+            onClick = onSetDefault,
+            shape = RoundedCornerShape(OrbitRadii.pill),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = scheme.surfaces.elevated,
+                contentColor = scheme.text.primary,
+            ),
+        ) { Text("Set as default browser", style = orbitBody) }
         TextButton(
             onClick = onMaybeLater,
             modifier = Modifier.padding(top = OrbitSpacing.sm),
-        ) { Text("Maybe later") }
+        ) { Text("Maybe later", style = orbitBody, color = scheme.text.secondary) }
     }
 }

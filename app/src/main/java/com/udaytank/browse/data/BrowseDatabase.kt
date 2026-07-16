@@ -22,8 +22,9 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         FeedItemEntity::class,
         RssSourceEntity::class,
         ZappedElementEntity::class,
+        FaviconEntity::class,
     ],
-    version = 12,
+    version = 13,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -37,8 +38,22 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun homeShortcutDao(): HomeShortcutDao
     abstract fun feedDao(): FeedDao
     abstract fun zappedElementDao(): ZappedElementDao
+    abstract fun faviconDao(): FaviconDao
 
     companion object {
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `favicons` (" +
+                        "`host` TEXT NOT NULL, " +
+                        "`iconUrl` TEXT, " +
+                        "`iconBytes` BLOB, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`host`))"
+                )
+            }
+        }
+
         val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE feed_items ADD COLUMN description TEXT NOT NULL DEFAULT ''")

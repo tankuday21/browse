@@ -1,21 +1,28 @@
 package com.udaytank.browse.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,10 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
-import com.udaytank.browse.ui.components.OrbitListRow
+import com.udaytank.browse.data.HistoryEntry
+import com.udaytank.browse.ui.components.FaviconOrLetter
+import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -58,7 +68,7 @@ fun HistoryScreen(
 
     Scaffold(
         topBar = {
-            Column {
+            Column(modifier = Modifier.background(scheme.surfaces.base)) {
                 OrbitTopBar(
                     title = "History",
                     onBack = onBack,
@@ -72,11 +82,11 @@ fun HistoryScreen(
                         }
                     },
                 )
-                OutlinedTextField(
+                OrbitTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Search history") },
-                    singleLine = true,
+                    label = "Search history",
+                    leadingIcon = Icons.Filled.Search,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
@@ -86,19 +96,10 @@ fun HistoryScreen(
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.xl),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    Icons.Filled.History,
-                    contentDescription = null,
-                    tint = scheme.text.muted,
-                    modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
-                )
-                Text("No history yet", style = orbitBody, color = scheme.text.muted)
-            }
+            HistoryEmptyState(
+                searching = query.isNotBlank(),
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+            )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 grouped.forEach { (date, dayEntries) ->
@@ -111,25 +112,89 @@ fun HistoryScreen(
                         )
                     }
                     items(dayEntries, key = { it.id }) { entry ->
-                        OrbitListRow(
-                            leadingIcon = null,
-                            title = entry.title,
-                            subtitle = entry.url,
+                        HistoryRow(
+                            entry = entry,
                             onClick = { onOpenUrl(entry.url) },
-                            trailing = {
-                                IconButton(onClick = { viewModel.onDeleteHistoryEntry(entry.id) }) {
-                                    Icon(
-                                        Icons.Filled.Delete,
-                                        contentDescription = "Delete entry",
-                                        tint = scheme.text.secondary,
-                                    )
-                                }
-                            },
+                            onDelete = { viewModel.onDeleteHistoryEntry(entry.id) },
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    entry: HistoryEntry,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val scheme = orbit()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
+    ) {
+        FaviconOrLetter(url = entry.url, label = entry.title, size = 36.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                entry.title,
+                style = orbitBody,
+                color = scheme.text.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                entry.url,
+                style = orbitCaption,
+                color = scheme.text.muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = "Delete entry",
+                tint = scheme.text.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryEmptyState(searching: Boolean, modifier: Modifier = Modifier) {
+    val scheme = orbit()
+    Column(
+        modifier = modifier.padding(OrbitSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = scheme.surfaces.elevated,
+            modifier = Modifier.size(88.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.Filled.History,
+                    contentDescription = null,
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+        Text(
+            if (searching) "No matching history" else "No history yet",
+            style = orbitBody,
+            color = scheme.text.muted,
+            modifier = Modifier.padding(top = OrbitSpacing.md),
+        )
     }
 }
 

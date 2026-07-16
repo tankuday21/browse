@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
@@ -45,6 +46,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -61,11 +63,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.data.DownloadEntry
+import com.udaytank.browse.ui.components.FaviconOrLetter
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
@@ -105,19 +109,7 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding).padding(OrbitSpacing.xl),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    Icons.Filled.Download,
-                    contentDescription = null,
-                    tint = scheme.text.muted,
-                    modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
-                )
-                Text("No downloads yet", style = orbitBody, color = scheme.text.muted)
-            }
+            DownloadsEmptyState(modifier = Modifier.fillMaxSize().padding(innerPadding))
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 items(entries, key = { it.id }) { entry ->
@@ -130,7 +122,8 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
                         onDelete = { viewModel.onDeleteDownload(entry.id) },
                         onOpenPreview = { previewEntry = entry },
                     )
-                    HorizontalDivider()
+                    // Flat separation: a whisper-thin low-alpha rule instead of a hairline outline.
+                    HorizontalDivider(color = scheme.text.muted.copy(alpha = 0.08f))
                 }
             }
         }
@@ -145,20 +138,54 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
 }
 
 @Composable
+private fun DownloadsEmptyState(modifier: Modifier = Modifier) {
+    val scheme = orbit()
+    Column(
+        modifier = modifier.padding(OrbitSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = scheme.surfaces.elevated,
+            modifier = Modifier.size(88.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.Filled.Download,
+                    contentDescription = null,
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+        Text(
+            "No downloads yet",
+            style = orbitBody,
+            color = scheme.text.muted,
+            modifier = Modifier.padding(top = OrbitSpacing.md),
+        )
+    }
+}
+
+@Composable
 private fun stateChipColors(state: String) = when (state) {
     "RUNNING" -> AssistChipDefaults.assistChipColors(
         containerColor = orbit().accent.solid,
         labelColor = MaterialTheme.colorScheme.onPrimary,
     )
     "FAILED" -> AssistChipDefaults.assistChipColors(
-        containerColor = MaterialTheme.colorScheme.error,
-        labelColor = MaterialTheme.colorScheme.onError,
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        labelColor = MaterialTheme.colorScheme.onErrorContainer,
     )
     "PAUSED", "SCHEDULED" -> AssistChipDefaults.assistChipColors(
-        containerColor = MaterialTheme.colorScheme.secondary,
-        labelColor = MaterialTheme.colorScheme.onSecondary,
+        containerColor = orbit().surfaces.elevated,
+        labelColor = orbit().text.secondary,
     )
-    else -> AssistChipDefaults.assistChipColors()
+    else -> AssistChipDefaults.assistChipColors(
+        containerColor = orbit().surfaces.elevated,
+        labelColor = orbit().text.secondary,
+    )
 }
 
 @Composable
@@ -202,158 +229,170 @@ private fun DownloadRow(
     }
 
     val scheme = orbit()
-    Column(
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = isLegacy || entry.state == "DONE") { onOpenPreview() }
-            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(entry.fileName, maxLines = 1, style = orbitBody, color = scheme.text.primary)
+        FaviconOrLetter(
+            url = entry.url,
+            label = entry.fileName,
+            size = 36.dp,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(entry.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = orbitBody, color = scheme.text.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    AssistChip(
+                        onClick = {},
+                        enabled = false,
+                        border = null,
+                        label = { Text(entry.state, style = MaterialTheme.typography.labelSmall) },
+                        colors = stateChipColors(entry.state),
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val subtitle = if (isLegacy) {
+                        "Managed by system downloader"
+                    } else {
+                        buildString {
+                            append(bytesHuman(entry.downloadedBytes))
+                            if (entry.totalBytes > 0) {
+                                append(" / ")
+                                append(bytesHuman(entry.totalBytes))
+                            }
+                            if (entry.state == "RUNNING" && currentSpeed > 0) {
+                                append(" · ")
+                                append(bytesHuman(currentSpeed))
+                                append("/s")
+                            }
+                            if (entry.state == "FAILED" && entry.error != null) {
+                                append(" · ")
+                                append(entry.error)
+                            }
+                        }
+                    }
+                    Text(subtitle, style = orbitCaption, color = scheme.text.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!isLegacy && entry.state == "RUNNING" && speedSamples.size >= 2) {
+                    Spacer(modifier = Modifier.size(8.dp))
+                    SpeedSparkline(samples = speedSamples)
+                }
+            }
+
+            if (!isLegacy && entry.state != "DONE" && entry.state != "CANCELLED") {
                 Spacer(modifier = Modifier.height(4.dp))
-                AssistChip(
-                    onClick = {},
-                    enabled = false,
-                    label = { Text(entry.state, style = MaterialTheme.typography.labelSmall) },
-                    colors = stateChipColors(entry.state),
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                val subtitle = if (isLegacy) {
-                    "Managed by system downloader"
+                if (entry.totalBytes > 0) {
+                    LinearProgressIndicator(
+                        progress = { (entry.downloadedBytes.toFloat() / entry.totalBytes.toFloat()).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                        trackColor = scheme.surfaces.elevated,
+                    )
                 } else {
-                    buildString {
-                        append(bytesHuman(entry.downloadedBytes))
-                        if (entry.totalBytes > 0) {
-                            append(" / ")
-                            append(bytesHuman(entry.totalBytes))
-                        }
-                        if (entry.state == "RUNNING" && currentSpeed > 0) {
-                            append(" · ")
-                            append(bytesHuman(currentSpeed))
-                            append("/s")
-                        }
-                        if (entry.state == "FAILED" && entry.error != null) {
-                            append(" · ")
-                            append(entry.error)
-                        }
-                    }
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), trackColor = scheme.surfaces.elevated)
                 }
-                Text(subtitle, style = orbitCaption, color = scheme.text.muted, maxLines = 1)
             }
-            if (!isLegacy && entry.state == "RUNNING" && speedSamples.size >= 2) {
-                Spacer(modifier = Modifier.size(8.dp))
-                SpeedSparkline(samples = speedSamples)
-            }
-        }
 
-        if (!isLegacy && entry.state != "DONE" && entry.state != "CANCELLED") {
-            Spacer(modifier = Modifier.height(4.dp))
-            if (entry.totalBytes > 0) {
-                LinearProgressIndicator(
-                    progress = { (entry.downloadedBytes.toFloat() / entry.totalBytes.toFloat()).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            }
-        }
-
-        Row(
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            if (isLegacy) {
-                Box {
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More options")
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Share") },
-                            onClick = {
-                                menuExpanded = false
-                                shareFile(context, entry)
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
-                            onClick = {
-                                menuExpanded = false
-                                onDelete()
-                            },
-                        )
-                    }
-                }
-            } else {
-                when (entry.state) {
-                    "RUNNING" -> {
-                        IconButton(onClick = onPause) {
-                            Icon(Icons.Filled.Pause, contentDescription = "Pause")
+            Row(
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (isLegacy) {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More options", tint = scheme.text.secondary)
                         }
-                        IconButton(onClick = onCancel) {
-                            Icon(Icons.Filled.Cancel, contentDescription = "Cancel")
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Share") },
+                                onClick = {
+                                    menuExpanded = false
+                                    shareFile(context, entry)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDelete()
+                                },
+                            )
                         }
                     }
-                    "PAUSED" -> {
-                        IconButton(onClick = onResume) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = "Resume")
-                        }
-                        IconButton(onClick = onCancel) {
-                            Icon(Icons.Filled.Cancel, contentDescription = "Cancel")
-                        }
-                    }
-                    "FAILED" -> {
-                        IconButton(onClick = onRetry) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Retry")
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                        }
-                    }
-                    "SCHEDULED" -> {
-                        IconButton(onClick = onCancel) {
-                            Icon(Icons.Filled.Cancel, contentDescription = "Cancel")
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                        }
-                    }
-                    "PENDING" -> {
-                        IconButton(onClick = onCancel) {
-                            Icon(Icons.Filled.Cancel, contentDescription = "Cancel")
-                        }
-                    }
-                    "DONE" -> {
-                        Box {
-                            IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                } else {
+                    when (entry.state) {
+                        "RUNNING" -> {
+                            IconButton(onClick = onPause) {
+                                Icon(Icons.Filled.Pause, contentDescription = "Pause", tint = scheme.text.secondary)
                             }
-                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        shareFile(context, entry)
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onDelete()
-                                    },
-                                )
+                            IconButton(onClick = onCancel) {
+                                Icon(Icons.Filled.Cancel, contentDescription = "Cancel", tint = scheme.text.secondary)
                             }
                         }
-                    }
-                    "CANCELLED" -> {
-                        IconButton(onClick = onRetry) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Retry")
+                        "PAUSED" -> {
+                            IconButton(onClick = onResume) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = "Resume", tint = scheme.text.secondary)
+                            }
+                            IconButton(onClick = onCancel) {
+                                Icon(Icons.Filled.Cancel, contentDescription = "Cancel", tint = scheme.text.secondary)
+                            }
                         }
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                        "FAILED" -> {
+                            IconButton(onClick = onRetry) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = scheme.text.secondary)
+                            }
+                            IconButton(onClick = onDelete) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = scheme.text.secondary)
+                            }
+                        }
+                        "SCHEDULED" -> {
+                            IconButton(onClick = onCancel) {
+                                Icon(Icons.Filled.Cancel, contentDescription = "Cancel", tint = scheme.text.secondary)
+                            }
+                            IconButton(onClick = onDelete) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = scheme.text.secondary)
+                            }
+                        }
+                        "PENDING" -> {
+                            IconButton(onClick = onCancel) {
+                                Icon(Icons.Filled.Cancel, contentDescription = "Cancel", tint = scheme.text.secondary)
+                            }
+                        }
+                        "DONE" -> {
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "More options", tint = scheme.text.secondary)
+                                }
+                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            shareFile(context, entry)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onDelete()
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        "CANCELLED" -> {
+                            IconButton(onClick = onRetry) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Retry", tint = scheme.text.secondary)
+                            }
+                            IconButton(onClick = onDelete) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = scheme.text.secondary)
+                            }
                         }
                     }
                 }
@@ -509,11 +548,11 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
                 // whether it still has the file, and hand off generic open/share actions.
                 val legacyUri = remember(entry.downloadId) { legacyUriFor(context, entry.downloadId) }
                 if (legacyUri == null) {
-                    Text("File no longer exists", style = MaterialTheme.typography.bodyMedium)
+                    Text("File no longer exists", style = orbitCaption, color = scheme.text.muted)
                     Spacer(modifier = Modifier.height(12.dp))
                     TextButton(onClick = onDelete) { Text("Delete") }
                 } else {
-                    Text("Managed by system downloader", style = MaterialTheme.typography.bodySmall)
+                    Text("Managed by system downloader", style = orbitCaption, color = scheme.text.muted)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { openWithChooser(context, entry) }) {
@@ -532,7 +571,7 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
             }
 
             if (path == null || !fileExists) {
-                Text("File no longer exists", style = MaterialTheme.typography.bodyMedium)
+                Text("File no longer exists", style = orbitCaption, color = scheme.text.muted)
                 Spacer(modifier = Modifier.height(12.dp))
                 TextButton(onClick = onDelete) { Text("Delete") }
                 return@Column
@@ -548,7 +587,7 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
                             contentDescription = entry.fileName,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        else -> Text("Unable to preview image", style = MaterialTheme.typography.bodyMedium)
+                        else -> Text("Unable to preview image", style = orbitCaption, color = scheme.text.muted)
                     }
                 }
                 mime.startsWith("text/") -> {
@@ -567,7 +606,7 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
                         }.getOrDefault("Unable to read file")
                     }
                     SelectionContainer {
-                        Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                        Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = scheme.text.primary)
                     }
                 }
                 mime == "application/vnd.android.package-archive" -> {

@@ -2,6 +2,8 @@ package com.udaytank.browse.ui
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -10,15 +12,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -55,9 +61,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -83,11 +86,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.udaytank.browse.R
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -101,12 +107,14 @@ import com.udaytank.browse.data.TabGroupEntity
 import com.udaytank.browse.ui.components.OrbitListRow
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.LocalOrbit
+import com.udaytank.browse.ui.theme.Orbit
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.darkOrbit
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
+import com.udaytank.browse.ui.theme.orbitTitle
 
 /** Orbit's tab-group accent palette; index stored on [TabGroupEntity.color]. */
 private val GroupColors = listOf(
@@ -223,29 +231,54 @@ fun TabSwitcherScreen(
                         }
                     },
                 )
-                // Normal | Incognito toggle — each side is its own screen (Chrome-style).
-                SingleChoiceSegmentedButtonRow(
+                // Normal | Incognito toggle — a pill track with a filled pill that slides between
+                // the two segments, replacing the old boxy SegmentedButtonRow. Each side is still
+                // its own screen (Chrome-style); this only changes how switching between them looks.
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
                 ) {
-                    SegmentedButton(
-                        selected = !incognitoMode,
-                        onClick = { incognitoMode = false; selection = emptySet() },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                    ) { Text("Tabs (${normalTabs.size})") }
-                    SegmentedButton(
-                        selected = incognitoMode,
-                        onClick = { incognitoMode = true; selection = emptySet() },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        icon = {
-                            Icon(
-                                Icons.Filled.VisibilityOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                    val pillShape = RoundedCornerShape(percent = OrbitRadii.pill)
+                    val segmentWidth = maxWidth / 2
+                    val pillOffset by animateDpAsState(
+                        targetValue = if (incognitoMode) segmentWidth else 0.dp,
+                        animationSpec = tween(durationMillis = 250, easing = Orbit.Easing),
+                        label = "modeSwitcherPill",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(pillShape)
+                            .background(scheme.surfaces.elevated),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = pillOffset)
+                                .width(segmentWidth)
+                                .fillMaxHeight()
+                                .padding(3.dp)
+                                .clip(pillShape)
+                                .background(scheme.surfaces.surface),
+                        )
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            ModeSwitcherSegment(
+                                label = "Tabs (${normalTabs.size})",
+                                selected = !incognitoMode,
+                                icon = null,
+                                modifier = Modifier.weight(1f),
+                                onClick = { incognitoMode = false; selection = emptySet() },
                             )
-                        },
-                    ) { Text("Incognito (${incognitoTabs.size})") }
+                            ModeSwitcherSegment(
+                                label = "Incognito (${incognitoTabs.size})",
+                                selected = incognitoMode,
+                                icon = Icons.Filled.VisibilityOff,
+                                modifier = Modifier.weight(1f),
+                                onClick = { incognitoMode = true; selection = emptySet() },
+                            )
+                        }
+                    }
                 }
                 if (searchQuery != null) {
                     OutlinedTextField(
@@ -559,6 +592,43 @@ fun TabSwitcherScreen(
     }
 }
 
+/**
+ * One segment of the Tabs/Incognito pill switcher. The sliding filled-pill highlight is drawn by
+ * the parent [BoxWithConstraints]; this just renders the label (+ optional icon) on top of it,
+ * bold/primary when selected, muted when not.
+ */
+@Composable
+private fun ModeSwitcherSegment(
+    label: String,
+    selected: Boolean,
+    icon: ImageVector?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = orbit()
+    val tint = if (selected) scheme.text.primary else scheme.text.muted
+    Row(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(percent = OrbitRadii.pill))
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        Text(
+            label,
+            style = orbitCaption,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = tint,
+            maxLines = 1,
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GroupHeader(
@@ -690,9 +760,10 @@ private fun TabCard(
         Surface(
             shape = cardShape,
             color = scheme.surfaces.surface,
-            // Active tab reads as lifted (elevation) + accent-ringed, not just outlined.
-            tonalElevation = if (isActive) 6.dp else 2.dp,
-            shadowElevation = if (isActive) 6.dp else 0.dp,
+            // Active tab reads as lifted (subtle elevation) + accent-ringed, not just outlined.
+            // Shadows stay shallow (<=2dp) so cards read as flat tonal surfaces, not boxy panels.
+            tonalElevation = if (isActive) 3.dp else 1.dp,
+            shadowElevation = if (isActive) 2.dp else 1.dp,
             modifier = Modifier
                 .clip(cardShape)
                 .then(
@@ -928,7 +999,9 @@ private fun TabListRow(
         Surface(
             shape = cardShape,
             color = scheme.surfaces.surface,
-            tonalElevation = if (isActive) 6.dp else 2.dp,
+            // Subtle elevation, kept shallow (<=2dp) to match the flat tonal grid cards.
+            tonalElevation = if (isActive) 3.dp else 1.dp,
+            shadowElevation = if (isActive) 2.dp else 1.dp,
             modifier = Modifier
                 .clip(cardShape)
                 .then(
@@ -1052,12 +1125,23 @@ private fun TabListRow(
                         )
                     }
                 } else {
-                    IconButton(onClick = onClose) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = "Close tab",
-                            modifier = Modifier.size(18.dp),
-                        )
+                    // Small circular tonal button, matching the close affordance on grid cards.
+                    Surface(
+                        shape = CircleShape,
+                        color = scheme.surfaces.elevated,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.fillMaxSize().clickable(onClick = onClose),
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Close tab",
+                                tint = scheme.text.secondary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -1172,12 +1256,21 @@ private fun TabsEmptyState(incognito: Boolean, searching: Boolean, query: String
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            if (incognito) Icons.Filled.VisibilityOff else Icons.AutoMirrored.Filled.List,
-            contentDescription = null,
-            tint = scheme.text.secondary,
-            modifier = Modifier.size(48.dp),
-        )
+        // Flat tonal circle behind the glyph instead of a bare floating icon.
+        Surface(
+            shape = CircleShape,
+            color = scheme.surfaces.elevated,
+            modifier = Modifier.size(88.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    if (incognito) Icons.Filled.VisibilityOff else Icons.AutoMirrored.Filled.List,
+                    contentDescription = null,
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(OrbitSpacing.md))
         Text(
             when {
@@ -1205,24 +1298,33 @@ private fun TabsEmptyState(incognito: Boolean, searching: Boolean, query: String
 @Composable
 private fun IncognitoBanner() {
     val scheme = orbit()
-    Row(
+    // Flat tonal pill, no boxed border — reads as a quiet reminder, not an alert.
+    Surface(
+        shape = RoundedCornerShape(percent = OrbitRadii.pill),
+        color = scheme.surfaces.elevated,
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = OrbitSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
     ) {
-        Icon(
-            Icons.Filled.VisibilityOff,
-            contentDescription = null,
-            tint = scheme.text.secondary,
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            "You’re browsing privately",
-            style = orbitCaption,
-            color = scheme.text.secondary,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+        ) {
+            Icon(
+                Icons.Filled.VisibilityOff,
+                contentDescription = null,
+                tint = scheme.text.secondary,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "You’re browsing privately",
+                style = orbitCaption,
+                color = scheme.text.secondary,
+            )
+        }
     }
 }
 
@@ -1232,8 +1334,10 @@ private fun isHomeUrl(url: String) = url == com.udaytank.browse.BrowserViewModel
 /** A glimpse of the home page for a home tab's thumbnail: the cosmic backdrop + wordmark. */
 @Composable
 private fun HomeTabPreview() {
-    val scheme = orbit()
-    Box(modifier = Modifier.fillMaxSize().background(scheme.surfaces.base)) {
+    // The home is always the dark cosmic canvas, so this preview uses darkOrbit regardless of the
+    // app theme. A scrim over the busy art guarantees the wordmark reads; the gradient wordmark
+    // matches the real home page instead of a faint flat accent that got lost against the stars.
+    Box(modifier = Modifier.fillMaxSize().background(darkOrbit.surfaces.base)) {
         Image(
             painter = painterResource(R.drawable.home_backdrop),
             contentDescription = null,
@@ -1241,10 +1345,16 @@ private fun HomeTabPreview() {
             alignment = Alignment.TopCenter,
             modifier = Modifier.fillMaxSize(),
         )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(darkOrbit.surfaces.base.copy(alpha = 0.45f)),
+        )
         Text(
             "Andromeda",
-            style = orbitBody,
-            color = scheme.accent.solid,
+            style = orbitTitle.merge(
+                TextStyle(brush = Brush.horizontalGradient(darkOrbit.accent.gradient)),
+            ),
             modifier = Modifier.align(Alignment.Center),
         )
     }

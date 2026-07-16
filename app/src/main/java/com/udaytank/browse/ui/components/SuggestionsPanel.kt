@@ -20,9 +20,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionKind
 import com.udaytank.browse.browser.UrlHosts
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 
 /**
  * [copiedUrl] is the clipboard chip (A6): a URL read ONCE when the bar entered edit state,
@@ -36,12 +42,13 @@ fun SuggestionsPanel(
     copiedUrl: String? = null,
     onPickCopied: (String) -> Unit = {},
 ) {
+    val scheme = orbit()
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 4.dp,
-        shadowElevation = 6.dp,
+        shape = RoundedCornerShape(OrbitRadii.card),
+        color = scheme.surfaces.elevated,
+        tonalElevation = 0.dp,
+        shadowElevation = 3.dp,
     ) {
         Column {
             if (copiedUrl != null) {
@@ -50,26 +57,26 @@ fun SuggestionsPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onPickCopied(copiedUrl) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.ContentPaste,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
+                        tint = scheme.accent.solid,
+                        modifier = Modifier.size(22.dp),
                     )
-                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                    Column(modifier = Modifier.padding(start = OrbitSpacing.md)) {
                         Text(
                             "Go to copied link",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = orbitBody,
+                            color = scheme.accent.solid,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             UrlHosts.of(copiedUrl) ?: copiedUrl,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = orbitCaption,
+                            color = scheme.text.muted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -82,30 +89,37 @@ fun SuggestionsPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onPick(suggestion) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
                 ) {
-                    Icon(
-                        imageVector = when (suggestion.kind) {
-                            SuggestionKind.BOOKMARK -> Icons.Filled.Star
-                            SuggestionKind.HISTORY -> Icons.Filled.History
-                            SuggestionKind.SEARCH -> Icons.Filled.Search
-                        },
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                    // Site rows lead with the real favicon (Chrome-style); a plain search query
+                    // keeps the search glyph.
+                    if (suggestion.kind == SuggestionKind.SEARCH) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = scheme.text.muted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    } else {
+                        FaviconOrLetter(
+                            url = suggestion.url,
+                            label = suggestion.title.ifBlank { suggestion.url },
+                            size = 24.dp,
+                        )
+                    }
+                    Column(modifier = Modifier.padding(start = OrbitSpacing.md)) {
                         Text(
                             suggestion.title,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = orbitBody,
+                            color = scheme.text.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (suggestion.kind != SuggestionKind.SEARCH) {
                             Text(
-                                suggestion.url,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                UrlHosts.of(suggestion.url) ?: suggestion.url,
+                                style = orbitCaption,
+                                color = scheme.text.muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )

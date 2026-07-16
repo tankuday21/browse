@@ -19,6 +19,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +49,14 @@ import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
 import com.udaytank.browse.ui.theme.orbitTitle
+
+/**
+ * host → Coil-loadable model (a touch-icon URL String, or a ByteBuffer of decoded favicon bytes)
+ * for icons captured source-direct from the WebView as the user browses. Provided at the screen
+ * root from the ViewModel's `favicons` flow. Dynamic (not static) so tiles recompose as icons are
+ * captured. Empty in previews/tests → tiles just show the letter avatar.
+ */
+val LocalFaviconCache = compositionLocalOf<Map<String, Any>> { emptyMap() }
 
 /** Small uppercase section header for the home feed ("Weather", "News", "Sports"). */
 @Composable
@@ -81,18 +95,40 @@ fun FaviconOrLetter(url: String, label: String, size: Dp, modifier: Modifier = M
         Box(modifier = modifier) { letterAvatar() }
         return
     }
+    // Best source first, degrading to a letter. The captured icon (a real icon the site declared,
+    // grabbed by the WebView as the user browsed) is preferred — it's the crispest and most
+    // accurate. Then same-origin URL guesses (apple-touch-icon → favicon.ico), then the letter.
+    // All same-origin — never a third-party favicon proxy.
+    val cached = LocalFaviconCache.current[host]
+    val candidates: List<Any> = remember(host, cached) {
+        buildList {
+            if (cached != null) add(cached)
+            add("https://$host/apple-touch-icon.png")
+            add("https://$host/apple-touch-icon-precomposed.png")
+            add("https://$host/favicon.ico")
+        }
+    }
+    var idx by remember(host, cached) { mutableIntStateOf(0) }
     SubcomposeAsyncImage(
         model = ImageRequest.Builder(LocalContext.current)
-            .data("https://$host/favicon.ico")
+            .data(candidates.getOrNull(idx))
             .crossfade(true)
             .build(),
         contentDescription = null,
+        // Crop to fill the circle edge-to-edge like an app icon. Now that the source is the site's
+        // real high-res declared icon (see BEST_ICON_JS), Crop reads crisp instead of the small,
+        // letterboxed "zoomed out" look Fit gave a low-res favicon.
         contentScale = ContentScale.Crop,
         loading = { letterAvatar() },
-        error = { letterAvatar() },
+        error = {
+            // Try the next candidate URL; keep the letter visible until one resolves (or we run out).
+            LaunchedEffect(idx) { if (idx < candidates.size) idx++ }
+            letterAvatar()
+        },
         modifier = modifier
             .size(size)
-            .clip(CircleShape),
+            .clip(CircleShape)
+            .background(scheme.surfaces.elevated),
     )
 }
 

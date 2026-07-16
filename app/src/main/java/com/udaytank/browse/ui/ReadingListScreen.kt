@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -29,6 +31,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +41,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -63,6 +67,7 @@ import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.reading.ReadAloudService
+import com.udaytank.browse.ui.components.FaviconOrLetter
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -121,31 +126,17 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
-                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
             ) {
-                FilterChip(selected = !showRead, onClick = { showRead = false }, label = { Text("Unread") })
-                FilterChip(selected = showRead, onClick = { showRead = true }, label = { Text("Read") })
+                ReadingListFilterChip(label = "Unread", selected = !showRead, onClick = { showRead = false })
+                ReadingListFilterChip(label = "Read", selected = showRead, onClick = { showRead = true })
             }
             val visible = entries.filter { (it.readAt != null) == showRead }
             if (visible.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().weight(1f).padding(OrbitSpacing.xl),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = null,
-                        tint = scheme.text.muted,
-                        modifier = Modifier.size(48.dp).padding(bottom = OrbitSpacing.md),
-                    )
-                    Text(
-                        if (showRead) "Nothing read yet"
-                        else "Nothing saved — use \"Save for later\" in the menu",
-                        style = orbitBody,
-                        color = scheme.text.muted,
-                    )
-                }
+                ReadingListEmptyState(
+                    showRead = showRead,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     items(visible, key = { it.id }) { entry ->
@@ -176,11 +167,61 @@ fun ReadingListScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
                                 }
                             },
                         )
-                        HorizontalDivider()
+                        // Flat separation: a whisper-thin low-alpha rule instead of a hairline outline.
+                        HorizontalDivider(color = scheme.text.muted.copy(alpha = 0.08f))
                     }
                 }
             }
         }
+    }
+}
+
+/** Flat tonal filter pill — no hairline outline, just a filled/unfilled tonal state. */
+@Composable
+private fun ReadingListFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val scheme = orbit()
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        border = null,
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = scheme.surfaces.elevated,
+            labelColor = scheme.text.secondary,
+            selectedContainerColor = scheme.accent.solid,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    )
+}
+
+@Composable
+private fun ReadingListEmptyState(showRead: Boolean, modifier: Modifier = Modifier) {
+    val scheme = orbit()
+    Column(
+        modifier = modifier.padding(OrbitSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = scheme.surfaces.elevated,
+            modifier = Modifier.size(88.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.AutoMirrored.Filled.MenuBook,
+                    contentDescription = null,
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
+        Text(
+            if (showRead) "Nothing read yet" else "Nothing saved — use \"Save for later\" in the menu",
+            style = orbitBody,
+            color = scheme.text.muted,
+            modifier = Modifier.padding(top = OrbitSpacing.md),
+        )
     }
 }
 
@@ -232,12 +273,15 @@ private fun ReadingListRow(
         var menuExpanded by remember { mutableStateOf(false) }
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
             modifier = Modifier
                 .fillMaxWidth()
-                .background(scheme.surfaces.surface)
+                .heightIn(min = 56.dp)
+                .background(scheme.surfaces.base)
                 .clickable { onOpen() }
-                .padding(start = OrbitSpacing.lg, top = OrbitSpacing.md, bottom = OrbitSpacing.md),
+                .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
         ) {
+            FaviconOrLetter(url = entry.url, label = entry.title, size = 36.dp)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     entry.title,
@@ -320,6 +364,7 @@ private fun SavedArticleReader(
     BackHandler { onBack() }
     Scaffold(
         topBar = { OrbitTopBar(title = entry.title, onBack = onBack) },
+        containerColor = orbit().surfaces.base,
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             if (!loaded) return@Box

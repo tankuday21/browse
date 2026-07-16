@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Shield
@@ -57,7 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
@@ -67,13 +71,13 @@ import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.ui.components.OrbitListRow
+import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
-import com.udaytank.browse.ui.theme.orbitTitle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
@@ -136,7 +140,7 @@ fun SettingsScreen(
     }
 }
 
-/** The category landing: an OrbitTopBar plus one premium, elevated card per [SettingsCategory]. */
+/** The category landing: an OrbitTopBar plus one flat, tonal card per [SettingsCategory]. */
 @Composable
 private fun SettingsLanding(
     onBack: () -> Unit,
@@ -157,7 +161,10 @@ private fun SettingsLanding(
     }
 }
 
-/** One landing card: an accent-tinted icon tile, title + subtitle, and a trailing chevron. */
+/**
+ * One landing card: a flat tonal surface (no border, only a whisper of elevation), an
+ * accent-tinted icon tile, title + subtitle, and a trailing chevron.
+ */
 @Composable
 private fun SettingsCategoryCard(
     category: SettingsCategory,
@@ -168,7 +175,7 @@ private fun SettingsCategoryCard(
         onClick = onClick,
         shape = RoundedCornerShape(OrbitRadii.card),
         color = scheme.surfaces.surface,
-        shadowElevation = 2.dp,
+        shadowElevation = 1.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -221,23 +228,58 @@ private fun CategoryScaffold(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        Spacer(Modifier.height(OrbitSpacing.md))
         content()
         Spacer(Modifier.height(OrbitSpacing.xxl))
     }
 }
 
-/** An accent-colored group header inside a sub-screen. */
+/**
+ * A flat, tonal, rounded container grouping one set of related setting rows — the "modern
+ * card" for this screen. Deliberately border-less (no [androidx.compose.foundation.BorderStroke]):
+ * separation between groups comes from surrounding whitespace, and separation between rows
+ * *inside* a group comes only from [GroupDivider], never from an outline around every item.
+ */
 @Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text,
-        style = orbitTitle,
-        color = orbit().accent.solid,
-        modifier = Modifier.padding(OrbitSpacing.lg),
+private fun SettingsGroup(content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(OrbitRadii.card),
+        color = orbit().surfaces.elevated,
+        shadowElevation = 0.dp,
+        modifier = Modifier
+            .padding(horizontal = OrbitSpacing.lg)
+            .fillMaxWidth(),
+    ) {
+        Column { content() }
+    }
+}
+
+/** A subtle, low-alpha divider used only BETWEEN rows inside a [SettingsGroup]. */
+@Composable
+private fun GroupDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
+        color = orbit().text.muted.copy(alpha = 0.12f),
     )
 }
 
-/** A muted, full-width explanatory caption. */
+/** A small, uppercase, muted section label sitting above a [SettingsGroup] — never boxed. */
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text.uppercase(),
+        style = orbitCaption.copy(letterSpacing = 0.8.sp, fontWeight = FontWeight.Medium),
+        color = orbit().text.muted,
+        modifier = Modifier.padding(
+            start = OrbitSpacing.xl,
+            end = OrbitSpacing.xl,
+            top = OrbitSpacing.lg,
+            bottom = OrbitSpacing.sm,
+        ),
+    )
+}
+
+/** A muted, full-width, multi-line explanatory caption — sits below or inside a [SettingsGroup]. */
 @Composable
 private fun Caption(text: String) {
     Text(
@@ -278,6 +320,7 @@ private fun RadioOptionRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .selectable(selected = selected, onClick = onClick)
             .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
     ) {
@@ -300,7 +343,6 @@ private fun GeneralSettings(
     viewModel: BrowserViewModel,
     onBack: () -> Unit,
 ) {
-    val scheme = orbit()
     val context = LocalContext.current
     val engine by viewModel.searchEngine.collectAsStateWithLifecycle()
 
@@ -315,44 +357,50 @@ private fun GeneralSettings(
     ) { isDefaultBrowser = roleHeld() }
 
     CategoryScaffold(title = "General", onBack = onBack) {
-        if (isDefaultBrowser) {
-            OrbitListRow(
-                leadingIcon = Icons.Filled.Check,
-                title = "Andromeda is your default browser",
-                subtitle = "Links from other apps open here",
-            )
-        } else {
-            OrbitListRow(
-                leadingIcon = null,
-                title = "Set as default browser",
-                subtitle = "Open links from other apps in Andromeda",
-                onClick = {
-                    val rm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        context.getSystemService(RoleManager::class.java)
-                    } else {
-                        null
-                    }
-                    if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_BROWSER) &&
-                        !rm.isRoleHeld(RoleManager.ROLE_BROWSER)
-                    ) {
-                        defaultBrowserLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
-                    } else {
-                        runCatching {
-                            context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        SectionHeader("Default browser")
+        SettingsGroup {
+            if (isDefaultBrowser) {
+                OrbitListRow(
+                    leadingIcon = Icons.Filled.Check,
+                    title = "Andromeda is your default browser",
+                    subtitle = "Links from other apps open here",
+                )
+            } else {
+                OrbitListRow(
+                    leadingIcon = null,
+                    title = "Set as default browser",
+                    subtitle = "Open links from other apps in Andromeda",
+                    onClick = {
+                        val rm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            context.getSystemService(RoleManager::class.java)
+                        } else {
+                            null
                         }
-                    }
-                },
-            )
+                        if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_BROWSER) &&
+                            !rm.isRoleHeld(RoleManager.ROLE_BROWSER)
+                        ) {
+                            defaultBrowserLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_BROWSER))
+                        } else {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+                            }
+                        }
+                    },
+                )
+            }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Search engine")
-        SearchEngine.entries.forEach { option ->
-            RadioOptionRow(
-                label = option.label,
-                selected = engine == option,
-                onClick = { viewModel.onSearchEngineSelected(option) },
-            )
+        SettingsGroup {
+            SearchEngine.entries.forEachIndexed { index, option ->
+                RadioOptionRow(
+                    label = option.label,
+                    selected = engine == option,
+                    onClick = { viewModel.onSearchEngineSelected(option) },
+                )
+                if (index != SearchEngine.entries.lastIndex) GroupDivider()
+            }
         }
     }
 }
@@ -370,22 +418,28 @@ private fun AppearanceSettings(
 
     CategoryScaffold(title = "Appearance", onBack = onBack) {
         SectionHeader("Theme")
-        ThemeMode.entries.forEach { option ->
-            RadioOptionRow(
-                label = option.name.lowercase().replaceFirstChar { it.uppercase() },
-                selected = theme == option,
-                onClick = { viewModel.onThemeSelected(option) },
-            )
+        SettingsGroup {
+            ThemeMode.entries.forEachIndexed { index, option ->
+                RadioOptionRow(
+                    label = option.name.lowercase().replaceFirstChar { it.uppercase() },
+                    selected = theme == option,
+                    onClick = { viewModel.onThemeSelected(option) },
+                )
+                if (index != ThemeMode.entries.lastIndex) GroupDivider()
+            }
         }
         Caption("System follows your device's light/dark setting.")
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
-        PrefSwitchRow(
-            title = "Dark mode for websites",
-            subtitle = "Render light pages with a dark background where supported",
-            checked = forceDark,
-            onCheckedChange = viewModel::onForceDarkToggled,
-        )
+        Spacer(Modifier.height(OrbitSpacing.xl))
+        SectionHeader("Websites")
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Dark mode for websites",
+                subtitle = "Render light pages with a dark background where supported",
+                checked = forceDark,
+                onCheckedChange = viewModel::onForceDarkToggled,
+            )
+        }
     }
 }
 
@@ -406,6 +460,7 @@ private fun HomeFeedSettings(
     val homeWallpaper by viewModel.homeWallpaper.collectAsStateWithLifecycle()
     val showFeed by viewModel.showFeed.collectAsStateWithLifecycle()
     val showWeather by viewModel.showWeather.collectAsStateWithLifecycle()
+    val showNews by viewModel.showNews.collectAsStateWithLifecycle()
     val weatherCity by viewModel.weatherCity.collectAsStateWithLifecycle()
     val weatherUseLocation by viewModel.weatherUseLocation.collectAsStateWithLifecycle()
 
@@ -415,105 +470,122 @@ private fun HomeFeedSettings(
     ) { granted -> viewModel.onWeatherUseLocationToggled(granted) }
 
     CategoryScaffold(title = "Home & feed", onBack = onBack) {
-        PrefSwitchRow(
-            title = "Show greeting",
-            checked = showGreeting,
-            onCheckedChange = viewModel::onShowGreetingToggled,
-        )
-        PrefSwitchRow(
-            title = "Show privacy stats on home",
-            checked = showHomeStats,
-            onCheckedChange = viewModel::onShowHomeStatsToggled,
-        )
-
-        Text(
-            "Shortcut density",
-            style = orbitBody,
-            color = scheme.text.primary,
-            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.sm),
-        ) {
-            listOf(ShortcutDensity.FEW to "Few", ShortcutDensity.MORE to "More").forEach { (option, label) ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .selectable(
-                            selected = shortcutDensity == option,
-                            onClick = { viewModel.onShortcutDensitySelected(option) },
+        SectionHeader("Home canvas")
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Show greeting",
+                checked = showGreeting,
+                onCheckedChange = viewModel::onShowGreetingToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Show privacy stats on home",
+                checked = showHomeStats,
+                onCheckedChange = viewModel::onShowHomeStatsToggled,
+            )
+            GroupDivider()
+            Text(
+                "Shortcut density",
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.sm),
+            ) {
+                listOf(ShortcutDensity.FEW to "Few", ShortcutDensity.MORE to "More").forEach { (option, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .selectable(
+                                selected = shortcutDensity == option,
+                                onClick = { viewModel.onShortcutDensitySelected(option) },
+                            )
+                            .padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.xs),
+                    ) {
+                        RadioButton(selected = shortcutDensity == option, onClick = null)
+                        Text(
+                            label,
+                            style = orbitBody,
+                            color = scheme.text.primary,
+                            modifier = Modifier.padding(start = OrbitSpacing.xs),
                         )
-                        .padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.xs),
-                ) {
-                    RadioButton(selected = shortcutDensity == option, onClick = null)
-                    Text(
-                        label,
-                        style = orbitBody,
-                        color = scheme.text.primary,
-                        modifier = Modifier.padding(start = OrbitSpacing.xs),
-                    )
+                    }
                 }
             }
         }
         Caption("One calm row (Few) or your full shortcut grid (More) on the home canvas.")
 
-        Text(
-            "Wallpaper",
-            style = orbitBody,
-            color = scheme.text.primary,
-            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
-        )
-        listOf("" to "None", "aurora" to "Aurora", "nebula" to "Nebula").forEach { (id, label) ->
-            RadioOptionRow(
-                label = label,
-                selected = homeWallpaper == id,
-                onClick = { viewModel.onHomeWallpaperSelected(id) },
-            )
+        Spacer(Modifier.height(OrbitSpacing.xl))
+        SectionHeader("Wallpaper")
+        SettingsGroup {
+            val wallpapers = listOf("" to "None", "aurora" to "Aurora", "nebula" to "Nebula")
+            wallpapers.forEachIndexed { index, (id, label) ->
+                RadioOptionRow(
+                    label = label,
+                    selected = homeWallpaper == id,
+                    onClick = { viewModel.onHomeWallpaperSelected(id) },
+                )
+                if (index != wallpapers.lastIndex) GroupDivider()
+            }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Feed")
-        PrefSwitchRow(
-            title = "Show news, sports & weather feed",
-            checked = showFeed,
-            onCheckedChange = viewModel::onShowFeedToggled,
-        )
-        if (showFeed) {
+        SettingsGroup {
             PrefSwitchRow(
-                title = "Weather card",
-                checked = showWeather,
-                onCheckedChange = viewModel::onShowWeatherToggled,
+                title = "Show news, sports & weather feed",
+                checked = showFeed,
+                onCheckedChange = viewModel::onShowFeedToggled,
             )
-            if (showWeather) {
+            if (showFeed) {
+                GroupDivider()
                 PrefSwitchRow(
-                    title = "Use my location",
-                    checked = weatherUseLocation,
-                    onCheckedChange = { on ->
-                        if (on) {
-                            val granted = ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                            ) == PackageManager.PERMISSION_GRANTED
-                            if (granted) viewModel.onWeatherUseLocationToggled(true)
-                            else locationPermLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                        } else {
-                            viewModel.onWeatherUseLocationToggled(false)
-                        }
-                    },
+                    title = "News",
+                    subtitle = "Show the news headlines section on home",
+                    checked = showNews,
+                    onCheckedChange = viewModel::onShowNewsToggled,
                 )
-                if (!weatherUseLocation) {
-                    OutlinedTextField(
-                        value = weatherCity,
-                        onValueChange = viewModel::onWeatherCityChanged,
-                        label = { Text("City for weather") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+                GroupDivider()
+                PrefSwitchRow(
+                    title = "Weather card",
+                    checked = showWeather,
+                    onCheckedChange = viewModel::onShowWeatherToggled,
+                )
+                if (showWeather) {
+                    GroupDivider()
+                    PrefSwitchRow(
+                        title = "Use my location",
+                        checked = weatherUseLocation,
+                        onCheckedChange = { on ->
+                            if (on) {
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (granted) viewModel.onWeatherUseLocationToggled(true)
+                                else locationPermLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                            } else {
+                                viewModel.onWeatherUseLocationToggled(false)
+                            }
+                        },
                     )
+                    if (!weatherUseLocation) {
+                        OrbitTextField(
+                            value = weatherCity,
+                            onValueChange = viewModel::onWeatherCityChanged,
+                            label = "City for weather",
+                            placeholder = "e.g. Mumbai",
+                            leadingIcon = Icons.Filled.LocationOn,
+                            modifier = Modifier
+                                .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+                        )
+                    }
                 }
             }
+        }
+        if (showFeed) {
             Caption(
                 "News & sports come from public RSS feeds, fetched straight from the source. " +
                     "Weather uses Open-Meteo. No tracking, no accounts.",
@@ -547,99 +619,116 @@ private fun PrivacySecuritySettings(
 
     CategoryScaffold(title = "Privacy & security", onBack = onBack) {
         SectionHeader("Ad blocking")
-        PrefSwitchRow(
-            title = "Block ads",
-            checked = adBlockEnabled,
-            onCheckedChange = viewModel::onAdBlockToggled,
-        )
-        FilterLists.ADS.forEach { def ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-                    .padding(
-                        start = OrbitSpacing.xxl,
-                        end = OrbitSpacing.lg,
-                        top = OrbitSpacing.xs,
-                        bottom = OrbitSpacing.xs,
-                    ),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(def.label, style = orbitBody, color = scheme.text.primary)
-                    Text(def.description, style = orbitCaption, color = scheme.text.muted)
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Block ads",
+                checked = adBlockEnabled,
+                onCheckedChange = viewModel::onAdBlockToggled,
+            )
+            FilterLists.ADS.forEach { def ->
+                GroupDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .padding(
+                            start = OrbitSpacing.xxl,
+                            end = OrbitSpacing.lg,
+                            top = OrbitSpacing.xs,
+                            bottom = OrbitSpacing.xs,
+                        ),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(def.label, style = orbitBody, color = scheme.text.primary)
+                        Text(def.description, style = orbitCaption, color = scheme.text.muted)
+                    }
+                    Switch(
+                        checked = def.id in adBlockLists,
+                        enabled = adBlockEnabled,
+                        onCheckedChange = { viewModel.onAdBlockListToggled(def.id) },
+                    )
                 }
-                Switch(
-                    checked = def.id in adBlockLists,
-                    enabled = adBlockEnabled,
-                    onCheckedChange = { viewModel.onAdBlockListToggled(def.id) },
-                )
             }
+            GroupDivider()
+            TextButton(
+                onClick = {
+                    FilterListUpdater.updateNow(context)
+                    Toast.makeText(context, "Updating filter lists…", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            ) {
+                Text("Update filter lists")
+            }
+            Caption(
+                if (adBlockLastUpdated == 0L) {
+                    "Using bundled lists — never updated"
+                } else {
+                    "Updated " + DateUtils.getRelativeTimeSpanString(
+                        adBlockLastUpdated,
+                        System.currentTimeMillis(),
+                        DateUtils.MINUTE_IN_MILLIS,
+                    )
+                },
+            )
         }
-        TextButton(
-            onClick = {
-                FilterListUpdater.updateNow(context)
-                Toast.makeText(context, "Updating filter lists…", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
-        ) {
-            Text("Update filter lists")
+
+        Spacer(Modifier.height(OrbitSpacing.xl))
+        SectionHeader("Browsing protection")
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Safe Browsing",
+                checked = safeBrowsing,
+                onCheckedChange = viewModel::onSafeBrowsingToggled,
+            )
+            Caption("Warns you before phishing and malware sites (Google Safe Browsing)")
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Auto-dismiss cookie banners",
+                checked = dismissCookieBanners,
+                onCheckedChange = viewModel::onDismissCookieBannersToggled,
+            )
+            Caption("Hides consent pop-ups (may affect some sites)")
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Global Privacy Control",
+                checked = gpcEnabled,
+                onCheckedChange = viewModel::onGpcToggled,
+            )
+            Caption("Tells sites not to sell or share your data (takes effect on new tabs)")
         }
-        Caption(
-            if (adBlockLastUpdated == 0L) {
-                "Using bundled lists — never updated"
-            } else {
-                "Updated " + DateUtils.getRelativeTimeSpanString(
-                    adBlockLastUpdated,
-                    System.currentTimeMillis(),
-                    DateUtils.MINUTE_IN_MILLIS,
-                )
-            },
-        )
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
-        PrefSwitchRow(
-            title = "Safe Browsing",
-            checked = safeBrowsing,
-            onCheckedChange = viewModel::onSafeBrowsingToggled,
-        )
-        Caption("Warns you before phishing and malware sites (Google Safe Browsing)")
-        PrefSwitchRow(
-            title = "Auto-dismiss cookie banners",
-            checked = dismissCookieBanners,
-            onCheckedChange = viewModel::onDismissCookieBannersToggled,
-        )
-        Caption("Hides consent pop-ups (may affect some sites)")
-        PrefSwitchRow(
-            title = "Global Privacy Control",
-            checked = gpcEnabled,
-            onCheckedChange = viewModel::onGpcToggled,
-        )
-        Caption("Tells sites not to sell or share your data (takes effect on new tabs)")
+        Spacer(Modifier.height(OrbitSpacing.xl))
+        SectionHeader("Content & connection")
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "JavaScript",
+                checked = jsEnabled,
+                onCheckedChange = viewModel::onJavaScriptToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Accept cookies",
+                checked = cookiesEnabled,
+                onCheckedChange = viewModel::onCookiesToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "HTTPS-only mode",
+                checked = httpsOnly,
+                onCheckedChange = viewModel::onHttpsOnlyToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Lock incognito with biometrics",
+                checked = lockIncognito,
+                onCheckedChange = viewModel::onLockIncognitoToggled,
+            )
+        }
 
-        PrefSwitchRow(
-            title = "JavaScript",
-            checked = jsEnabled,
-            onCheckedChange = viewModel::onJavaScriptToggled,
-        )
-        PrefSwitchRow(
-            title = "Accept cookies",
-            checked = cookiesEnabled,
-            onCheckedChange = viewModel::onCookiesToggled,
-        )
-        PrefSwitchRow(
-            title = "HTTPS-only mode",
-            checked = httpsOnly,
-            onCheckedChange = viewModel::onHttpsOnlyToggled,
-        )
-        PrefSwitchRow(
-            title = "Lock incognito with biometrics",
-            checked = lockIncognito,
-            onCheckedChange = viewModel::onLockIncognitoToggled,
-        )
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         TextButton(
             onClick = { showClearDialog = true },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
         ) {
             Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
         }
@@ -678,15 +767,17 @@ private fun DownloadsSettings(
     val useSystemDownloader by viewModel.useSystemDownloader.collectAsStateWithLifecycle()
 
     CategoryScaffold(title = "Downloads", onBack = onBack) {
-        PrefSwitchRow(
-            title = "Use system download manager",
-            checked = useSystemDownloader,
-            onCheckedChange = viewModel::onUseSystemDownloaderToggled,
-        )
-        Caption(
-            "When on, files are handed to Android's system download manager instead of " +
-                "Andromeda's built-in downloader.",
-        )
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Use system download manager",
+                checked = useSystemDownloader,
+                onCheckedChange = viewModel::onUseSystemDownloaderToggled,
+            )
+            Caption(
+                "When on, files are handed to Android's system download manager instead of " +
+                    "Andromeda's built-in downloader.",
+            )
+        }
     }
 }
 
@@ -772,89 +863,102 @@ private fun AdvancedAboutSettings(
         // Draft holds the value while dragging (live % label); DataStore is written once
         // on release — MainActivity live-applies the persisted value to all open tabs.
         val shownScale = draftTextScale ?: textScale
-        Text(
-            "Text size — ${if (shownScale == 100) "Default" else "$shownScale%"}",
-            style = orbitBody,
-            color = scheme.text.primary,
-            modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
-        )
-        Slider(
-            value = shownScale.toFloat(),
-            onValueChange = { raw -> draftTextScale = (raw / 10f).roundToInt() * 10 },
-            onValueChangeFinished = {
-                draftTextScale?.let(viewModel::onTextScaleChanged)
-                draftTextScale = null
-            },
-            valueRange = 50f..200f,
-            steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
-            modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
-        )
-        Caption("Applies to every website. A per-site text size from Site settings wins.")
+        SettingsGroup {
+            Text(
+                "Text size — ${if (shownScale == 100) "Default" else "$shownScale%"}",
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+            )
+            Slider(
+                value = shownScale.toFloat(),
+                onValueChange = { raw -> draftTextScale = (raw / 10f).roundToInt() * 10 },
+                onValueChangeFinished = {
+                    draftTextScale?.let(viewModel::onTextScaleChanged)
+                    draftTextScale = null
+                },
+                valueRange = 50f..200f,
+                steps = 14, // (200 - 50) / 10 - 1: snap points every 10%
+                modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
+            )
+            Caption("Applies to every website. A per-site text size from Site settings wins.")
+        }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Behavior")
-        PrefSwitchRow(
-            title = "Group tabs opened from links",
-            checked = autoIslands,
-            onCheckedChange = viewModel::onAutoIslandsToggled,
-        )
-        PrefSwitchRow(
-            title = "Keep media playing in background",
-            checked = backgroundMedia,
-            onCheckedChange = viewModel::onBackgroundMediaToggled,
-        )
-        Caption(
-            "Keeps audio/video playing when you lock the phone or switch apps, with " +
-                "lock-screen play/pause/next controls and auto-play of the next track. " +
-                "Applies to every site (never incognito). May be stopped by aggressive " +
-                "battery savers on some phones.",
-        )
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Group tabs opened from links",
+                checked = autoIslands,
+                onCheckedChange = viewModel::onAutoIslandsToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Keep media playing in background",
+                checked = backgroundMedia,
+                onCheckedChange = viewModel::onBackgroundMediaToggled,
+            )
+            Caption(
+                "Keeps audio/video playing when you lock the phone or switch apps, with " +
+                    "lock-screen play/pause/next controls and auto-play of the next track. " +
+                    "Applies to every site (never incognito). May be stopped by aggressive " +
+                    "battery savers on some phones.",
+            )
+        }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Bookmarks")
-        TextButton(
-            onClick = { exportLauncher.launch("andromeda-bookmarks.html") },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
-        ) {
-            Text("Export bookmarks")
-        }
-        TextButton(
-            onClick = { importLauncher.launch(arrayOf("text/html")) },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
-        ) {
-            Text("Import bookmarks")
+        SettingsGroup {
+            TextButton(
+                onClick = { exportLauncher.launch("andromeda-bookmarks.html") },
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            ) {
+                Text("Export bookmarks")
+            }
+            GroupDivider()
+            TextButton(
+                onClick = { importLauncher.launch(arrayOf("text/html")) },
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            ) {
+                Text("Import bookmarks")
+            }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Backup & restore")
-        TextButton(
-            onClick = {
-                val date = java.time.LocalDate.now()
-                    .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
-                backupLauncher.launch("andromeda-backup-$date.json")
-            },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
-        ) {
-            Text("Back up")
+        SettingsGroup {
+            TextButton(
+                onClick = {
+                    val date = java.time.LocalDate.now()
+                        .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                    backupLauncher.launch("andromeda-backup-$date.json")
+                },
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            ) {
+                Text("Back up")
+            }
+            GroupDivider()
+            TextButton(
+                onClick = { restoreLauncher.launch(arrayOf("application/json")) },
+                modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
+            ) {
+                Text("Restore")
+            }
+            Caption(
+                "Backs up settings, bookmarks, home shortcuts, reading list, and tab groups. " +
+                    "Saved articles and browsing history stay on this device.",
+            )
         }
-        TextButton(
-            onClick = { restoreLauncher.launch(arrayOf("application/json")) },
-            modifier = Modifier.padding(horizontal = OrbitSpacing.sm),
-        ) {
-            Text("Restore")
-        }
-        Caption(
-            "Backs up settings, bookmarks, home shortcuts, reading list, and tab groups. " +
-                "Saved articles and browsing history stay on this device.",
-        )
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = OrbitSpacing.sm))
+        Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("About")
-        OrbitListRow(
-            leadingIcon = Icons.Filled.Info,
-            title = "Andromeda",
-            subtitle = if (versionName.isNotEmpty()) "Version $versionName" else "A calm, private browser",
-        )
+        SettingsGroup {
+            OrbitListRow(
+                leadingIcon = Icons.Filled.Info,
+                title = "Andromeda",
+                subtitle = if (versionName.isNotEmpty()) "Version $versionName" else "A calm, private browser",
+            )
+        }
     }
 
     pendingRestore?.let { backup ->
