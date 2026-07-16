@@ -22,8 +22,9 @@ class BrowserViewModelOrbitTest {
         tabDao: FakeTabDao = FakeTabDao(),
         settings: FakeSettingsRepository = FakeSettingsRepository(),
         orbitRepository: OrbitRepository = OrbitRepository(FakeOrbitDao(), io = Dispatchers.Unconfined),
+        historyDao: FakeHistoryDao = FakeHistoryDao(),
     ) = BrowserViewModel(
-        FakeHistoryDao(),
+        historyDao,
         FakeBookmarkDao(),
         tabDao,
         settings,
@@ -101,6 +102,61 @@ class BrowserViewModelOrbitTest {
         assertTrue(vm.tabs.value.none { it.orbitId == work.id })
         assertTrue(vm.orbits.value.none { it.id == work.id })
         assertEquals(personalId, vm.activeOrbitId.value)
+    }
+
+    @Test
+    fun `a page finishing is recorded against its own tab's orbit, not the active one`() = runTest {
+        // The headline Phase 2 invariant: a late/background onPageFinished for a tab that lives in
+        // Orbit A must land in A's history even if the user has since switched active to Orbit B.
+        val history = FakeHistoryDao()
+        val vm = vm(historyDao = history)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+        val personalTabId = vm.tabs.value.single().id
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id) // active is now Work; the Personal tab still belongs to Personal
+        advanceUntilIdle()
+        assertEquals(work.id, vm.activeOrbitId.value)
+
+        // Fire the Personal tab's page-finish while Work is active.
+        vm.onPageFinished(personalTabId, "https://personal-only.com", "Personal Only")
+        advanceUntilIdle()
+
+        val recorded = history.entries.value.single { it.url == "https://personal-only.com" }
+        assertEquals(personalId, recorded.orbitId)
+        // And it must be invisible to Work: isolation holds across the switch.
+        assertTrue(history.entries.value.none { it.orbitId == work.id })
+    }
+
+    @Test
+    fun `deleting an orbit purges its history rows`() = runTest {
+        val history = FakeHistoryDao()
+        val vm = vm(historyDao = history)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+        val personalTabId = vm.tabs.value.single().id
+        vm.onPageFinished(personalTabId, "https://keep.com", "Keep")
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        val workTabId = vm.tabs.value.first { it.orbitId == work.id }.id
+        vm.onPageFinished(workTabId, "https://work-secret.com", "Work Secret")
+        advanceUntilIdle()
+        assertTrue(history.entries.value.any { it.orbitId == work.id })
+
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        // Work's history is gone; Personal's survives.
+        assertTrue(history.entries.value.none { it.orbitId == work.id })
+        assertTrue(history.entries.value.any { it.orbitId == personalId && it.url == "https://keep.com" })
     }
 
     @Test
