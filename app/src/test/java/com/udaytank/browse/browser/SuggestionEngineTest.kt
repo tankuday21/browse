@@ -31,7 +31,7 @@ class SuggestionEngineTest {
             entries.value = listOf(HistoryEntry(1, "https://kotlinlang.org", "Kotlin", 5, orbit))
         }
         val bookmarks = FakeBookmarkDao().apply {
-            bookmarks.value = listOf(Bookmark(1, "https://kotlinlang.org/docs", "Kotlin Docs", 1))
+            bookmarks.value = listOf(Bookmark(1, "https://kotlinlang.org/docs", "Kotlin Docs", 1, orbitId = orbit))
         }
         val result = engine(history, bookmarks, web = { listOf("kotlin tutorial") }).suggest("kotlin", orbit)
 
@@ -47,7 +47,7 @@ class SuggestionEngineTest {
             entries.value = listOf(HistoryEntry(1, "https://a.com", "A", 5, orbit))
         }
         val bookmarks = FakeBookmarkDao().apply {
-            bookmarks.value = listOf(Bookmark(1, "https://a.com", "A starred", 1))
+            bookmarks.value = listOf(Bookmark(1, "https://a.com", "A starred", 1, orbitId = orbit))
         }
         val result = engine(history, bookmarks).suggest("a.com", orbit)
         assertEquals(1, result.count { it.url == "https://a.com" })

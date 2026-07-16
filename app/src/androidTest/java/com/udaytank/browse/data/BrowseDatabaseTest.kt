@@ -81,10 +81,23 @@ class BrowseDatabaseTest {
     }
 
     @Test
-    fun bookmarkDuplicateUrlIsIgnored() = runBlocking {
-        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1))
-        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A again", createdAt = 2))
-        assertEquals(1, db.bookmarkDao().observeAll().first().size)
+    fun bookmarkDuplicateUrlIsIgnoredWithinAnOrbit() = runBlocking {
+        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1, orbitId = 1))
+        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A again", createdAt = 2, orbitId = 1))
+        assertEquals(1, db.bookmarkDao().observeForOrbit(1).first().size)
+    }
+
+    @Test
+    fun sameUrlBookmarkableInTwoOrbits() = runBlocking {
+        // The composite (url, orbitId) unique index lets each Orbit keep its own star.
+        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1, orbitId = 1))
+        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 2, orbitId = 2))
+        assertEquals(1, db.bookmarkDao().observeForOrbit(1).first().size)
+        assertEquals(1, db.bookmarkDao().observeForOrbit(2).first().size)
+        // Deleting in one Orbit leaves the other's intact.
+        db.bookmarkDao().deleteForOrbit(2)
+        assertEquals(1, db.bookmarkDao().observeForOrbit(1).first().size)
+        assertTrue(db.bookmarkDao().observeForOrbit(2).first().isEmpty())
     }
 
     @Test
@@ -132,11 +145,11 @@ class BrowseDatabaseTest {
 
     @Test
     fun bookmarkToggleLifecycle() = runBlocking {
-        assertFalse(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
-        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1))
-        assertTrue(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
-        db.bookmarkDao().deleteByUrl("https://a.com")
-        assertFalse(db.bookmarkDao().observeIsBookmarked("https://a.com").first())
+        assertFalse(db.bookmarkDao().observeIsBookmarked(1, "https://a.com").first())
+        db.bookmarkDao().insert(Bookmark(url = "https://a.com", title = "A", createdAt = 1, orbitId = 1))
+        assertTrue(db.bookmarkDao().observeIsBookmarked(1, "https://a.com").first())
+        db.bookmarkDao().deleteByUrl(1, "https://a.com")
+        assertFalse(db.bookmarkDao().observeIsBookmarked(1, "https://a.com").first())
     }
 
     @Test
@@ -311,25 +324,32 @@ class BrowseDatabaseTest {
     }
 
     @Test
-    fun homeShortcutDao_roundTripAndReplaceAll() = runBlocking {
+    fun homeShortcutDao_roundTripAndReplaceAllForOrbit() = runBlocking {
         val dao = database.homeShortcutDao()
-        dao.insert(HomeShortcutEntity(url = "https://a.com", title = "A", position = 0))
-        dao.insert(HomeShortcutEntity(url = "https://b.com", title = "B", position = 1))
+        dao.insert(HomeShortcutEntity(url = "https://a.com", title = "A", position = 0, orbitId = 1))
+        dao.insert(HomeShortcutEntity(url = "https://b.com", title = "B", position = 1, orbitId = 1))
+        // A tile in another Orbit must be untouched by Orbit 1's reorder.
+        dao.insert(HomeShortcutEntity(url = "https://other.com", title = "O", position = 0, orbitId = 2))
 
-        val all = dao.observeAll().first()
+        val all = dao.observeForOrbit(1).first()
         assertEquals(listOf("https://a.com", "https://b.com"), all.map { it.url })
 
-        // replaceAll rewrites the whole list atomically (reorder path).
-        dao.replaceAll(
+        // replaceAllForOrbit rewrites just this Orbit's list atomically (reorder path).
+        dao.replaceAllForOrbit(
+            1,
             listOf(
-                HomeShortcutEntity(url = "https://b.com", title = "B", position = 0),
-                HomeShortcutEntity(url = "https://a.com", title = "A", position = 1),
+                HomeShortcutEntity(url = "https://b.com", title = "B", position = 0, orbitId = 1),
+                HomeShortcutEntity(url = "https://a.com", title = "A", position = 1, orbitId = 1),
             )
         )
-        assertEquals(listOf("https://b.com", "https://a.com"), dao.getAll().map { it.url })
+        assertEquals(listOf("https://b.com", "https://a.com"), dao.getAllForOrbit(1).map { it.url })
+        // Orbit 2's tile survived.
+        assertEquals(listOf("https://other.com"), dao.getAllForOrbit(2).map { it.url })
 
-        dao.deleteById(dao.getAll().first().id)
-        assertEquals(listOf("https://a.com"), dao.getAll().map { it.url })
+        // deleteForOrbit purges just that Orbit's tiles.
+        dao.deleteForOrbit(1)
+        assertTrue(dao.getAllForOrbit(1).isEmpty())
+        assertEquals(1, dao.getAllForOrbit(2).size)
     }
 
     @Test
@@ -457,6 +477,38 @@ class BrowseDatabaseTest {
                 assertEquals(10L, c.getLong(0)) // backfilled to the first (position 0) orbit
             }
         }
+    }
+
+    @Test
+    fun migrate16to17_addsOrbitIdToBookmarksAndShortcutsAndBackfills() {
+        helper.createDatabase(DB, 16).apply {
+            execSQL(
+                "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
+                    "VALUES (20, 'Personal', 1, 0, 'orbit_20', 'person')"
+            )
+            execSQL("INSERT INTO bookmarks (url, title, createdAt) VALUES ('https://a.com', 'A', 1)")
+            execSQL("INSERT INTO home_shortcuts (url, title, position) VALUES ('https://b.com', 'B', 0)")
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 17, true, BrowseDatabase.MIGRATION_16_17)
+
+        db.query("SELECT orbitId FROM bookmarks").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(20L, c.getLong(0))
+        }
+        db.query("SELECT orbitId FROM home_shortcuts").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(20L, c.getLong(0))
+        }
+        // The new composite unique index exists (and the old single-column one is gone).
+        var hasComposite = false
+        db.query("PRAGMA index_list(bookmarks)").use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == "index_bookmarks_url_orbitId") hasComposite = true
+                assertTrue(c.getString(1) != "index_bookmarks_url")
+            }
+        }
+        assertTrue(hasComposite)
     }
 
     @Test

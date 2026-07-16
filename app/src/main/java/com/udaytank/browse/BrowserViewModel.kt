@@ -441,9 +441,11 @@ class BrowserViewModel(
             val deletedOrbitTabIds = tabs.value.filter { it.orbitId == id }.map { it.id }
             deletedOrbitTabIds.forEach { tabManager.closeTab(it, HOME_URL) }
 
-            // Isolation: a deleted Orbit's browsing history must not survive it (mirrors the
+            // Isolation: a deleted Orbit's saved data must not survive it (mirrors the
             // cookie/profile + tab purge). Irreversible, like deleteProfile.
             historyDao.deleteForOrbit(id)
+            bookmarkDao.deleteForOrbit(id)
+            homeShortcutDao.deleteForOrbit(id)
 
             _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
         }
@@ -492,11 +494,15 @@ class BrowserViewModel(
         .flatMapLatest { orbitId -> historyDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
+    // Orbit-scoped (v4.4): each Orbit has its own bookmarks; re-subscribes on Orbit switch.
+    val bookmarks: StateFlow<List<Bookmark>> = activeOrbitId
+        .flatMapLatest { orbitId -> bookmarkDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Eagerly: the home page is the first thing rendered, before any subscriber settles.
-    val homeShortcuts: StateFlow<List<HomeShortcutEntity>> = homeShortcutDao.observeAll()
+    // Orbit-scoped (v4.4): each Orbit has its own home grid.
+    val homeShortcuts: StateFlow<List<HomeShortcutEntity>> = activeOrbitId
+        .flatMapLatest { orbitId -> homeShortcutDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -511,16 +517,19 @@ class BrowserViewModel(
             return
         }
         viewModelScope.launch {
-            if (homeShortcutDao.getAll().any { it.url == cleanUrl }) {
+            val orbitId = activeOrbitId.value
+            val existing = homeShortcutDao.getAllForOrbit(orbitId)
+            if (existing.any { it.url == cleanUrl }) {
                 onFeedback("Already on your home screen")
                 return@launch
             }
-            val nextPosition = (homeShortcutDao.getAll().maxOfOrNull { it.position } ?: -1) + 1
+            val nextPosition = (existing.maxOfOrNull { it.position } ?: -1) + 1
             homeShortcutDao.insert(
                 HomeShortcutEntity(
                     url = cleanUrl,
                     title = title.trim().ifBlank { UrlHosts.of(cleanUrl) ?: cleanUrl },
                     position = nextPosition,
+                    orbitId = orbitId,
                 )
             )
             onFeedback("Added to home")
@@ -545,13 +554,15 @@ class BrowserViewModel(
         viewModelScope.launch { homeShortcutDao.deleteById(id) }
     }
 
-    /** Moves a tile to the first slot; the whole list is rewritten with fresh 0..n positions. */
+    /** Moves a tile to the first slot; the Orbit's list is rewritten with fresh 0..n positions. */
     fun onMoveShortcutToFront(id: Long) {
         viewModelScope.launch {
-            val current = homeShortcutDao.getAll()
+            val orbitId = activeOrbitId.value
+            val current = homeShortcutDao.getAllForOrbit(orbitId)
             val target = current.find { it.id == id } ?: return@launch
             val reordered = listOf(target) + current.filterNot { it.id == id }
-            homeShortcutDao.replaceAll(
+            homeShortcutDao.replaceAllForOrbit(
+                orbitId,
                 reordered.mapIndexed { index, shortcut -> shortcut.copy(position = index) }
             )
         }
@@ -811,10 +822,14 @@ class BrowserViewModel(
     private val _blockedCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
     val blockedCounts: StateFlow<Map<Long, Int>> = _blockedCounts.asStateFlow()
 
-    val isBookmarked: StateFlow<Boolean> = uiState
-        .map { it.currentUrl }
-        .distinctUntilChanged()
-        .flatMapLatest { url -> if (url == null) flowOf(false) else bookmarkDao.observeIsBookmarked(url) }
+    // Orbit-scoped (v4.4): the star reflects whether THIS Orbit has the current page bookmarked.
+    val isBookmarked: StateFlow<Boolean> = combine(
+        uiState.map { it.currentUrl }.distinctUntilChanged(),
+        activeOrbitId,
+    ) { url, orbitId -> url to orbitId }
+        .flatMapLatest { (url, orbitId) ->
+            if (url == null) flowOf(false) else bookmarkDao.observeIsBookmarked(orbitId, url)
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     init {
@@ -1130,12 +1145,18 @@ class BrowserViewModel(
     fun onToggleBookmark() {
         val state = _uiState.value
         val url = state.currentUrl ?: return
+        val orbitId = activeOrbitId.value
         viewModelScope.launch {
             if (isBookmarked.value) {
-                bookmarkDao.deleteByUrl(url)
+                bookmarkDao.deleteByUrl(orbitId, url)
             } else {
                 bookmarkDao.insert(
-                    Bookmark(url = url, title = state.addressBarText, createdAt = System.currentTimeMillis())
+                    Bookmark(
+                        url = url,
+                        title = state.addressBarText,
+                        createdAt = System.currentTimeMillis(),
+                        orbitId = orbitId,
+                    )
                 )
             }
         }
@@ -1156,18 +1177,20 @@ class BrowserViewModel(
     }
 
     fun onDeleteBookmark(url: String) {
-        viewModelScope.launch { bookmarkDao.deleteByUrl(url) }
+        val orbitId = activeOrbitId.value
+        viewModelScope.launch { bookmarkDao.deleteByUrl(orbitId, url) }
     }
 
-    /** Returns Netscape-format HTML of all bookmarks for export. */
+    /** Returns Netscape-format HTML of the active Orbit's bookmarks for export. */
     suspend fun exportBookmarksHtml(): String =
-        com.udaytank.browse.browser.BookmarkIO.export(bookmarkDao.getAll())
+        com.udaytank.browse.browser.BookmarkIO.export(bookmarkDao.getAllForOrbit(activeOrbitId.value))
 
-    /** Imports bookmarks from a Netscape HTML file; returns how many were added. */
+    /** Imports bookmarks from a Netscape HTML file into the active Orbit; returns how many were added. */
     fun importBookmarksHtml(html: String, onDone: (Int) -> Unit) {
+        val orbitId = activeOrbitId.value
         viewModelScope.launch {
             val parsed = com.udaytank.browse.browser.BookmarkIO.parse(html, System.currentTimeMillis())
-            parsed.forEach { bookmarkDao.insert(it) }
+            parsed.forEach { bookmarkDao.insert(it.copy(orbitId = orbitId)) }
             onDone(parsed.size)
         }
     }
@@ -1224,22 +1247,27 @@ class BrowserViewModel(
         viewModelScope.launch {
             applyRestoredSettings(backup.settings)
 
-            val existingBookmarks = bookmarkDao.getAll().map { it.url }.toSet()
+            // Orbit ids are device-local and can't be assumed to match across installs, so a
+            // restore imports bookmarks/shortcuts into the CURRENT Orbit, deduping against its
+            // own rows only (v4.4).
+            val orbitId = activeOrbitId.value
+
+            val existingBookmarks = bookmarkDao.getAllForOrbit(orbitId).map { it.url }.toSet()
             var bookmarksAdded = 0
             backup.bookmarks.forEach { bookmark ->
                 if (bookmark.url !in existingBookmarks) {
-                    bookmarkDao.insert(bookmark.copy(id = 0))
+                    bookmarkDao.insert(bookmark.copy(id = 0, orbitId = orbitId))
                     bookmarksAdded++
                 }
             }
 
-            val currentShortcuts = homeShortcutDao.getAll()
+            val currentShortcuts = homeShortcutDao.getAllForOrbit(orbitId)
             val existingShortcutUrls = currentShortcuts.map { it.url }.toSet()
             var nextPosition = (currentShortcuts.maxOfOrNull { it.position } ?: -1) + 1
             var shortcutsAdded = 0
             backup.homeShortcuts.sortedBy { it.position }.forEach { shortcut ->
                 if (shortcut.url !in existingShortcutUrls) {
-                    homeShortcutDao.insert(shortcut.copy(id = 0, position = nextPosition++))
+                    homeShortcutDao.insert(shortcut.copy(id = 0, position = nextPosition++, orbitId = orbitId))
                     shortcutsAdded++
                 }
             }

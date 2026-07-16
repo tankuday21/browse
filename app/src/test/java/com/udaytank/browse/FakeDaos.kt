@@ -75,29 +75,41 @@ class FakeBookmarkDao : BookmarkDao {
     val bookmarks = MutableStateFlow<List<Bookmark>>(emptyList())
 
     override suspend fun insert(bookmark: Bookmark) {
-        if (bookmarks.value.none { it.url == bookmark.url }) {
+        // Mirrors the composite (url, orbitId) unique index: same url may exist in two Orbits.
+        if (bookmarks.value.none { it.url == bookmark.url && it.orbitId == bookmark.orbitId }) {
             bookmarks.value = bookmarks.value + bookmark
         }
     }
 
-    override fun observeAll(): Flow<List<Bookmark>> = bookmarks
+    override fun observeForOrbit(orbitId: Long): Flow<List<Bookmark>> =
+        bookmarks.map { list -> list.filter { it.orbitId == orbitId }.sortedByDescending { it.createdAt } }
+
+    override suspend fun getAllForOrbit(orbitId: Long): List<Bookmark> =
+        bookmarks.value.filter { it.orbitId == orbitId }.sortedByDescending { it.createdAt }
 
     override suspend fun getAll(): List<Bookmark> = bookmarks.value
 
-    override suspend fun setFolder(url: String, folder: String?) {
-        bookmarks.value = bookmarks.value.map { if (it.url == url) it.copy(folder = folder) else it }
+    override suspend fun setFolder(orbitId: Long, url: String, folder: String?) {
+        bookmarks.value = bookmarks.value.map {
+            if (it.url == url && it.orbitId == orbitId) it.copy(folder = folder) else it
+        }
     }
 
-    override fun observeIsBookmarked(url: String): Flow<Boolean> =
-        bookmarks.map { list -> list.any { it.url == url } }
+    override fun observeIsBookmarked(orbitId: Long, url: String): Flow<Boolean> =
+        bookmarks.map { list -> list.any { it.url == url && it.orbitId == orbitId } }
 
-    override suspend fun search(query: String, limit: Int): List<Bookmark> =
+    override suspend fun search(orbitId: Long, query: String, limit: Int): List<Bookmark> =
         bookmarks.value
+            .filter { it.orbitId == orbitId }
             .filter { it.url.contains(query, true) || it.title.contains(query, true) }
             .sortedByDescending { it.createdAt }
             .take(limit)
 
-    override suspend fun deleteByUrl(url: String) {
-        bookmarks.value = bookmarks.value.filterNot { it.url == url }
+    override suspend fun deleteByUrl(orbitId: Long, url: String) {
+        bookmarks.value = bookmarks.value.filterNot { it.url == url && it.orbitId == orbitId }
+    }
+
+    override suspend fun deleteForOrbit(orbitId: Long) {
+        bookmarks.value = bookmarks.value.filterNot { it.orbitId == orbitId }
     }
 }

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +41,7 @@ import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.OrbitEntity
 import com.udaytank.browse.ui.components.FaviconOrLetter
 import com.udaytank.browse.ui.components.OrbitAvatar
+import com.udaytank.browse.ui.components.OrbitScopeHeader
 import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitSpacing
@@ -95,7 +94,7 @@ fun HistoryScreen(
                         }
                     },
                 )
-                if (activeOrbit != null) OrbitScopeHeader(activeOrbit)
+                if (activeOrbit != null) OrbitScopeHeader(activeOrbit, scope = "history")
                 OrbitTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -153,40 +152,6 @@ fun HistoryScreen(
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
             },
-        )
-    }
-}
-
-/**
- * A slim strip under the top bar naming whose history is on screen: the active Orbit's avatar +
- * name, closed by a hairline tinted in the Orbit's own color — the same ambient-identity cue the
- * tab switcher uses, so "this list belongs to this Orbit" reads at a glance.
- */
-@Composable
-private fun OrbitScopeHeader(activeOrbit: OrbitEntity) {
-    val scheme = orbit()
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
-        ) {
-            OrbitAvatar(colorArgb = activeOrbit.colorArgb, iconKey = activeOrbit.iconKey, size = 24.dp)
-            Text(
-                text = "${activeOrbit.name} · history",
-                style = orbitCaption,
-                color = scheme.text.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(2.dp)
-                .background(Color(activeOrbit.colorArgb).copy(alpha = 0.6f)),
         )
     }
 }

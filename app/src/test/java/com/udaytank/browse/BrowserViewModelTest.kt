@@ -1016,11 +1016,12 @@ class BrowserViewModelTest {
             readingListDao = readingDao, tabGroupDao = groupDao, settings = settings,
         )
         advanceUntilIdle()
+        val orbit = vm.activeOrbitId.value
         bookmarkDao.insert(
-            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, folder = "Work")
+            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, folder = "Work", orbitId = orbit)
         )
         shortcutDao.insert(
-            com.udaytank.browse.data.HomeShortcutEntity(url = "https://b.com", title = "B", position = 0)
+            com.udaytank.browse.data.HomeShortcutEntity(url = "https://b.com", title = "B", position = 0, orbitId = orbit)
         )
         readingDao.insert(ReadingListEntry(url = "https://c.com", title = "C", addedAt = 2, filePath = "/gone.html"))
         groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 1, position = 0))
@@ -1049,9 +1050,10 @@ class BrowserViewModelTest {
             readingListDao = readingDao, tabGroupDao = groupDao,
         )
         advanceUntilIdle()
-        // Existing data that overlaps with the backup.
-        bookmarkDao.insert(com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup", createdAt = 1))
-        shortcutDao.insert(com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0))
+        // Existing data that overlaps with the backup (in the active Orbit, where restore lands).
+        val orbit = vm.activeOrbitId.value
+        bookmarkDao.insert(com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup", createdAt = 1, orbitId = orbit))
+        shortcutDao.insert(com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0, orbitId = orbit))
         readingDao.insert(ReadingListEntry(url = "https://dup.com", title = "Dup", addedAt = 1))
         groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 0, position = 0))
 
