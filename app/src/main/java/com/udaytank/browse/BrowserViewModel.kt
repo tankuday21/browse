@@ -779,7 +779,15 @@ class BrowserViewModel(
             } else {
                 null
             }
+            tabManager.defaultOrbitId = resolvedActiveOrbitId
             tabManager.initialize(HOME_URL, orbitId = resolvedActiveOrbitId)
+        }
+        // Keeps TabManager's fallback-tab hint in sync with whichever Orbit is active, so any
+        // fallback/initial home tab it auto-creates on its own initiative (closeTab's empty-list
+        // fallback, initialize's empty-DB tab) lands in the current Orbit instead of orbitId =
+        // null — see TabManager.defaultOrbitId's doc for why a null Orbit is a bug, not a no-op.
+        viewModelScope.launch {
+            activeOrbitId.collect { tabManager.defaultOrbitId = it }
         }
         // A tab switch always brings the command bar back (auto-hide state is per-moment,
         // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).

@@ -28,14 +28,25 @@ class TabManager(
     private fun isIncognitoId(id: Long) = id < 0
 
     /**
+     * The caller's (BrowserViewModel's) current notion of the active Orbit. Every fallback/
+     * initial home tab TabManager auto-creates on its own initiative — [initialize]'s empty-DB
+     * tab and [closeTab]'s empty-list fallback — is stamped with this id, so those tabs are never
+     * left with a null Orbit (a null-orbit tab won't match any Orbit's activeOrbitId filter and
+     * becomes invisible). Explicit [newTab] callers that already pass their own orbitId are
+     * unaffected. Incognito is irrelevant here — these fallback tabs are always normal tabs.
+     */
+    var defaultOrbitId: Long? = null
+
+    /**
      * [orbitId] is threaded into the home tab created when the DAO is empty (fresh install or
      * a wipe), so that tab is never left with a null Orbit — see [newTab]'s docs for why that
-     * matters (an orbitId == null tab won't match any Orbit's activeOrbitId filter).
+     * matters (an orbitId == null tab won't match any Orbit's activeOrbitId filter). Falls back
+     * to [defaultOrbitId] when the caller doesn't pass one explicitly.
      */
     suspend fun initialize(homeUrl: String, orbitId: Long? = null) {
         val stored = tabDao.getAll()
         if (stored.isEmpty()) {
-            newTab(homeUrl, orbitId = orbitId)
+            newTab(homeUrl, orbitId = orbitId ?: defaultOrbitId)
         } else {
             _tabs.value = stored
             _activeTabId.value = (stored.find { it.isActive } ?: stored.first()).id
@@ -92,7 +103,7 @@ class TabManager(
         _tabs.value = _tabs.value.filterNot { it.id == id }
         if (!isIncognitoId(id)) tabDao.deleteById(id)
         when {
-            _tabs.value.isEmpty() -> newTab(homeUrl)
+            _tabs.value.isEmpty() -> newTab(homeUrl, orbitId = defaultOrbitId)
             next != null -> switchTo(next)
         }
     }

@@ -202,4 +202,22 @@ class BrowserViewModelOrbitTest {
         assertNotNull(initialTab.orbitId)
         assertEquals(resolvedActiveOrbitId, initialTab.orbitId)
     }
+
+    @Test
+    fun `closing the last tab in the active orbit assigns the auto-created home tab to that orbit, never null`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val activeId = vm.activeOrbitId.value
+        val onlyTab = vm.tabs.value.single()
+        assertEquals(activeId, onlyTab.orbitId)
+
+        vm.onCloseTab(onlyTab.id)
+        advanceUntilIdle()
+
+        val replacementTab = vm.tabs.value.single()
+        assertEquals(activeId, vm.activeOrbitId.value)
+        assertNotNull(replacementTab.orbitId)
+        assertEquals(activeId, replacementTab.orbitId)
+        assertTrue(vm.tabs.value.none { !it.isIncognito && it.orbitId == null })
+    }
 }
