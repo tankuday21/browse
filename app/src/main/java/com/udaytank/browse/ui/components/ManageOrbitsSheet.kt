@@ -47,7 +47,6 @@ import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
-import com.udaytank.browse.ui.theme.orbitCaption
 import com.udaytank.browse.ui.theme.orbitTitle
 
 /**
@@ -302,24 +301,30 @@ private fun ColorSwatch(
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(36.dp)
-            .clickable(onClick = onClick)
-            .background(Color(colorArgb), CircleShape)
-            .then(
-                if (selected) {
-                    Modifier.border(2.dp, scheme.text.primary, CircleShape)
-                } else {
-                    Modifier
-                },
-            ),
+            .size(44.dp)
+            .clickable(onClick = onClick),
     ) {
-        if (selected) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = "Selected",
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
-            )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(36.dp)
+                .background(Color(colorArgb), CircleShape)
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, scheme.text.primary, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            if (selected) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = "Selected",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
