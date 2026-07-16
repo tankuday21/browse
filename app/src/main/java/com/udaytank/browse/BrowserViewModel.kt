@@ -1709,7 +1709,7 @@ class BrowserViewModel(
     val weather: StateFlow<Weather?> = _weather.asStateFlow()
 
     init {
-        // Offline cache (v4.7): show the last-known weather immediately at launch, before (or
+        // Offline cache (v4.6): show the last-known weather immediately at launch, before (or
         // instead of) a successful network refresh. A live forecast overwrites it when it arrives.
         viewModelScope.launch {
             val cached = settings.weatherCache.first().takeIf { it.isNotBlank() }?.let(WeatherCodec::decode)
@@ -1763,7 +1763,7 @@ class BrowserViewModel(
         viewModelScope.launch {
             repo.forecast(place.lat, place.lon)?.let { fresh ->
                 _weather.value = fresh
-                // Persist for the offline cache (v4.7): shown on next launch / when a refresh fails.
+                // Persist for the offline cache (v4.6): shown on next launch / when a refresh fails.
                 settings.setWeatherCache(WeatherCodec.encode(fresh))
             }
         }

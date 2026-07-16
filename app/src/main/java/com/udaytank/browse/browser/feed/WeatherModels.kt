@@ -19,7 +19,7 @@ data class Weather(
 )
 
 /**
- * Pure JSON (de)serialization of a resolved [Weather] for the offline cache (v4.7). Lets the home
+ * Pure JSON (de)serialization of a resolved [Weather] for the offline cache (v4.6). Lets the home
  * widget show the last-known conditions immediately on launch and keep showing them when a refresh
  * fails (no network) instead of blanking out. Kept separate from [WeatherJson] (which maps the
  * Open-Meteo API shape) and free of any Android/network dependency so it's trivially testable.

@@ -30,6 +30,12 @@ class WeatherCodecTest {
         assertNull(WeatherCodec.decode("not json"))
         assertNull(WeatherCodec.decode("{}"))
     }
+
+    @Test
+    fun `decode returns null when a daily entry is malformed`() {
+        // Missing "h" on a day → getInt throws → runCatching yields null (not a partial Weather).
+        assertNull(WeatherCodec.decode("""{"t":1,"c":1,"d":"x","days":[{"l":"Mon"}]}"""))
+    }
 }
 
 class WeatherJsonTest {
