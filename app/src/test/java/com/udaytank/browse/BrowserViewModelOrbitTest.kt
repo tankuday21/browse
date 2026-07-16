@@ -192,6 +192,40 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `onDeleteOrbit with 3 orbits switches the active tab to the surviving active orbit, not whatever the close policy picks`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val personal = vm.orbits.value.first { it.name == "Personal" }
+        // Personal already has a tab (position 0) from first-launch seeding.
+
+        vm.onCreateOrbit("Play", 0x1)
+        advanceUntilIdle()
+        val play = vm.orbits.value.first { it.name == "Play" }
+        vm.onSwitchOrbit(play.id) // creates Play's tab at position 1, makes Play active.
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x2)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id) // creates Work's tab at position 2, makes Work active.
+        advanceUntilIdle()
+        assertEquals(work.id, vm.activeOrbitId.value)
+
+        // Delete the active orbit (Work). TabClosePolicy is position-based and Orbit-unaware:
+        // absent the fix, closing Work's tab would hand the active tab to Play (the next
+        // position-wise), not to Personal (the new active orbit).
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        // Personal is the first surviving orbit (created first, excluding the deleted Work).
+        assertEquals(personal.id, vm.activeOrbitId.value)
+
+        val activeTab = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        assertEquals(personal.id, activeTab.orbitId)
+        assertTrue(vm.tabs.value.none { !it.isIncognito && it.orbitId == null })
+    }
+
+    @Test
     fun `fresh install init assigns the first tab to the resolved active orbit, never null`() = runTest {
         val vm = vm()
         advanceUntilIdle()

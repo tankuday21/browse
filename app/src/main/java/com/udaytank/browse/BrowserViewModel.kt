@@ -373,10 +373,18 @@ class BrowserViewModel(
 
     /**
      * Deletes an Orbit (the repo itself refuses — and this is then a no-op — if it's the last
-     * one). Order matters here: the new active Orbit is guaranteed a tab of its own (and made
-     * active) BEFORE the deleted Orbit's tabs are closed, so the global tab list is never empty
-     * mid-close — which would otherwise trip [TabManager.closeTab]'s empty-list fallback and
-     * create an orphaned tab with `orbitId = null` (invisible to every Orbit's filter). Its
+     * one). Order matters here: the new active Orbit is guaranteed a tab of its own AND made the
+     * active tab (mirroring [onSwitchOrbit]'s switchTo-or-create logic) BEFORE the deleted
+     * Orbit's tabs are closed. Doing this unconditionally — not only when a tab had to be
+     * created — matters because [TabClosePolicy.nextActiveId] is position-based and
+     * Orbit-unaware: if the active tab were left behind in the Orbit being deleted, closing that
+     * Orbit's tabs could hand the active tab to some OTHER surviving Orbit, leaving
+     * `activeOrbitId` and the active tab's `orbitId` mismatched. Switching first also means the
+     * global tab list is never empty mid-close, which would otherwise trip
+     * [TabManager.closeTab]'s empty-list fallback and create an orphaned tab with
+     * `orbitId = null` (invisible to every Orbit's filter). The new active Orbit is computed by
+     * excluding the just-deleted id from [orbits]'s current value rather than re-querying the
+     * repo, since that Flow may not have caught up with the delete yet. The deleted Orbit's
      * profileKey is only emitted on [orbitProfileToDelete] after the closes, once nothing is
      * still using the profile.
      */
@@ -388,13 +396,16 @@ class BrowserViewModel(
             if (!repo.delete(id)) return@launch
 
             val newActiveId = if (wasActive) {
-                repo.observeAll().first().firstOrNull()?.id
+                orbits.value.firstOrNull { it.id != id }?.id
             } else {
                 activeOrbitId.value
             }
 
             if (newActiveId != null) {
-                if (tabs.value.none { it.orbitId == newActiveId }) {
+                val mostRecentTab = tabs.value.filter { it.orbitId == newActiveId }.maxByOrNull { it.position }
+                if (mostRecentTab != null) {
+                    tabManager.switchTo(mostRecentTab.id)
+                } else {
                     tabManager.newTab(HOME_URL, orbitId = newActiveId)
                 }
                 settings.setActiveOrbitId(newActiveId)
