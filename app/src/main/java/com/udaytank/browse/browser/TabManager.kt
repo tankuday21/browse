@@ -27,10 +27,15 @@ class TabManager(
 
     private fun isIncognitoId(id: Long) = id < 0
 
-    suspend fun initialize(homeUrl: String) {
+    /**
+     * [orbitId] is threaded into the home tab created when the DAO is empty (fresh install or
+     * a wipe), so that tab is never left with a null Orbit — see [newTab]'s docs for why that
+     * matters (an orbitId == null tab won't match any Orbit's activeOrbitId filter).
+     */
+    suspend fun initialize(homeUrl: String, orbitId: Long? = null) {
         val stored = tabDao.getAll()
         if (stored.isEmpty()) {
-            newTab(homeUrl)
+            newTab(homeUrl, orbitId = orbitId)
         } else {
             _tabs.value = stored
             _activeTabId.value = (stored.find { it.isActive } ?: stored.first()).id

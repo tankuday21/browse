@@ -158,4 +158,48 @@ class BrowserViewModelOrbitTest {
         assertEquals(1, vm.orbits.value.size)
         assertNotNull(vm.orbits.value.find { it.id == personal.id })
     }
+
+    @Test
+    fun `deleting an orbit that holds every open tab leaves the new active orbit with a tab, no orphans`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+        val personalTab = vm.tabs.value.first()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+
+        // Switching to Work (no tabs yet) opens one there.
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        // Close the Personal tab so Work now holds EVERY open tab.
+        vm.onCloseTab(personalTab.id)
+        advanceUntilIdle()
+        assertTrue(vm.tabs.value.isNotEmpty())
+        assertTrue(vm.tabs.value.all { it.orbitId == work.id })
+
+        // Deleting Work must not let TabManager's empty-list fallback create a null-orbit tab,
+        // and must leave the new active Orbit (Personal) with at least one visible tab.
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        assertEquals(personalId, vm.activeOrbitId.value)
+        assertTrue(vm.tabs.value.any { it.orbitId == personalId })
+        assertTrue(vm.tabs.value.none { it.orbitId == work.id })
+        assertTrue(vm.tabs.value.none { !it.isIncognito && it.orbitId == null })
+    }
+
+    @Test
+    fun `fresh install init assigns the first tab to the resolved active orbit, never null`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+
+        val resolvedActiveOrbitId = vm.activeOrbitId.value
+        val initialTab = vm.tabs.value.single()
+
+        assertNotNull(initialTab.orbitId)
+        assertEquals(resolvedActiveOrbitId, initialTab.orbitId)
+    }
 }

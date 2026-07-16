@@ -373,8 +373,12 @@ class BrowserViewModel(
 
     /**
      * Deletes an Orbit (the repo itself refuses — and this is then a no-op — if it's the last
-     * one): closes every tab in it, moves the active Orbit elsewhere if it was active, and only
-     * then emits its profileKey on [orbitProfileToDelete] for the profile itself to be wiped.
+     * one). Order matters here: the new active Orbit is guaranteed a tab of its own (and made
+     * active) BEFORE the deleted Orbit's tabs are closed, so the global tab list is never empty
+     * mid-close — which would otherwise trip [TabManager.closeTab]'s empty-list fallback and
+     * create an orphaned tab with `orbitId = null` (invisible to every Orbit's filter). Its
+     * profileKey is only emitted on [orbitProfileToDelete] after the closes, once nothing is
+     * still using the profile.
      */
     fun onDeleteOrbit(id: Long) {
         val repo = orbitRepository ?: return
@@ -383,11 +387,20 @@ class BrowserViewModel(
             val wasActive = activeOrbitId.value == id
             if (!repo.delete(id)) return@launch
 
-            tabs.value.filter { it.orbitId == id }.forEach { tabManager.closeTab(it.id, HOME_URL) }
-
-            if (wasActive) {
-                repo.observeAll().first().firstOrNull()?.let { settings.setActiveOrbitId(it.id) }
+            val newActiveId = if (wasActive) {
+                repo.observeAll().first().firstOrNull()?.id
+            } else {
+                activeOrbitId.value
             }
+
+            if (newActiveId != null) {
+                if (tabs.value.none { it.orbitId == newActiveId }) {
+                    tabManager.newTab(HOME_URL, orbitId = newActiveId)
+                }
+                settings.setActiveOrbitId(newActiveId)
+            }
+
+            tabs.value.filter { it.orbitId == id }.forEach { tabManager.closeTab(it.id, HOME_URL) }
 
             _orbitProfileToDelete.emit(orbit.profileKey)
         }
@@ -747,17 +760,26 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     init {
-        viewModelScope.launch {
-            tabManager.initialize(HOME_URL)
-        }
-        // Orbits: seed the default "Personal" Orbit, and if activeOrbitId is still the
-        // persisted-unset sentinel (0), resolve it to that Orbit so the very first launch
-        // already has a real active Orbit rather than waiting on a later read.
+        // Orbits must be resolved BEFORE the first tab is created — otherwise, on a fresh
+        // install, tabManager.initialize can create the very first tab with orbitId = null
+        // (racing ensureDefault/activeOrbitId in a separate coroutine), leaving it orphaned
+        // once the active-Orbit filter ships. So this all runs sequentially in one coroutine:
+        // seed the default "Personal" Orbit, resolve (and if unset, persist) activeOrbitId,
+        // THEN initialize tabs with that resolved id threaded through.
         viewModelScope.launch {
             val orbit = orbitRepository?.ensureDefault(System.currentTimeMillis())
-            if (orbit != null && settings.activeOrbitId.first() == 0L) {
-                settings.setActiveOrbitId(orbit.id)
+            val resolvedActiveOrbitId = if (orbit != null) {
+                val stored = settings.activeOrbitId.first()
+                if (stored == 0L) {
+                    settings.setActiveOrbitId(orbit.id)
+                    orbit.id
+                } else {
+                    stored
+                }
+            } else {
+                null
             }
+            tabManager.initialize(HOME_URL, orbitId = resolvedActiveOrbitId)
         }
         // A tab switch always brings the command bar back (auto-hide state is per-moment,
         // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).
