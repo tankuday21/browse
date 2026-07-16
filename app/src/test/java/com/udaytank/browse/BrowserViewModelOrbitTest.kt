@@ -33,6 +33,10 @@ class BrowserViewModelOrbitTest {
         readingListDao: FakeReadingListDao = FakeReadingListDao(),
         siteSettingsDao: FakeSiteSettingsDao = FakeSiteSettingsDao(),
         articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
+        credentialRepository: com.udaytank.browse.data.CredentialRepository =
+            com.udaytank.browse.data.CredentialRepository(
+                FakeCredentialDao(), FakeCredentialCipher(), io = Dispatchers.Unconfined,
+            ),
     ) = BrowserViewModel(
         historyDao,
         bookmarkDao,
@@ -48,6 +52,7 @@ class BrowserViewModelOrbitTest {
         RecordingDownloadController(),
         ioDispatcher = Dispatchers.Unconfined,
         orbitRepository = orbitRepository,
+        credentialRepository = credentialRepository,
     )
 
     @Test
@@ -310,6 +315,109 @@ class BrowserViewModelOrbitTest {
         assertTrue(emitted.single().contains(BrowserViewModel.INCOGNITO_PROFILE_KEY))
         job.cancel()
         downloadFile.delete()
+    }
+
+    @Test
+    fun `password save is orbit-scoped, gated in incognito, and fill emits the decrypted login`() = runTest {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        val vm = vm(credentialRepository = repo)
+        advanceUntilIdle()
+        val personal = vm.orbits.value.single()
+        val tabId = vm.activeTabId.value!!
+
+        // The tab must be on an HTTPS page (capture/fill are HTTPS-only).
+        vm.onPageStarted(tabId, "https://example.com/login")
+        advanceUntilIdle()
+
+        // Submit a login on the active (non-incognito) tab → save prompt, then store.
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "s3cret")
+        advanceUntilIdle()
+        assertNotNull(vm.saveCredentialPrompt.value)
+        vm.onSaveCredential()
+        advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+        assertEquals(1, credDao.items.value.size)
+        assertEquals(personal.id, credDao.items.value.single().orbitId)
+        assertEquals("alice", credDao.items.value.single().username)
+
+        // Finishing a page on that host offers to fill; tapping emits the decrypted credential.
+        val filled = mutableListOf<BrowserViewModel.FillCredentialAction>()
+        val job = launch { vm.fillCredentialRequest.collect { filled.add(it) } }
+        advanceUntilIdle()
+        vm.onPageFinished(tabId, "https://example.com/login", "Login")
+        advanceUntilIdle()
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
+        vm.onFillCredential(tabId, personal.id, "example.com", "alice")
+        advanceUntilIdle()
+        assertEquals(1, filled.size)
+        assertEquals("alice", filled.single().username)
+        assertEquals("s3cret", filled.single().password)
+        job.cancel()
+
+        // Incognito never prompts to save.
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val incId = vm.activeTabId.value!!
+        assertTrue(incId < 0)
+        vm.onLoginSubmitted(incId, "example.com", "bob", "nope")
+        advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+    }
+
+    @Test
+    fun `login captured on a mixed-case host still offers to fill on the canonical host`() = runTest {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        val vm = vm(credentialRepository = repo)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+
+        // Capture on a MIXED-CASE host — the save must normalize via UrlHosts so fill can find it.
+        vm.onPageStarted(tabId, "https://EXAMPLE.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "EXAMPLE.com", "alice", "pw"); advanceUntilIdle()
+        vm.onSaveCredential(); advanceUntilIdle()
+        assertEquals("example.com", credDao.items.value.single().host)
+
+        // Fill offer appears on the canonical lowercase host.
+        vm.onPageFinished(tabId, "https://example.com/", "Home"); advanceUntilIdle()
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
+    }
+
+    @Test
+    fun `deleting an orbit and Black Hole both purge credentials`() = runTest {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        val vm = vm(credentialRepository = repo)
+        advanceUntilIdle()
+        val personalTab = vm.activeTabId.value!!
+        vm.onPageStarted(personalTab, "https://keep.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(personalTab, "keep.com", "me", "pw"); advanceUntilIdle()
+        vm.onSaveCredential(); advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1); advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id); advanceUntilIdle()
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }.id
+        vm.onPageStarted(workTab, "https://work.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(workTab, "work.com", "me", "pw"); advanceUntilIdle()
+        vm.onSaveCredential(); advanceUntilIdle()
+        assertEquals(2, credDao.items.value.size)
+
+        // Deleting Work purges only its credential.
+        vm.onDeleteOrbit(work.id); advanceUntilIdle()
+        assertTrue(credDao.items.value.none { it.orbitId == work.id })
+        assertEquals(1, credDao.items.value.size)
+
+        // Black Hole purges everything.
+        vm.onBlackHole(); advanceUntilIdle()
+        assertTrue(credDao.items.value.isEmpty())
     }
 
     @Test

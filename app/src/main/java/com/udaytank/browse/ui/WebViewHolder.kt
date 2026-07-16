@@ -72,6 +72,9 @@ class WebViewHolder(
         /** The Element Zapper picker chose an element (v4.0): host + CSS selector for persistence. */
         fun onZapPicked(tabId: Long, host: String, selector: String, label: String)
 
+        /** A login form was submitted (v4.7): host + best-guess username + password, to offer saving. Never fired for incognito. */
+        fun onLoginSubmitted(tabId: Long, host: String, username: String, password: String)
+
         /** The page declared a high-res apple-touch-icon (v4.1). Source-direct; never fired for incognito. */
         fun onTouchIconUrl(host: String, url: String)
 
@@ -198,6 +201,14 @@ class WebViewHolder(
         )
     }
 
+    /** v4.7 Passwords: fill a saved login into the tab's page (user-initiated; JSON-escaped JS). */
+    fun fillCredentials(tabId: Long, username: String, password: String) {
+        webViews[tabId]?.evaluateJavascript(
+            com.udaytank.browse.browser.PasswordScripts.fillJs(username, password),
+            null,
+        )
+    }
+
     /**
      * The JavascriptInterface the monitor reports through. Only our own methods, both
      * @JavascriptInterface-annotated, exposing nothing sensitive; minSdk 26 makes the pre-17
@@ -212,6 +223,20 @@ class WebViewHolder(
         @android.webkit.JavascriptInterface
         fun onEnded() {
             if (tabId in keepAliveTabs) mediaEndedListener?.invoke()
+        }
+    }
+
+    /**
+     * v4.7 Passwords: a submitted login crosses here. Attached ONLY to non-incognito tabs (like
+     * [MediaJsBridge]), so incognito logins have no channel. Resolves the host from the tab's
+     * committed page (not JS-supplied) so a cross-origin frame can't spoof which site to save under.
+     */
+    private inner class PasswordJsBridge(private val tabId: Long) {
+        @android.webkit.JavascriptInterface
+        fun onSubmit(username: String?, password: String?) {
+            if (password.isNullOrEmpty()) return
+            val host = pageHosts[tabId] ?: return
+            listener.onLoginSubmitted(tabId, host, username ?: "", password)
         }
     }
 
@@ -529,6 +554,9 @@ class WebViewHolder(
                 // foreground media tab. NEVER attached to incognito tabs — a private page must not
                 // report titles/state to the media session/notification.
                 addJavascriptInterface(MediaJsBridge(tabId), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
+                // v4.7 Passwords: the login-capture bridge, also non-incognito-only — an incognito
+                // login must never have a channel to report a credential through.
+                addJavascriptInterface(PasswordJsBridge(tabId), com.udaytank.browse.browser.PasswordScripts.BRIDGE_NAME)
                 // Per-Orbit cookie/storage isolation (v4.2): same ProfileStore mechanism as
                 // incognito above, keyed by the tab's Orbit instead of the fixed "incognito" name.
                 if (profileKey != null && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
@@ -697,6 +725,9 @@ class WebViewHolder(
                                 listener.onTouchIconUrl(host, iconUrl)
                             }
                         }
+                        // v4.7 Passwords: hook login-form submits so we can offer to save. The
+                        // bridge it reports through is only attached to non-incognito tabs.
+                        view.evaluateJavascript(com.udaytank.browse.browser.PasswordScripts.HOOK_SUBMIT_JS, null)
                     }
                     listener.onPageFinished(tabId, url, view.title)
                 }

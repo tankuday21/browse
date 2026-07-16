@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -82,6 +83,7 @@ fun BrowserMenuSheet(
     // ── Library ──
     onOpenBookmarks: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenPasswords: () -> Unit,
     onOpenDownloads: () -> Unit,
     activeDownloadCount: Int,
     onOpenReadingList: () -> Unit,
@@ -166,6 +168,7 @@ fun BrowserMenuSheet(
         // ── Library ─────────────────────────────────
         MenuRow(icon = Icons.Filled.Bookmarks, label = "Bookmarks", onClick = onOpenBookmarks)
         MenuRow(icon = Icons.Filled.History, label = "History", onClick = onOpenHistory)
+        MenuRow(icon = Icons.Filled.Key, label = "Passwords", onClick = onOpenPasswords)
         MenuRow(
             icon = Icons.Filled.Download,
             label = "Downloads",
