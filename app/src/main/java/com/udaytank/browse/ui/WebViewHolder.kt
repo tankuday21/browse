@@ -482,6 +482,7 @@ class WebViewHolder(
     fun deleteProfile(profileKey: String) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return
         runCatching { androidx.webkit.ProfileStore.getInstance().deleteProfile(profileKey) }
+            .onFailure { android.util.Log.w("WebViewHolder", "profile delete failed", it) }
     }
 
     /** Clears cache, cookies, and web storage. History/tabs are the data layer's job. */

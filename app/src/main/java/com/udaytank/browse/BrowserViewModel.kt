@@ -342,13 +342,23 @@ class BrowserViewModel(
     }
 
     /**
-     * Emits a just-deleted Orbit's ProfileStore key once its tabs (and their WebViews) are gone,
-     * so MainActivity (Task 5, which owns the WebViewHolder — this plain ViewModel never touches
-     * it directly) can delete the underlying profile. A profile can only be removed once nothing
-     * is still using it, hence the emit happens after tab close-out in [onDeleteOrbit].
+     * A just-deleted Orbit's ProfileStore key, plus the ids of the tabs that were closed out of
+     * it. MainActivity (which owns the WebViewHolder — this plain ViewModel never touches it
+     * directly) must call `holder.close(tabId)` for every id here BEFORE deleting the profile:
+     * closing a tab in [tabManager] only mutates the tab StateFlow/DB, it does NOT destroy the
+     * native WebView, and ProfileStore.deleteProfile only succeeds once no live WebView is still
+     * using that profile.
      */
-    private val _orbitProfileToDelete = MutableSharedFlow<String>()
-    val orbitProfileToDelete: SharedFlow<String> = _orbitProfileToDelete.asSharedFlow()
+    data class OrbitDeletion(val profileKey: String, val tabIds: List<Long>)
+
+    /**
+     * Emits a just-deleted Orbit's ProfileStore key (and its closed tab ids) once its tabs are
+     * gone from the tab list, so MainActivity can finish tearing down their WebViews and then
+     * delete the underlying profile. A profile can only be removed once nothing is still using
+     * it, hence the emit happens after tab close-out in [onDeleteOrbit].
+     */
+    private val _orbitProfileToDelete = MutableSharedFlow<OrbitDeletion>()
+    val orbitProfileToDelete: SharedFlow<OrbitDeletion> = _orbitProfileToDelete.asSharedFlow()
 
     /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
     fun onSwitchOrbit(id: Long) {
@@ -385,8 +395,9 @@ class BrowserViewModel(
      * `orbitId = null` (invisible to every Orbit's filter). The new active Orbit is computed by
      * excluding the just-deleted id from [orbits]'s current value rather than re-querying the
      * repo, since that Flow may not have caught up with the delete yet. The deleted Orbit's
-     * profileKey is only emitted on [orbitProfileToDelete] after the closes, once nothing is
-     * still using the profile.
+     * profileKey and closed tab ids are only emitted on [orbitProfileToDelete] after the closes;
+     * MainActivity still owes a `holder.close(tabId)` per id before the profile is actually
+     * deletable, since closing a tab here never touches the native WebView.
      */
     fun onDeleteOrbit(id: Long) {
         val repo = orbitRepository ?: return
@@ -411,9 +422,10 @@ class BrowserViewModel(
                 settings.setActiveOrbitId(newActiveId)
             }
 
-            tabs.value.filter { it.orbitId == id }.forEach { tabManager.closeTab(it.id, HOME_URL) }
+            val deletedOrbitTabIds = tabs.value.filter { it.orbitId == id }.map { it.id }
+            deletedOrbitTabIds.forEach { tabManager.closeTab(it, HOME_URL) }
 
-            _orbitProfileToDelete.emit(orbit.profileKey)
+            _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
         }
     }
 

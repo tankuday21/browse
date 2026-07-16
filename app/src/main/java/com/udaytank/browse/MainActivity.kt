@@ -407,10 +407,15 @@ class MainActivity : FragmentActivity() {
                     onDispose { holder.destroyAll() }
                 }
 
-                // Orbit deletion (v4.2): the VM emits the deleted Orbit's profileKey only after
-                // its tabs (and their WebViews) are closed, so the profile is safe to remove here.
+                // Orbit deletion (v4.2): the VM only closes its tabs' StateFlow/DB rows before
+                // emitting — it never touches the native WebViews. Destroy those here FIRST
+                // (holder.close per tabId) so no live WebView is still using the profile, THEN
+                // delete the profile; ProfileStore.deleteProfile silently fails otherwise.
                 LaunchedEffect(Unit) {
-                    viewModel.orbitProfileToDelete.collect { key -> holder.deleteProfile(key) }
+                    viewModel.orbitProfileToDelete.collect { deletion ->
+                        deletion.tabIds.forEach { tabId -> holder.close(tabId) }
+                        holder.deleteProfile(deletion.profileKey)
+                    }
                 }
 
                 // Fullscreen custom views are only honored for the tab the user is looking at;

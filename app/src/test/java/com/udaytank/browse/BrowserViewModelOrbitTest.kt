@@ -127,7 +127,7 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
-    fun `onDeleteOrbit emits the deleted orbit's profileKey after tabs are closed`() = runTest {
+    fun `onDeleteOrbit emits the deleted orbit's profileKey and tab ids after tabs are closed`() = runTest {
         val vm = vm()
         advanceUntilIdle()
 
@@ -135,14 +135,25 @@ class BrowserViewModelOrbitTest {
         advanceUntilIdle()
         val work = vm.orbits.value.first { it.name == "Work" }
 
-        val emitted = mutableListOf<String>()
+        // Switching to Work (no tabs yet) opens one there — this is the tab whose WebView
+        // MainActivity must destroy before it can delete Work's profile.
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        val workTabIds = vm.tabs.value.filter { it.orbitId == work.id }.map { it.id }
+        assertTrue(workTabIds.isNotEmpty())
+
+        val emitted = mutableListOf<BrowserViewModel.OrbitDeletion>()
         val job = launch { vm.orbitProfileToDelete.collect { emitted.add(it) } }
         advanceUntilIdle()
 
         vm.onDeleteOrbit(work.id)
         advanceUntilIdle()
 
-        assertEquals(listOf(work.profileKey), emitted)
+        assertEquals(1, emitted.size)
+        assertEquals(work.profileKey, emitted.single().profileKey)
+        assertEquals(workTabIds, emitted.single().tabIds)
+        // The emission must land after the deleted orbit's tabs are actually gone (ordering).
+        assertTrue(vm.tabs.value.none { it.orbitId == work.id })
         job.cancel()
     }
 
