@@ -11,6 +11,7 @@ data class TabEntity(
     val position: Int,
     val isActive: Boolean,
     val isIncognito: Boolean = false,
+    val orbitId: Long? = null,
     val groupId: Long? = null,
     val pinned: Boolean = false,
     val locked: Boolean = false,

@@ -23,8 +23,9 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         RssSourceEntity::class,
         ZappedElementEntity::class,
         FaviconEntity::class,
+        OrbitEntity::class,
     ],
-    version = 13,
+    version = 14,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -39,8 +40,35 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun feedDao(): FeedDao
     abstract fun zappedElementDao(): ZappedElementDao
     abstract fun faviconDao(): FaviconDao
+    abstract fun orbitDao(): OrbitDao
 
     companion object {
+        /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
+        const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `orbits` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`colorArgb` INTEGER NOT NULL, " +
+                        "`position` INTEGER NOT NULL, " +
+                        "`profileKey` TEXT NOT NULL)"
+                )
+                db.execSQL("ALTER TABLE tabs ADD COLUMN orbitId INTEGER")
+                // Seed the default "Personal" Orbit and assign all existing (non-incognito) tabs to it.
+                db.execSQL(
+                    "INSERT INTO orbits (name, colorArgb, position, profileKey) " +
+                        "VALUES ('Personal', " + DEFAULT_ORBIT_COLOR + ", 0, 'orbit_personal_default')"
+                )
+                db.execSQL(
+                    "UPDATE tabs SET orbitId = (SELECT id FROM orbits WHERE profileKey = 'orbit_personal_default') " +
+                        "WHERE isIncognito = 0"
+                )
+            }
+        }
+
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

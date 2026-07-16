@@ -385,6 +385,39 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate13to14_seedsPersonalOrbitAndAssignsNonIncognitoTabs() {
+        helper.createDatabase(DB, 13).apply {
+            execSQL(
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0)"
+            )
+            execSQL(
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
+                    "VALUES ('https://incognito.com', 'Incognito', 1, 0, 1)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 14, true, BrowseDatabase.MIGRATION_13_14)
+
+        var personalOrbitId = -1L
+        db.query("SELECT id, name FROM orbits").use { c ->
+            assertEquals(1, c.count)
+            assertTrue(c.moveToFirst())
+            personalOrbitId = c.getLong(0)
+            assertEquals("Personal", c.getString(1))
+        }
+
+        db.query("SELECT orbitId FROM tabs WHERE url = 'https://a.com'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(personalOrbitId, c.getLong(0))
+        }
+        db.query("SELECT orbitId FROM tabs WHERE url = 'https://incognito.com'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertTrue(c.isNull(0))
+        }
+    }
+
+    @Test
     fun downloadDao_progressAndStateRoundTrip() = runBlocking {
         val dao = database.downloadDao()
         val id = dao.insertReturning(
