@@ -5,6 +5,7 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -52,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.TabBadge
 import com.udaytank.browse.ui.theme.Orbit
+import com.udaytank.browse.ui.theme.OrbitMotion
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -105,6 +108,18 @@ fun CommandBar(
     homePill: Boolean = false,
     /** Voice-search result from the home pill's mic; same typed search-or-url path. */
     onVoiceSubmit: ((String) -> Unit)? = null,
+    /**
+     * The active Orbit's [colorArgb][com.udaytank.browse.data.OrbitEntity.colorArgb], or null to
+     * hide the indicator (incognito, or Orbits not wired). Task 7: a small tappable Orbit avatar
+     * that opens the Orbit quick-switch sheet — the Orbit indicator is about normal browsing, so
+     * callers pass null while incognito rather than showing a private Orbit's color.
+     */
+    activeOrbitColor: Int? = null,
+    /** The active Orbit's [iconKey][com.udaytank.browse.data.OrbitEntity.iconKey] (v4.2 avatars). */
+    activeOrbitIcon: String? = null,
+    /** Identity of the active Orbit, used only to key the indicator's crossfade animation. */
+    activeOrbitId: Long? = null,
+    onOpenOrbitSwitch: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier
@@ -210,6 +225,23 @@ fun CommandBar(
                         if (launchVoice != null) {
                             IconButton(onClick = launchVoice) {
                                 Icon(Icons.Filled.Mic, contentDescription = "Voice search")
+                            }
+                        }
+                    }
+                    if (activeOrbitColor != null) {
+                        IconButton(onClick = onOpenOrbitSwitch) {
+                            // Crossfades whenever the active Orbit changes, so switching Orbits
+                            // reads as a soft identity swap rather than an instant color snap.
+                            Crossfade(
+                                targetState = activeOrbitId,
+                                animationSpec = tween(OrbitMotion.StandardMs, easing = Orbit.Easing),
+                                label = "commandBarOrbitIndicator",
+                            ) {
+                                OrbitAvatar(
+                                    colorArgb = activeOrbitColor,
+                                    iconKey = activeOrbitIcon ?: "person",
+                                    size = 22.dp,
+                                )
                             }
                         }
                     }

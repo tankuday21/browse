@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material3.AlertDialog
@@ -48,6 +49,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -62,9 +65,12 @@ import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.HomeSearchOverlay
 import com.udaytank.browse.ui.components.LocalFaviconCache
+import com.udaytank.browse.ui.components.ManageOrbitsSheet
+import com.udaytank.browse.ui.components.OrbitAvatar
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
+import com.udaytank.browse.ui.components.OrbitQuickSwitchSheet
 import com.udaytank.browse.ui.components.SuggestionsPanel
 import com.udaytank.browse.ui.theme.OrbitSchemeOverride
 import com.udaytank.browse.ui.theme.darkOrbit
@@ -95,6 +101,11 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var siteSheetOpen by remember { mutableStateOf(false) }
+    // v4.2 Orbits (Task 7): the quick-switch sheet, plus a state flag for the Orbit management
+    // sheet a later task (Task 8) renders — declared here so this task can set it from "Manage
+    // Orbits" without owning that sheet's UI.
+    var orbitSwitchOpen by remember { mutableStateOf(false) }
+    var manageOrbitsOpen by remember { mutableStateOf(false) }
     // K1: the asteroid game over the connectivity-error page. Closes itself if the error
     // clears underneath it (e.g. a background retry succeeded).
     var gameOpen by remember { mutableStateOf(false) }
@@ -145,6 +156,31 @@ fun BrowserScreen(
     // v4.1 site-icon cache (host → Coil model), captured source-direct as you browse.
     val favicons by viewModel.favicons.collectAsStateWithLifecycle()
     var weatherPlaceLabel by rememberSaveable { mutableStateOf("") }
+    // v4.2 Orbits (Task 7): the indicator's color and the quick-switch sheet's list both derive
+    // from these two StateFlows rather than viewModel.activeOrbit() (a plain, non-reactive
+    // function), so recomposition tracks Orbit changes correctly.
+    val orbits by viewModel.orbits.collectAsStateWithLifecycle()
+    val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
+    // Hidden while incognito — the Orbit indicator is about normal browsing, not the
+    // always-dark private context (which already shows its own VisibilityOff cue).
+    val activeOrbitColor = if (isIncognito) {
+        null
+    } else {
+        orbits.find { it.id == activeOrbitId }?.colorArgb
+    }
+    // v4.2 icon-avatars pass: the same active-Orbit lookup, for the indicator's glyph.
+    val activeOrbitIcon = if (isIncognito) {
+        null
+    } else {
+        orbits.find { it.id == activeOrbitId }?.iconKey
+    }
+    // v4.2 Orbits (I1 fix): resolve the active tab's WebView profile key REACTIVELY from the
+    // collected `orbits` state above (rather than viewModel.profileKeyForTab(), a plain,
+    // non-reactive function read once at composition). On cold start `orbits` can still be empty
+    // for a frame before the Flow populates; this recomposes the moment it does, instead of
+    // permanently binding the tab's memoized WebView to the default profile (see the TabWebView
+    // gate below, which withholds WebView creation until this resolves for non-incognito tabs).
+    val activeProfileKey = orbits.find { it.id == activeTab?.orbitId }?.profileKey
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -235,6 +271,10 @@ fun BrowserScreen(
             // bottom stack) so it can be opened from BOTH the web bottom bar's ⋮ AND the home
             // top bar's ⋮ — the latter is composed even when this OmniBar is hidden on home.
             menu = {},
+            activeOrbitColor = activeOrbitColor,
+            activeOrbitIcon = activeOrbitIcon,
+            activeOrbitId = if (isIncognito) null else activeOrbitId,
+            onOpenOrbitSwitch = { orbitSwitchOpen = true },
             modifier = Modifier
                 .pointerInput(isEditing) {
                     if (isEditing) return@pointerInput
@@ -313,6 +353,10 @@ fun BrowserScreen(
                             onOpenTabs()
                         },
                         onMenuClick = { menuOpen = true },
+                        activeOrbitColor = activeOrbitColor,
+                        activeOrbitIcon = activeOrbitIcon,
+                        activeOrbitId = if (isIncognito) null else activeOrbitId,
+                        onOpenOrbitSwitch = { orbitSwitchOpen = true },
                         // Page fills the space: no bottom-bar footprint to reserve on home, so the
                         // canvas runs to the nav bar (no black strip). navigationBarsPadding keeps
                         // the last feed item clear of the system gesture area.
@@ -341,7 +385,14 @@ fun BrowserScreen(
                         background = MaterialTheme.colorScheme.surface,
                         onText = MaterialTheme.colorScheme.onSurface,
                     )
-                } else {
+                } else if (isIncognito || activeProfileKey != null) {
+                    // Gate (I1 fix): a non-incognito tab's WebView is only ever created once its
+                    // Orbit's profileKey is known — obtain() binds ProfileStore ONCE at creation
+                    // (getOrPut memoizes the WebView), so creating it while `orbits` hasn't loaded
+                    // yet would freeze the tab onto the default profile for its whole lifetime,
+                    // defeating per-Orbit isolation. Incognito tabs are exempt: their profileKey
+                    // is null by design (they use the fixed "incognito" profile instead) and must
+                    // still create immediately.
                     TabWebView(
                         holder = holder,
                         tabId = currentTabId,
@@ -350,12 +401,24 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
+                        profileKey = activeProfileKey,
                         // Content-above-bar with a FIXED inset at the bar's full height — never
                         // resized on scroll (see the note where effectiveBarState is computed).
                         modifier = Modifier
                             .fillMaxSize()
                             .navigationBarsPadding()
                             .padding(bottom = OmniBarReservedHeight),
+                    )
+                } else {
+                    // Orbits haven't resolved yet (cold-start race) — hold off on creating the
+                    // WebView rather than binding it to the default profile. Self-heals the
+                    // instant `orbits` populates, since `activeProfileKey` above is reactive.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight)
+                            .background(orbit().surfaces.base),
                     )
                 }
                 state.pageError?.let { errorDescription ->
@@ -652,6 +715,38 @@ fun BrowserScreen(
             )
         }
 
+        // ── Orbit quick-switch sheet (v4.2 Task 7) ──────────
+        // Hoisted at screen level, same pattern as the overflow menu sheet above, so it can be
+        // opened from the indicator on either bar (web CommandBar or the home top bar).
+        if (orbitSwitchOpen) {
+            OrbitQuickSwitchSheet(
+                orbits = orbits,
+                activeOrbitId = activeOrbitId,
+                tabCountFor = { orbitId -> tabs.count { it.orbitId == orbitId } },
+                onSwitch = {
+                    viewModel.onSwitchOrbit(it)
+                    orbitSwitchOpen = false
+                },
+                onManage = {
+                    orbitSwitchOpen = false
+                    manageOrbitsOpen = true
+                },
+                onDismiss = { orbitSwitchOpen = false },
+            )
+        }
+        // ── Orbit management sheet (v4.2 Task 8) ────────────
+        if (manageOrbitsOpen) {
+            ManageOrbitsSheet(
+                orbits = orbits,
+                onCreate = viewModel::onCreateOrbit,
+                onRename = viewModel::onRenameOrbit,
+                onSetIcon = viewModel::onSetOrbitIcon,
+                onSetColor = viewModel::onSetOrbitColor,
+                onDelete = viewModel::onDeleteOrbit,
+                onDismiss = { manageOrbitsOpen = false },
+            )
+        }
+
         // ── Site permission prompt ──────────────────────────
         permissionPrompt?.let { prompt ->
             AlertDialog(
@@ -680,6 +775,22 @@ fun BrowserScreen(
                     headlineContent = { Text("Open in new tab") },
                     modifier = Modifier.clickable { viewModel.onOpenInNewTab(menu.url) },
                 )
+                // "Open in <Orbit>" (Task 9) — one row per OTHER Orbit; nothing shown when only
+                // one Orbit exists, since there's nowhere else to send the link.
+                if (orbits.size > 1) {
+                    orbits.filter { it.id != activeOrbitId }.forEach { target ->
+                        ListItem(
+                            leadingContent = {
+                                OrbitAvatar(colorArgb = target.colorArgb, iconKey = target.iconKey, size = 24.dp)
+                            },
+                            headlineContent = { Text("Open in ${target.name}") },
+                            modifier = Modifier.clickable {
+                                viewModel.onOpenLinkInOrbit(menu.url, target.id)
+                                viewModel.onContextMenuDismissed()
+                            },
+                        )
+                    }
+                }
                 if (menu.isImage) {
                     ListItem(
                         headlineContent = { Text("Download image") },

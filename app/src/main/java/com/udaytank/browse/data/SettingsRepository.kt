@@ -114,6 +114,14 @@ interface SettingsRepository {
     /** Use opt-in coarse location for weather instead of [weatherCity]. */
     val weatherUseLocation: Flow<Boolean>
     suspend fun setWeatherUseLocation(enabled: Boolean)
+
+    /** Which Orbit is active. 0 = unset → VM resolves to the first Orbit. */
+    val activeOrbitId: Flow<Long>
+    suspend fun setActiveOrbitId(id: Long)
+
+    /** Whether the user has dismissed the one-time old-WebView Orbit-isolation note. */
+    val seenOrbitProfileNote: Flow<Boolean>
+    suspend fun setSeenOrbitProfileNote(seen: Boolean)
 }
 
 class DataStoreSettingsRepository(
@@ -395,6 +403,15 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[WEATHER_USE_LOCATION_KEY] = enabled }
     }
 
+    override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
+    override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
+
+    override val seenOrbitProfileNote: Flow<Boolean> =
+        dataStore.data.map { it[SEEN_ORBIT_PROFILE_NOTE_KEY] ?: false }
+    override suspend fun setSeenOrbitProfileNote(seen: Boolean) {
+        dataStore.edit { it[SEEN_ORBIT_PROFILE_NOTE_KEY] = seen }
+    }
+
     private companion object {
         val SHOW_FEED_KEY = booleanPreferencesKey("show_feed")
         val SHOW_WEATHER_KEY = booleanPreferencesKey("show_weather")
@@ -431,5 +448,7 @@ class DataStoreSettingsRepository(
         val SHOW_HOME_STATS_KEY = booleanPreferencesKey("show_home_stats")
         val SHORTCUT_DENSITY_KEY = stringPreferencesKey("shortcut_density")
         val HOME_WALLPAPER_KEY = stringPreferencesKey("home_wallpaper")
+        val ACTIVE_ORBIT_ID_KEY = longPreferencesKey("active_orbit_id")
+        val SEEN_ORBIT_PROFILE_NOTE_KEY = booleanPreferencesKey("seen_orbit_profile_note")
     }
 }

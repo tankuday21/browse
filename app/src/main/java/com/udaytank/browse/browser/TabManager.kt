@@ -27,27 +27,59 @@ class TabManager(
 
     private fun isIncognitoId(id: Long) = id < 0
 
-    suspend fun initialize(homeUrl: String) {
+    /**
+     * The caller's (BrowserViewModel's) current notion of the active Orbit. Every fallback/
+     * initial home tab TabManager auto-creates on its own initiative — [initialize]'s empty-DB
+     * tab and [closeTab]'s empty-list fallback — is stamped with this id, so those tabs are never
+     * left with a null Orbit (a null-orbit tab won't match any Orbit's activeOrbitId filter and
+     * becomes invisible). Explicit [newTab] callers that already pass their own orbitId are
+     * unaffected. Incognito is irrelevant here — these fallback tabs are always normal tabs.
+     */
+    var defaultOrbitId: Long? = null
+
+    /**
+     * [orbitId] is threaded into the home tab created when the DAO is empty (fresh install or
+     * a wipe), so that tab is never left with a null Orbit — see [newTab]'s docs for why that
+     * matters (an orbitId == null tab won't match any Orbit's activeOrbitId filter). Falls back
+     * to [defaultOrbitId] when the caller doesn't pass one explicitly.
+     */
+    suspend fun initialize(homeUrl: String, orbitId: Long? = null) {
         val stored = tabDao.getAll()
         if (stored.isEmpty()) {
-            newTab(homeUrl)
+            newTab(homeUrl, orbitId = orbitId ?: defaultOrbitId)
         } else {
             _tabs.value = stored
             _activeTabId.value = (stored.find { it.isActive } ?: stored.first()).id
         }
     }
 
-    suspend fun newTab(url: String, incognito: Boolean = false, groupId: Long? = null): Long {
+    /**
+     * [orbitId] is the Orbit a new non-incognito tab should persist as belonging to. Incognito
+     * tabs never carry an Orbit (they're ephemeral and isolated by construction), so [orbitId] is
+     * forced to null for them regardless of what's passed in.
+     */
+    suspend fun newTab(
+        url: String,
+        incognito: Boolean = false,
+        groupId: Long? = null,
+        orbitId: Long? = null,
+    ): Long {
         val position = (_tabs.value.maxOfOrNull { it.position } ?: -1) + 1
+        val effectiveOrbitId = if (incognito) null else orbitId
         val id = if (incognito) {
             nextIncognitoId--
         } else {
-            tabDao.insert(TabEntity(url = url, title = url, position = position, isActive = true, groupId = groupId))
+            tabDao.insert(
+                TabEntity(
+                    url = url, title = url, position = position, isActive = true,
+                    groupId = groupId, orbitId = effectiveOrbitId,
+                )
+            )
         }
         _tabs.value = _tabs.value.map { it.copy(isActive = false) } +
             TabEntity(
                 id = id, url = url, title = url, position = position, isActive = true,
-                isIncognito = incognito, groupId = groupId,
+                isIncognito = incognito, groupId = groupId, orbitId = effectiveOrbitId,
             )
         _activeTabId.value = id
         if (!incognito) tabDao.setActive(id)
@@ -71,7 +103,7 @@ class TabManager(
         _tabs.value = _tabs.value.filterNot { it.id == id }
         if (!isIncognitoId(id)) tabDao.deleteById(id)
         when {
-            _tabs.value.isEmpty() -> newTab(homeUrl)
+            _tabs.value.isEmpty() -> newTab(homeUrl, orbitId = defaultOrbitId)
             next != null -> switchTo(next)
         }
     }

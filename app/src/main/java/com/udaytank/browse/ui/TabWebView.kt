@@ -18,12 +18,13 @@ fun TabWebView(
     pendingCommand: BrowserCommand?,
     onCommandConsumed: () -> Unit,
     modifier: Modifier = Modifier,
+    profileKey: String? = null,
 ) {
     key(tabId) {
         AndroidView(
             modifier = modifier,
             factory = { context ->
-                val webView = holder.obtain(tabId, incognito).also { wv ->
+                val webView = holder.obtain(tabId, incognito, profileKey).also { wv ->
                     (wv.parent as? ViewGroup)?.removeView(wv)
                     // Through the holder so app-issued loads carry the Sec-GPC header (D5).
                     if (wv.url == null) holder.loadUrl(tabId, tabUrl)
@@ -42,7 +43,7 @@ fun TabWebView(
                 }
             },
             update = { swipe ->
-                val webView = holder.obtain(tabId, incognito)
+                val webView = holder.obtain(tabId, incognito, profileKey)
                 when (pendingCommand) {
                     is BrowserCommand.LoadUrl -> holder.loadUrl(tabId, pendingCommand.url)
                     BrowserCommand.GoBack -> if (webView.canGoBack()) webView.goBack()

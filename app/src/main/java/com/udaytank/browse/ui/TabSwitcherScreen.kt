@@ -2,8 +2,6 @@ package com.udaytank.browse.ui
 
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,19 +10,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -43,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
@@ -86,17 +81,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import com.udaytank.browse.R
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.webkit.WebViewFeature
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.TabOrderPolicy
 import com.udaytank.browse.browser.TabSearchFilter
@@ -104,10 +98,11 @@ import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupEntity
+import com.udaytank.browse.ui.components.OrbitColors
 import com.udaytank.browse.ui.components.OrbitListRow
+import com.udaytank.browse.ui.components.OrbitSwitcherChips
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.LocalOrbit
-import com.udaytank.browse.ui.theme.Orbit
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.darkOrbit
@@ -143,6 +138,9 @@ fun TabSwitcherScreen(
 ) {
     val tabs by viewModel.tabs.collectAsStateWithLifecycle()
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
+    val orbits by viewModel.orbits.collectAsStateWithLifecycle()
+    val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
+    val seenOrbitProfileNote by viewModel.seenOrbitProfileNote.collectAsStateWithLifecycle()
     val groups by viewModel.tabGroups.collectAsStateWithLifecycle()
     val recentlyClosed by viewModel.recentlyClosed.collectAsStateWithLifecycle()
     val listLayout by viewModel.switcherListLayout.collectAsStateWithLifecycle()
@@ -162,15 +160,20 @@ fun TabSwitcherScreen(
     var renameInput by remember { mutableStateOf("") }
 
     // Chrome-style incognito separation: normal and incognito tabs live on their own screens,
-    // switched by a toggle up top. Open onto whichever side the active tab belongs to.
-    val normalTabs = tabs.filter { !it.isIncognito }
+    // switched by the Orbit selector up top. Open onto whichever side the active tab belongs to.
     val incognitoTabs = tabs.filter { it.isIncognito }
     var incognitoMode by rememberSaveable {
         mutableStateOf(tabs.find { it.id == activeTabId }?.isIncognito == true)
     }
 
-    val sourceTabs = if (incognitoMode) incognitoTabs else normalTabs
-    val filteredTabs = TabSearchFilter.filter(sourceTabs, searchQuery.orEmpty())
+    // Orbit-aware filtering (v4.2): the normal side now also splits by active Orbit, not just
+    // incognito vs. not.
+    val visibleTabs = if (incognitoMode) {
+        incognitoTabs
+    } else {
+        tabs.filter { !it.isIncognito && it.orbitId == activeOrbitId }
+    }
+    val filteredTabs = TabSearchFilter.filter(visibleTabs, searchQuery.orEmpty())
     val ordered = TabOrderPolicy.ordered(filteredTabs, groups)
 
     val groupById = groups.associateBy { it.id }
@@ -231,55 +234,57 @@ fun TabSwitcherScreen(
                         }
                     },
                 )
-                // Normal | Incognito toggle — a pill track with a filled pill that slides between
-                // the two segments, replacing the old boxy SegmentedButtonRow. Each side is still
-                // its own screen (Chrome-style); this only changes how switching between them looks.
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
-                ) {
-                    val pillShape = RoundedCornerShape(percent = OrbitRadii.pill)
-                    val segmentWidth = maxWidth / 2
-                    val pillOffset by animateDpAsState(
-                        targetValue = if (incognitoMode) segmentWidth else 0.dp,
-                        animationSpec = tween(durationMillis = 250, easing = Orbit.Easing),
-                        label = "modeSwitcherPill",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .clip(pillShape)
-                            .background(scheme.surfaces.elevated),
-                    ) {
+                // Ambient identity cue (v4.2 icon-avatars pass): a thin top accent line tinted to
+                // the active Orbit's color, only in normal (non-incognito) mode — a subtle "you're
+                // in THIS Orbit" reminder even before the eye reaches the selector chips below.
+                if (!incognitoMode) {
+                    orbits.find { it.id == activeOrbitId }?.let { activeOrbit ->
                         Box(
                             modifier = Modifier
-                                .offset(x = pillOffset)
-                                .width(segmentWidth)
-                                .fillMaxHeight()
-                                .padding(3.dp)
-                                .clip(pillShape)
-                                .background(scheme.surfaces.surface),
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .background(Color(activeOrbit.colorArgb)),
                         )
-                        Row(modifier = Modifier.fillMaxSize()) {
-                            ModeSwitcherSegment(
-                                label = "Tabs (${normalTabs.size})",
-                                selected = !incognitoMode,
-                                icon = null,
-                                modifier = Modifier.weight(1f),
-                                onClick = { incognitoMode = false; selection = emptySet() },
-                            )
-                            ModeSwitcherSegment(
-                                label = "Incognito (${incognitoTabs.size})",
-                                selected = incognitoMode,
-                                icon = Icons.Filled.VisibilityOff,
-                                modifier = Modifier.weight(1f),
-                                onClick = { incognitoMode = true; selection = emptySet() },
-                            )
-                        }
                     }
                 }
+                // One-time old-WebView note (Task 9): only once >1 Orbit exists is per-Orbit
+                // cookie isolation actually meaningful, and only devices whose WebView predates
+                // MULTI_PROFILE fail to deliver it — so nudge those users toward the Play Store
+                // update, once, until dismissed.
+                if (orbits.size > 1 &&
+                    !seenOrbitProfileNote &&
+                    !WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+                ) {
+                    OrbitProfileNoteBanner(onDismiss = viewModel::onOrbitProfileNoteSeen)
+                }
+                // Orbit selector (v4.2) — replaces the old Tabs/Incognito sliding-pill mode
+                // control. One chip per Orbit (color dot + name + tab count), a "+" to quick-
+                // create one, and an Incognito chip. Selecting an Orbit switches the active
+                // Orbit itself (and its tabs); Incognito is still its own screen (Chrome-style).
+                OrbitSwitcherChips(
+                    orbits = orbits,
+                    activeOrbitId = activeOrbitId,
+                    incognitoMode = incognitoMode,
+                    tabCountFor = { id -> tabs.count { !it.isIncognito && it.orbitId == id } },
+                    incognitoCount = incognitoTabs.size,
+                    onSelectOrbit = { id ->
+                        viewModel.onSwitchOrbit(id)
+                        incognitoMode = false
+                        selection = emptySet()
+                    },
+                    onSelectIncognito = {
+                        incognitoMode = true
+                        selection = emptySet()
+                    },
+                    onAddOrbit = {
+                        // Shared palette (v4.2): the same [OrbitColors] the manage sheet's "Add
+                        // Orbit" swatches use, so quick-create and the full picker never disagree.
+                        viewModel.onCreateOrbit(
+                            "Orbit ${orbits.size + 1}",
+                            OrbitColors[orbits.size % OrbitColors.size],
+                        )
+                    },
+                )
                 if (searchQuery != null) {
                     OutlinedTextField(
                         value = searchQuery.orEmpty(),
@@ -588,43 +593,6 @@ fun TabSwitcherScreen(
             dismissButton = {
                 TextButton(onClick = viewModel::onCloseCancelled) { Text("Cancel") }
             },
-        )
-    }
-}
-
-/**
- * One segment of the Tabs/Incognito pill switcher. The sliding filled-pill highlight is drawn by
- * the parent [BoxWithConstraints]; this just renders the label (+ optional icon) on top of it,
- * bold/primary when selected, muted when not.
- */
-@Composable
-private fun ModeSwitcherSegment(
-    label: String,
-    selected: Boolean,
-    icon: ImageVector?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val scheme = orbit()
-    val tint = if (selected) scheme.text.primary else scheme.text.muted
-    Row(
-        modifier = modifier
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(percent = OrbitRadii.pill))
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        Text(
-            label,
-            style = orbitCaption,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = tint,
-            maxLines = 1,
         )
     }
 }
@@ -1324,6 +1292,54 @@ private fun IncognitoBanner() {
                 style = orbitCaption,
                 color = scheme.text.secondary,
             )
+        }
+    }
+}
+
+/**
+ * Slim dismissible one-time note (Task 9): on devices whose Android System WebView predates
+ * [WebViewFeature.MULTI_PROFILE], Orbits still separate tabs/history but can't fully separate
+ * cookies/logins between them — shown once, above the Orbit selector, only while >1 Orbit
+ * exists. Dismissing calls [onDismiss] (`viewModel::onOrbitProfileNoteSeen`), which persists the
+ * seen flag so it never shows again on this device.
+ */
+@Composable
+private fun OrbitProfileNoteBanner(onDismiss: () -> Unit) {
+    val scheme = orbit()
+    Surface(
+        shape = RoundedCornerShape(percent = OrbitRadii.pill),
+        color = scheme.surfaces.elevated,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.xs),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+        ) {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = null,
+                tint = scheme.text.secondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Update Android System WebView for full login separation between Orbits.",
+                style = orbitCaption,
+                color = scheme.text.secondary,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Dismiss",
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }

@@ -41,6 +41,8 @@ import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.HomeShortcutDao
 import com.udaytank.browse.data.HomeShortcutEntity
+import com.udaytank.browse.data.OrbitEntity
+import com.udaytank.browse.data.OrbitRepository
 import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
@@ -64,9 +66,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -162,6 +167,8 @@ class BrowserViewModel(
     private val zapRepository: ZapRepository? = null,
     /** v4.1 site-icon cache (null in tests → letters only). */
     private val faviconRepository: com.udaytank.browse.data.FaviconRepository? = null,
+    /** v4.2 Orbits (browsing profiles); null in tests that don't exercise Orbits. */
+    private val orbitRepository: OrbitRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -310,6 +317,153 @@ class BrowserViewModel(
     }
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
+
+    // ── v4.2 Orbits (browsing profiles) ─────────────────────────────────────
+    /** Every Orbit, ordered by position. Empty (never null) when Orbits aren't wired (tests). */
+    val orbits: StateFlow<List<OrbitEntity>> =
+        (orbitRepository?.observeAll() ?: flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** A persisted-but-unset (0) id resolves to the first Orbit's id once one exists. */
+    private fun resolveActiveOrbitId(stored: Long): Long =
+        if (stored != 0L) stored else orbits.value.firstOrNull()?.id ?: 0L
+
+    val activeOrbitId: StateFlow<Long> = settings.activeOrbitId
+        .map { resolveActiveOrbitId(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    /** The currently active Orbit's row, or null before Orbits have loaded. */
+    fun activeOrbit(): OrbitEntity? = orbits.value.find { it.id == activeOrbitId.value }
+
+    /** Resolves a tab's WebView profile key via its Orbit; null for incognito/unrecognized tabs. */
+    fun profileKeyForTab(tabId: Long): String? {
+        val orbitId = tabs.value.find { it.id == tabId }?.orbitId ?: return null
+        return orbits.value.firstOrNull { it.id == orbitId }?.profileKey
+    }
+
+    /**
+     * A just-deleted Orbit's ProfileStore key, plus the ids of the tabs that were closed out of
+     * it. MainActivity (which owns the WebViewHolder — this plain ViewModel never touches it
+     * directly) must call `holder.close(tabId)` for every id here BEFORE deleting the profile:
+     * closing a tab in [tabManager] only mutates the tab StateFlow/DB, it does NOT destroy the
+     * native WebView, and ProfileStore.deleteProfile only succeeds once no live WebView is still
+     * using that profile.
+     */
+    data class OrbitDeletion(val profileKey: String, val tabIds: List<Long>)
+
+    /**
+     * Emits a just-deleted Orbit's ProfileStore key (and its closed tab ids) once its tabs are
+     * gone from the tab list, so MainActivity can finish tearing down their WebViews and then
+     * delete the underlying profile. A profile can only be removed once nothing is still using
+     * it, hence the emit happens after tab close-out in [onDeleteOrbit].
+     */
+    // replay = 1 (I2 fix): the sole collector (MainActivity's composition-scoped LaunchedEffect)
+    // can momentarily have no subscriber, e.g. mid Activity-recreation. With replay = 0 an
+    // emission during that window is dropped forever and the Orbit's cookies never get wiped
+    // (deleteProfile never runs). Replaying the last deletion to a re-subscribing collector is
+    // safe: WebViewHolder.deleteProfile is runCatching-guarded and idempotent — replaying it
+    // against an already-deleted (or never-existent) profile is a harmless no-op.
+    private val _orbitProfileToDelete = MutableSharedFlow<OrbitDeletion>(replay = 1, extraBufferCapacity = 1)
+    val orbitProfileToDelete: SharedFlow<OrbitDeletion> = _orbitProfileToDelete.asSharedFlow()
+
+    /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
+    fun onSwitchOrbit(id: Long) {
+        viewModelScope.launch {
+            settings.setActiveOrbitId(id)
+            val mostRecentTab = tabs.value.filter { it.orbitId == id }.maxByOrNull { it.position }
+            if (mostRecentTab != null) {
+                tabManager.switchTo(mostRecentTab.id)
+            } else {
+                tabManager.newTab(HOME_URL, orbitId = id)
+            }
+        }
+    }
+
+    fun onCreateOrbit(name: String, colorArgb: Int, iconKey: String = "person") {
+        viewModelScope.launch {
+            orbitRepository?.create(name, colorArgb, System.currentTimeMillis(), iconKey)
+        }
+    }
+
+    fun onRenameOrbit(id: Long, name: String) {
+        viewModelScope.launch { orbitRepository?.rename(id, name) }
+    }
+
+    fun onSetOrbitIcon(id: Long, iconKey: String) {
+        viewModelScope.launch { orbitRepository?.setIcon(id, iconKey) }
+    }
+
+    fun onSetOrbitColor(id: Long, colorArgb: Int) {
+        viewModelScope.launch { orbitRepository?.setColor(id, colorArgb) }
+    }
+
+    /**
+     * Deletes an Orbit (the repo itself refuses — and this is then a no-op — if it's the last
+     * one). Order matters here: the new active Orbit is guaranteed a tab of its own AND made the
+     * active tab (mirroring [onSwitchOrbit]'s switchTo-or-create logic) BEFORE the deleted
+     * Orbit's tabs are closed. Doing this unconditionally — not only when a tab had to be
+     * created — matters because [TabClosePolicy.nextActiveId] is position-based and
+     * Orbit-unaware: if the active tab were left behind in the Orbit being deleted, closing that
+     * Orbit's tabs could hand the active tab to some OTHER surviving Orbit, leaving
+     * `activeOrbitId` and the active tab's `orbitId` mismatched. Switching first also means the
+     * global tab list is never empty mid-close, which would otherwise trip
+     * [TabManager.closeTab]'s empty-list fallback and create an orphaned tab with
+     * `orbitId = null` (invisible to every Orbit's filter). The new active Orbit is computed by
+     * excluding the just-deleted id from [orbits]'s current value rather than re-querying the
+     * repo, since that Flow may not have caught up with the delete yet. The deleted Orbit's
+     * profileKey and closed tab ids are only emitted on [orbitProfileToDelete] after the closes;
+     * MainActivity still owes a `holder.close(tabId)` per id before the profile is actually
+     * deletable, since closing a tab here never touches the native WebView.
+     */
+    fun onDeleteOrbit(id: Long) {
+        val repo = orbitRepository ?: return
+        viewModelScope.launch {
+            val orbit = repo.get(id) ?: return@launch
+            val wasActive = activeOrbitId.value == id
+            if (!repo.delete(id)) return@launch
+
+            val newActiveId = if (wasActive) {
+                orbits.value.firstOrNull { it.id != id }?.id
+            } else {
+                activeOrbitId.value
+            }
+
+            if (newActiveId != null) {
+                val mostRecentTab = tabs.value.filter { it.orbitId == newActiveId }.maxByOrNull { it.position }
+                if (mostRecentTab != null) {
+                    tabManager.switchTo(mostRecentTab.id)
+                } else {
+                    tabManager.newTab(HOME_URL, orbitId = newActiveId)
+                }
+                settings.setActiveOrbitId(newActiveId)
+            }
+
+            val deletedOrbitTabIds = tabs.value.filter { it.orbitId == id }.map { it.id }
+            deletedOrbitTabIds.forEach { tabManager.closeTab(it, HOME_URL) }
+
+            _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
+        }
+    }
+
+    /** Opens [url] in a fresh tab under [orbitId] and switches the active Orbit to it. */
+    fun onOpenLinkInOrbit(url: String, orbitId: Long) {
+        viewModelScope.launch {
+            settings.setActiveOrbitId(orbitId)
+            tabManager.newTab(url, orbitId = orbitId)
+        }
+    }
+
+    /**
+     * Whether the user has dismissed the one-time note that this device's WebView predates true
+     * per-Orbit cookie isolation (shown only when [WebViewFeature.MULTI_PROFILE] is unsupported
+     * and more than one Orbit exists).
+     */
+    val seenOrbitProfileNote: StateFlow<Boolean> = settings.seenOrbitProfileNote
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onOrbitProfileNoteSeen() {
+        viewModelScope.launch { settings.setSeenOrbitProfileNote(true) }
+    }
 
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -657,8 +811,34 @@ class BrowserViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     init {
+        // Orbits must be resolved BEFORE the first tab is created — otherwise, on a fresh
+        // install, tabManager.initialize can create the very first tab with orbitId = null
+        // (racing ensureDefault/activeOrbitId in a separate coroutine), leaving it orphaned
+        // once the active-Orbit filter ships. So this all runs sequentially in one coroutine:
+        // seed the default "Personal" Orbit, resolve (and if unset, persist) activeOrbitId,
+        // THEN initialize tabs with that resolved id threaded through.
         viewModelScope.launch {
-            tabManager.initialize(HOME_URL)
+            val orbit = orbitRepository?.ensureDefault(System.currentTimeMillis())
+            val resolvedActiveOrbitId = if (orbit != null) {
+                val stored = settings.activeOrbitId.first()
+                if (stored == 0L) {
+                    settings.setActiveOrbitId(orbit.id)
+                    orbit.id
+                } else {
+                    stored
+                }
+            } else {
+                null
+            }
+            tabManager.defaultOrbitId = resolvedActiveOrbitId
+            tabManager.initialize(HOME_URL, orbitId = resolvedActiveOrbitId)
+        }
+        // Keeps TabManager's fallback-tab hint in sync with whichever Orbit is active, so any
+        // fallback/initial home tab it auto-creates on its own initiative (closeTab's empty-list
+        // fallback, initialize's empty-DB tab) lands in the current Orbit instead of orbitId =
+        // null — see TabManager.defaultOrbitId's doc for why a null Orbit is a bug, not a no-op.
+        viewModelScope.launch {
+            activeOrbitId.collect { tabManager.defaultOrbitId = it }
         }
         // A tab switch always brings the command bar back (auto-hide state is per-moment,
         // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).
@@ -689,7 +869,7 @@ class BrowserViewModel(
     // --- tab events ---
 
     fun onNewTab() {
-        viewModelScope.launch { tabManager.newTab(HOME_URL) }
+        viewModelScope.launch { tabManager.newTab(HOME_URL, orbitId = activeOrbitId.value) }
     }
 
     fun onNewIncognitoTab() {
@@ -733,7 +913,7 @@ class BrowserViewModel(
 
     fun onReopenClosed(entry: ClosedTabEntity) {
         viewModelScope.launch {
-            tabManager.newTab(entry.url)
+            tabManager.newTab(entry.url, orbitId = activeOrbitId.value)
             closedTabDao.deleteById(entry.id)
         }
     }
@@ -886,7 +1066,7 @@ class BrowserViewModel(
 
     /** A link arriving from another app always opens in a fresh normal tab. */
     fun onExternalUrl(url: String) {
-        viewModelScope.launch { tabManager.newTab(url, incognito = false) }
+        viewModelScope.launch { tabManager.newTab(url, incognito = false, orbitId = activeOrbitId.value) }
     }
 
     // --- find in page ---
@@ -1377,7 +1557,7 @@ class BrowserViewModel(
         val parent = tabs.value.find { it.id == activeTabId.value }
         val incognito = parent?.isIncognito == true
         val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
-        viewModelScope.launch { tabManager.newTab(url, incognito, groupId) }
+        viewModelScope.launch { tabManager.newTab(url, incognito, groupId, orbitId = activeOrbitId.value) }
         onContextMenuDismissed()
     }
 
@@ -1552,6 +1732,7 @@ class BrowserViewModel(
                     weatherRepository = app.weatherRepository,
                     zapRepository = app.zapRepository,
                     faviconRepository = app.faviconRepository,
+                    orbitRepository = app.orbitRepository,
                 )
             }
         }

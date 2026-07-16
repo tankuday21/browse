@@ -90,6 +90,8 @@ class BrowseApplication : Application() {
                 BrowseDatabase.MIGRATION_10_11,
                 BrowseDatabase.MIGRATION_11_12,
                 BrowseDatabase.MIGRATION_12_13,
+                BrowseDatabase.MIGRATION_13_14,
+                BrowseDatabase.MIGRATION_14_15,
             )
             .build()
     }
@@ -112,5 +114,10 @@ class BrowseApplication : Application() {
     /** v4.1 site-icon cache, captured source-direct from the WebView as you browse. */
     val faviconRepository: com.udaytank.browse.data.FaviconRepository by lazy {
         com.udaytank.browse.data.FaviconRepository(database.faviconDao())
+    }
+
+    /** v4.2 Orbits: user-created browsing profiles (isolated tabs + WebView profile). */
+    val orbitRepository: com.udaytank.browse.data.OrbitRepository by lazy {
+        com.udaytank.browse.data.OrbitRepository(database.orbitDao())
     }
 }

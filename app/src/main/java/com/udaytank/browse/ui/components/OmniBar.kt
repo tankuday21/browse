@@ -96,6 +96,12 @@ fun OmniBar(
     pageUrl: String? = null,
     incognito: Boolean = false,
     onVoiceSubmit: ((String) -> Unit)? = null,
+    /** Task 7 Orbit indicator — passed straight through to [CommandBar]. */
+    activeOrbitColor: Int? = null,
+    /** v4.2 avatar identity — passed straight through to [CommandBar]. */
+    activeOrbitIcon: String? = null,
+    activeOrbitId: Long? = null,
+    onOpenOrbitSwitch: () -> Unit = {},
 ) {
     val scheme = orbit()
     val expanded = isEditing || barState == BarState.Full
@@ -135,6 +141,10 @@ fun OmniBar(
                 homePill = homePill,
                 incognito = incognito,
                 onVoiceSubmit = onVoiceSubmit,
+                activeOrbitColor = activeOrbitColor,
+                activeOrbitIcon = activeOrbitIcon,
+                activeOrbitId = activeOrbitId,
+                onOpenOrbitSwitch = onOpenOrbitSwitch,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
