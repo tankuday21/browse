@@ -173,4 +173,7 @@ class FakeSettingsRepository : SettingsRepository {
 
     override val activeOrbitId = MutableStateFlow(0L)
     override suspend fun setActiveOrbitId(id: Long) { activeOrbitId.value = id }
+
+    override val seenOrbitProfileNote = MutableStateFlow(false)
+    override suspend fun setSeenOrbitProfileNote(seen: Boolean) { seenOrbitProfileNote.value = seen }
 }

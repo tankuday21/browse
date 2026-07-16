@@ -437,6 +437,18 @@ class BrowserViewModel(
         }
     }
 
+    /**
+     * Whether the user has dismissed the one-time note that this device's WebView predates true
+     * per-Orbit cookie isolation (shown only when [WebViewFeature.MULTI_PROFILE] is unsupported
+     * and more than one Orbit exists).
+     */
+    val seenOrbitProfileNote: StateFlow<Boolean> = settings.seenOrbitProfileNote
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onOrbitProfileNoteSeen() {
+        viewModelScope.launch { settings.setSeenOrbitProfileNote(true) }
+    }
+
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

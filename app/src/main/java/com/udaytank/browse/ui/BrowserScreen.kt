@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material3.AlertDialog
@@ -48,6 +49,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -734,6 +737,27 @@ fun BrowserScreen(
                     headlineContent = { Text("Open in new tab") },
                     modifier = Modifier.clickable { viewModel.onOpenInNewTab(menu.url) },
                 )
+                // "Open in <Orbit>" (Task 9) — one row per OTHER Orbit; nothing shown when only
+                // one Orbit exists, since there's nowhere else to send the link.
+                if (orbits.size > 1) {
+                    orbits.filter { it.id != activeOrbitId }.forEach { target ->
+                        ListItem(
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(target.colorArgb)),
+                                )
+                            },
+                            headlineContent = { Text("Open in ${target.name}") },
+                            modifier = Modifier.clickable {
+                                viewModel.onOpenLinkInOrbit(menu.url, target.id)
+                                viewModel.onContextMenuDismissed()
+                            },
+                        )
+                    }
+                }
                 if (menu.isImage) {
                     ListItem(
                         headlineContent = { Text("Download image") },

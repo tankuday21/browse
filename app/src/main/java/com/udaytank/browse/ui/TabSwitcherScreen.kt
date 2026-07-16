@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
@@ -89,6 +90,7 @@ import com.udaytank.browse.R
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.webkit.WebViewFeature
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.TabOrderPolicy
 import com.udaytank.browse.browser.TabSearchFilter
@@ -150,6 +152,7 @@ fun TabSwitcherScreen(
     val activeTabId by viewModel.activeTabId.collectAsStateWithLifecycle()
     val orbits by viewModel.orbits.collectAsStateWithLifecycle()
     val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
+    val seenOrbitProfileNote by viewModel.seenOrbitProfileNote.collectAsStateWithLifecycle()
     val groups by viewModel.tabGroups.collectAsStateWithLifecycle()
     val recentlyClosed by viewModel.recentlyClosed.collectAsStateWithLifecycle()
     val listLayout by viewModel.switcherListLayout.collectAsStateWithLifecycle()
@@ -243,6 +246,16 @@ fun TabSwitcherScreen(
                         }
                     },
                 )
+                // One-time old-WebView note (Task 9): only once >1 Orbit exists is per-Orbit
+                // cookie isolation actually meaningful, and only devices whose WebView predates
+                // MULTI_PROFILE fail to deliver it — so nudge those users toward the Play Store
+                // update, once, until dismissed.
+                if (orbits.size > 1 &&
+                    !seenOrbitProfileNote &&
+                    !WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+                ) {
+                    OrbitProfileNoteBanner(onDismiss = viewModel::onOrbitProfileNoteSeen)
+                }
                 // Orbit selector (v4.2) — replaces the old Tabs/Incognito sliding-pill mode
                 // control. One chip per Orbit (color dot + name + tab count), a "+" to quick-
                 // create one, and an Incognito chip. Selecting an Orbit switches the active
@@ -1276,6 +1289,54 @@ private fun IncognitoBanner() {
                 style = orbitCaption,
                 color = scheme.text.secondary,
             )
+        }
+    }
+}
+
+/**
+ * Slim dismissible one-time note (Task 9): on devices whose Android System WebView predates
+ * [WebViewFeature.MULTI_PROFILE], Orbits still separate tabs/history but can't fully separate
+ * cookies/logins between them — shown once, above the Orbit selector, only while >1 Orbit
+ * exists. Dismissing calls [onDismiss] (`viewModel::onOrbitProfileNoteSeen`), which persists the
+ * seen flag so it never shows again on this device.
+ */
+@Composable
+private fun OrbitProfileNoteBanner(onDismiss: () -> Unit) {
+    val scheme = orbit()
+    Surface(
+        shape = RoundedCornerShape(percent = OrbitRadii.pill),
+        color = scheme.surfaces.elevated,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.xs),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+        ) {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = null,
+                tint = scheme.text.secondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Update Android System WebView for full login separation between Orbits.",
+                style = orbitCaption,
+                color = scheme.text.secondary,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Dismiss",
+                    tint = scheme.text.secondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
     }
 }
