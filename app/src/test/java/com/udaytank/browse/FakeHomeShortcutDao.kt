@@ -10,8 +10,11 @@ class FakeHomeShortcutDao : HomeShortcutDao {
     val shortcuts = MutableStateFlow<List<HomeShortcutEntity>>(emptyList())
     private var nextId = 1L
 
-    override fun observeAll(): Flow<List<HomeShortcutEntity>> =
-        shortcuts.map { list -> list.sortedBy { it.position } }
+    override fun observeForOrbit(orbitId: Long): Flow<List<HomeShortcutEntity>> =
+        shortcuts.map { list -> list.filter { it.orbitId == orbitId }.sortedBy { it.position } }
+
+    override suspend fun getAllForOrbit(orbitId: Long): List<HomeShortcutEntity> =
+        shortcuts.value.filter { it.orbitId == orbitId }.sortedBy { it.position }
 
     override suspend fun getAll(): List<HomeShortcutEntity> =
         shortcuts.value.sortedBy { it.position }
@@ -30,9 +33,9 @@ class FakeHomeShortcutDao : HomeShortcutDao {
         shortcuts.value = shortcuts.value.filterNot { it.id == id }
     }
 
-    override suspend fun deleteAll() {
-        shortcuts.value = emptyList()
+    override suspend fun deleteForOrbit(orbitId: Long) {
+        shortcuts.value = shortcuts.value.filterNot { it.orbitId == orbitId }
     }
 
-    // replaceAll comes from the interface's default @Transaction implementation.
+    // replaceAllForOrbit comes from the interface's default @Transaction implementation.
 }

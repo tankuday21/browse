@@ -14,4 +14,9 @@ data class HomeShortcutEntity(
     val title: String,
     /** 0-based slot in the grid; observeAll orders by this. */
     val position: Int,
+    /**
+     * The Orbit this tile belongs to (v4.4, Orbits Phase 3). The home grid is per-Orbit; a new
+     * Orbit starts empty. Nullable to absorb the migration backfill; every write sets it.
+     */
+    val orbitId: Long? = null,
 )

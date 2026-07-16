@@ -23,9 +23,11 @@ class BrowserViewModelOrbitTest {
         settings: FakeSettingsRepository = FakeSettingsRepository(),
         orbitRepository: OrbitRepository = OrbitRepository(FakeOrbitDao(), io = Dispatchers.Unconfined),
         historyDao: FakeHistoryDao = FakeHistoryDao(),
+        bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
+        homeShortcutDao: FakeHomeShortcutDao = FakeHomeShortcutDao(),
     ) = BrowserViewModel(
         historyDao,
-        FakeBookmarkDao(),
+        bookmarkDao,
         tabDao,
         settings,
         FakeDownloadDao(),
@@ -34,7 +36,7 @@ class BrowserViewModelOrbitTest {
         FakeReadingListDao(),
         ArticleStore(createTempDirectory("reading").toFile()),
         FakeSiteSettingsDao(),
-        FakeHomeShortcutDao(),
+        homeShortcutDao,
         RecordingDownloadController(),
         ioDispatcher = Dispatchers.Unconfined,
         orbitRepository = orbitRepository,
@@ -157,6 +159,67 @@ class BrowserViewModelOrbitTest {
         // Work's history is gone; Personal's survives.
         assertTrue(history.entries.value.none { it.orbitId == work.id })
         assertTrue(history.entries.value.any { it.orbitId == personalId && it.url == "https://keep.com" })
+    }
+
+    @Test
+    fun `a bookmark and shortcut are created against the active orbit`() = runTest {
+        val bookmarks = FakeBookmarkDao()
+        val shortcuts = FakeHomeShortcutDao()
+        val vm = vm(bookmarkDao = bookmarks, homeShortcutDao = shortcuts)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+        val tabId = vm.activeTabId.value!!
+        vm.onPageStarted(tabId, "https://p.com")
+        advanceUntilIdle()
+
+        vm.onToggleBookmark()
+        vm.onAddShortcut("https://p-tile.com", "P")
+        advanceUntilIdle()
+
+        assertEquals(personalId, bookmarks.bookmarks.value.single { it.url == "https://p.com" }.orbitId)
+        assertEquals(personalId, shortcuts.shortcuts.value.single { it.url == "https://p-tile.com" }.orbitId)
+
+        // Switching to a new Orbit shows none of Personal's saved data.
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        assertTrue(bookmarks.bookmarks.value.none { it.orbitId == work.id })
+        assertTrue(shortcuts.shortcuts.value.none { it.orbitId == work.id })
+    }
+
+    @Test
+    fun `deleting an orbit purges its bookmarks and shortcuts`() = runTest {
+        val bookmarks = FakeBookmarkDao()
+        val shortcuts = FakeHomeShortcutDao()
+        val vm = vm(bookmarkDao = bookmarks, homeShortcutDao = shortcuts)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+        bookmarks.bookmarks.value = listOf(
+            com.udaytank.browse.data.Bookmark(url = "https://keep.com", title = "K", createdAt = 1, orbitId = personalId)
+        )
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        val workTabId = vm.tabs.value.first { it.orbitId == work.id }.id
+        vm.onPageStarted(workTabId, "https://work.com")
+        advanceUntilIdle()
+        vm.onToggleBookmark()
+        vm.onAddShortcut("https://work-tile.com", "W")
+        advanceUntilIdle()
+        assertTrue(bookmarks.bookmarks.value.any { it.orbitId == work.id })
+        assertTrue(shortcuts.shortcuts.value.any { it.orbitId == work.id })
+
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        assertTrue(bookmarks.bookmarks.value.none { it.orbitId == work.id })
+        assertTrue(shortcuts.shortcuts.value.none { it.orbitId == work.id })
+        assertTrue(bookmarks.bookmarks.value.any { it.url == "https://keep.com" })
     }
 
     @Test

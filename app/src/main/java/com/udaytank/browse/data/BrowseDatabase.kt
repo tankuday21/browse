@@ -25,7 +25,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         FaviconEntity::class,
         OrbitEntity::class,
     ],
-    version = 16,
+    version = 17,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -45,6 +45,27 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v4.4 Orbits Phase 3: bookmarks + home shortcuts become per-Orbit.
+                val firstOrbit = "(SELECT id FROM orbits ORDER BY position ASC, id ASC LIMIT 1)"
+
+                // Bookmarks: add orbitId, backfill, and move the unique index from (url) to
+                // (url, orbitId) so the same URL can be bookmarked in more than one Orbit.
+                db.execSQL("ALTER TABLE bookmarks ADD COLUMN orbitId INTEGER")
+                db.execSQL("UPDATE bookmarks SET orbitId = $firstOrbit")
+                db.execSQL("DROP INDEX IF EXISTS index_bookmarks_url")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_bookmarks_url_orbitId` " +
+                        "ON `bookmarks` (`url`, `orbitId`)"
+                )
+
+                // Home shortcuts: add orbitId, backfill to the first Orbit.
+                db.execSQL("ALTER TABLE home_shortcuts ADD COLUMN orbitId INTEGER")
+                db.execSQL("UPDATE home_shortcuts SET orbitId = $firstOrbit")
+            }
+        }
 
         val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {

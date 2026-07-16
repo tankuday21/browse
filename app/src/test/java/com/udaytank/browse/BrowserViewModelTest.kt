@@ -1016,11 +1016,12 @@ class BrowserViewModelTest {
             readingListDao = readingDao, tabGroupDao = groupDao, settings = settings,
         )
         advanceUntilIdle()
+        val orbit = vm.activeOrbitId.value
         bookmarkDao.insert(
-            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, folder = "Work")
+            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, folder = "Work", orbitId = orbit)
         )
         shortcutDao.insert(
-            com.udaytank.browse.data.HomeShortcutEntity(url = "https://b.com", title = "B", position = 0)
+            com.udaytank.browse.data.HomeShortcutEntity(url = "https://b.com", title = "B", position = 0, orbitId = orbit)
         )
         readingDao.insert(ReadingListEntry(url = "https://c.com", title = "C", addedAt = 2, filePath = "/gone.html"))
         groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 1, position = 0))
@@ -1049,9 +1050,10 @@ class BrowserViewModelTest {
             readingListDao = readingDao, tabGroupDao = groupDao,
         )
         advanceUntilIdle()
-        // Existing data that overlaps with the backup.
-        bookmarkDao.insert(com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup", createdAt = 1))
-        shortcutDao.insert(com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0))
+        // Existing data that overlaps with the backup (in the active Orbit, where restore lands).
+        val orbit = vm.activeOrbitId.value
+        bookmarkDao.insert(com.udaytank.browse.data.Bookmark(url = "https://dup.com", title = "Dup", createdAt = 1, orbitId = orbit))
+        shortcutDao.insert(com.udaytank.browse.data.HomeShortcutEntity(url = "https://dup.com", title = "Dup", position = 0, orbitId = orbit))
         readingDao.insert(ReadingListEntry(url = "https://dup.com", title = "Dup", addedAt = 1))
         groupDao.insert(com.udaytank.browse.data.TabGroupEntity(name = "Trip", color = 0, position = 0))
 
@@ -1103,6 +1105,39 @@ class BrowserViewModelTest {
             listOf("Restored 1 bookmarks, 1 shortcuts, 1 reading list items, 1 tab groups"),
             messages,
         )
+    }
+
+    @Test
+    fun `restoring a multi-orbit backup folds duplicate urls into one row per active orbit`() = runTest {
+        // A whole-DB backup can hold the same URL from two Orbits. Restore folds everything into
+        // the active Orbit; the same URL must land once (honest count, no duplicate shortcut tile).
+        val bookmarkDao = FakeBookmarkDao()
+        val shortcutDao = FakeHomeShortcutDao()
+        val vm = vm(bookmarkDao = bookmarkDao, homeShortcutDao = shortcutDao)
+        advanceUntilIdle()
+        val orbit = vm.activeOrbitId.value
+
+        val backup = com.udaytank.browse.browser.Backup(
+            settings = emptyMap(),
+            bookmarks = listOf(
+                com.udaytank.browse.data.Bookmark(url = "https://x.com", title = "X (personal)", createdAt = 1, orbitId = 100),
+                com.udaytank.browse.data.Bookmark(url = "https://x.com", title = "X (work)", createdAt = 2, orbitId = 200),
+            ),
+            homeShortcuts = listOf(
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://x.com", title = "X", position = 0, orbitId = 100),
+                com.udaytank.browse.data.HomeShortcutEntity(url = "https://x.com", title = "X", position = 0, orbitId = 200),
+            ),
+            readingList = emptyList(),
+            tabGroups = emptyList(),
+        )
+
+        val messages = mutableListOf<String>()
+        vm.onRestoreBackup(backup) { messages += it }
+        advanceUntilIdle()
+
+        assertEquals(1, bookmarkDao.bookmarks.value.count { it.url == "https://x.com" && it.orbitId == orbit })
+        assertEquals(1, shortcutDao.shortcuts.value.count { it.url == "https://x.com" && it.orbitId == orbit })
+        assertEquals(listOf("Restored 1 bookmarks, 1 shortcuts, 0 reading list items, 0 tab groups"), messages)
     }
 
     @Test

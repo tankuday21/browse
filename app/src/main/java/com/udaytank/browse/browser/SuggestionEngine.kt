@@ -26,9 +26,10 @@ class SuggestionEngine(
         val trimmed = query.trim()
         if (trimmed.isBlank()) return emptyList()
 
-        val bookmarks = bookmarkDao.search(trimmed, 2)
+        // Bookmark + history suggestions are Orbit-scoped: one Orbit's saved/visited URLs never
+        // autocomplete in another.
+        val bookmarks = bookmarkDao.search(orbitId, trimmed, 2)
             .map { Suggestion(it.title, it.url, SuggestionKind.BOOKMARK) }
-        // History suggestions are Orbit-scoped: one Orbit's URLs never autocomplete in another.
         val history = historyDao.search(orbitId, trimmed, 3)
             .map { Suggestion(it.title, it.url, SuggestionKind.HISTORY) }
         val web = runCatching { fetchSearchSuggestions(trimmed) }.getOrDefault(emptyList())
