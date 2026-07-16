@@ -50,6 +50,7 @@ import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -143,7 +144,10 @@ private fun CredentialRow(
             scope.launch {
                 val pw = reveal() ?: return@launch
                 copyToClipboard(context, pw)
-                Toast.makeText(context, "Password copied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Password copied — clears in 60s", Toast.LENGTH_SHORT).show()
+                // Auto-clear so a copied password doesn't linger on the clipboard indefinitely.
+                delay(60_000)
+                clearClipboardIfOurs(context)
             }
         }) {
             Icon(Icons.Filled.ContentCopy, contentDescription = "Copy password", tint = scheme.text.secondary)
@@ -181,13 +185,27 @@ private fun PasswordsEmptyState(activeOrbit: OrbitEntity?, modifier: Modifier = 
     }
 }
 
+private const val CLIP_LABEL = "password"
+
 private fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     // Mark the clip sensitive so it's kept off clipboard previews/history where supported.
-    val clip = ClipData.newPlainText("password", text).apply {
+    val clip = ClipData.newPlainText(CLIP_LABEL, text).apply {
         description.extras = android.os.PersistableBundle().apply {
             putBoolean("android.content.extra.IS_SENSITIVE", true)
         }
     }
     clipboard.setPrimaryClip(clip)
+}
+
+/** Clears the clipboard only if it still holds the password we put there (don't clobber other copies). */
+private fun clearClipboardIfOurs(context: Context) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    if (clipboard.primaryClip?.description?.label == CLIP_LABEL) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            clipboard.clearPrimaryClip()
+        } else {
+            clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+        }
+    }
 }

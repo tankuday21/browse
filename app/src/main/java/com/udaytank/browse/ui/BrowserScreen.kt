@@ -616,7 +616,7 @@ fun BrowserScreen(
             fillPrompt?.let { fp ->
                 FillPasswordBar(
                     usernames = fp.usernames,
-                    onFill = { viewModel.onFillCredential(fp.tabId, fp.host, it) },
+                    onFill = { viewModel.onFillCredential(fp.tabId, fp.orbitId, fp.host, it) },
                     onDismiss = viewModel::onDismissFillPrompt,
                 )
             }

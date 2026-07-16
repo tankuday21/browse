@@ -381,10 +381,10 @@ class BrowserViewModel(
 
     // ── v4.7 Passwords ──────────────────────────────────────
     /** A submitted login awaiting the user's "Save password?" decision. */
-    data class SaveCredentialPrompt(val host: String, val username: String, val password: String)
+    data class SaveCredentialPrompt(val orbitId: Long, val host: String, val username: String, val password: String)
 
     /** Saved logins are available for the current page; the UI offers to fill one of [usernames]. */
-    data class FillPromptState(val tabId: Long, val host: String, val usernames: List<String>)
+    data class FillPromptState(val tabId: Long, val orbitId: Long, val host: String, val usernames: List<String>)
 
     /** Instruction to MainActivity to inject a chosen login into a tab's page (user-initiated). */
     data class FillCredentialAction(val tabId: Long, val username: String, val password: String)
@@ -404,30 +404,42 @@ class BrowserViewModel(
      */
     fun onLoginSubmitted(tabId: Long, host: String, username: String, password: String) {
         if (credentialRepository == null || password.isEmpty()) return
-        val isIncognito = tabs.value.find { it.id == tabId }?.isIncognito == true
-        if (isIncognito) return
-        _saveCredentialPrompt.value = SaveCredentialPrompt(host, username, password)
+        val tab = tabs.value.find { it.id == tabId }
+        if (tab?.isIncognito == true) return
+        // Only capture from an HTTPS page — a login typed into a cleartext (MITM-able) page must
+        // not be persisted; and never fill it back later either (see onPageFinished).
+        val url = tab?.url
+        if (url?.startsWith("https://", ignoreCase = true) != true) return
+        // Normalize the host through the SAME parser the fill path uses (UrlHosts.of on the tab's
+        // committed URL, not the JS-supplied host), so a mixed-case/parser-divergent host can't
+        // split save vs. fill and hide the saved login.
+        val normHost = UrlHosts.of(url) ?: host.lowercase().ifBlank { return }
+        val orbitId = tab.orbitId ?: activeOrbitId.value
+        _saveCredentialPrompt.value = SaveCredentialPrompt(orbitId, normHost, username, password)
     }
 
-    /** User accepted the save prompt → encrypt + store under the active Orbit. */
+    /** User accepted the save prompt → encrypt + store under the Orbit the prompt was built for. */
     fun onSaveCredential() {
         val prompt = _saveCredentialPrompt.value ?: return
         val repo = credentialRepository ?: return
-        val orbitId = activeOrbitId.value
         _saveCredentialPrompt.value = null
         viewModelScope.launch {
-            repo.save(orbitId, prompt.host, prompt.username, prompt.password, System.currentTimeMillis())
+            repo.save(prompt.orbitId, prompt.host, prompt.username, prompt.password, System.currentTimeMillis())
         }
     }
 
     fun onDismissSaveCredentialPrompt() { _saveCredentialPrompt.value = null }
 
-    /** User tapped a saved login to fill: re-decrypt (kept out of long-lived state) and inject it. */
-    fun onFillCredential(tabId: Long, host: String, username: String) {
+    /**
+     * User tapped a saved login to fill: re-decrypt (kept out of long-lived state) and inject it.
+     * Scoped to the Orbit the fill offer was built for ([orbitId]), not whatever is active at tap
+     * time, so a mid-flight Orbit switch can't cross vaults.
+     */
+    fun onFillCredential(tabId: Long, orbitId: Long, host: String, username: String) {
         val repo = credentialRepository ?: return
         _fillPrompt.value = null
         viewModelScope.launch {
-            val match = repo.credentialsForHost(activeOrbitId.value, host).find { it.username == username }
+            val match = repo.credentialsForHost(orbitId, host).find { it.username == username }
             if (match != null) {
                 _fillCredentialRequest.emit(FillCredentialAction(tabId, match.username, match.password))
             }
@@ -1617,15 +1629,16 @@ class BrowserViewModel(
             }
         }
 
-        // v4.7 Passwords: if the active tab's page has saved logins for its host, offer to fill.
+        // v4.7 Passwords: if the active tab's HTTPS page has saved logins for its host, offer to
+        // fill. HTTPS-only — never inject a credential into a cleartext (MITM-able) page.
         val repo = credentialRepository
-        if (repo != null && tabId == activeTabId.value) {
+        if (repo != null && tabId == activeTabId.value && url.startsWith("https://", ignoreCase = true)) {
             viewModelScope.launch {
                 val host = UrlHosts.of(url)
                 val usernames = if (host.isNullOrBlank()) emptyList()
                 else repo.credentialsForHost(orbitId, host).map { it.username }
                 _fillPrompt.value =
-                    if (usernames.isNotEmpty() && host != null) FillPromptState(tabId, host, usernames)
+                    if (usernames.isNotEmpty() && host != null) FillPromptState(tabId, orbitId, host, usernames)
                     else null
             }
         }

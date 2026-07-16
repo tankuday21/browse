@@ -328,6 +328,10 @@ class BrowserViewModelOrbitTest {
         val personal = vm.orbits.value.single()
         val tabId = vm.activeTabId.value!!
 
+        // The tab must be on an HTTPS page (capture/fill are HTTPS-only).
+        vm.onPageStarted(tabId, "https://example.com/login")
+        advanceUntilIdle()
+
         // Submit a login on the active (non-incognito) tab → save prompt, then store.
         vm.onLoginSubmitted(tabId, "example.com", "alice", "s3cret")
         advanceUntilIdle()
@@ -346,7 +350,7 @@ class BrowserViewModelOrbitTest {
         vm.onPageFinished(tabId, "https://example.com/login", "Login")
         advanceUntilIdle()
         assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
-        vm.onFillCredential(tabId, "example.com", "alice")
+        vm.onFillCredential(tabId, personal.id, "example.com", "alice")
         advanceUntilIdle()
         assertEquals(1, filled.size)
         assertEquals("alice", filled.single().username)
@@ -364,6 +368,27 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `login captured on a mixed-case host still offers to fill on the canonical host`() = runTest {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        val vm = vm(credentialRepository = repo)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+
+        // Capture on a MIXED-CASE host — the save must normalize via UrlHosts so fill can find it.
+        vm.onPageStarted(tabId, "https://EXAMPLE.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "EXAMPLE.com", "alice", "pw"); advanceUntilIdle()
+        vm.onSaveCredential(); advanceUntilIdle()
+        assertEquals("example.com", credDao.items.value.single().host)
+
+        // Fill offer appears on the canonical lowercase host.
+        vm.onPageFinished(tabId, "https://example.com/", "Home"); advanceUntilIdle()
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
+    }
+
+    @Test
     fun `deleting an orbit and Black Hole both purge credentials`() = runTest {
         val credDao = FakeCredentialDao()
         val repo = com.udaytank.browse.data.CredentialRepository(
@@ -372,6 +397,7 @@ class BrowserViewModelOrbitTest {
         val vm = vm(credentialRepository = repo)
         advanceUntilIdle()
         val personalTab = vm.activeTabId.value!!
+        vm.onPageStarted(personalTab, "https://keep.com/login"); advanceUntilIdle()
         vm.onLoginSubmitted(personalTab, "keep.com", "me", "pw"); advanceUntilIdle()
         vm.onSaveCredential(); advanceUntilIdle()
 
@@ -379,6 +405,7 @@ class BrowserViewModelOrbitTest {
         val work = vm.orbits.value.first { it.name == "Work" }
         vm.onSwitchOrbit(work.id); advanceUntilIdle()
         val workTab = vm.tabs.value.first { it.orbitId == work.id }.id
+        vm.onPageStarted(workTab, "https://work.com/login"); advanceUntilIdle()
         vm.onLoginSubmitted(workTab, "work.com", "me", "pw"); advanceUntilIdle()
         vm.onSaveCredential(); advanceUntilIdle()
         assertEquals(2, credDao.items.value.size)
