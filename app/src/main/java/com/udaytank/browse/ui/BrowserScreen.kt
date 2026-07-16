@@ -62,6 +62,7 @@ import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.HomeSearchOverlay
 import com.udaytank.browse.ui.components.LocalFaviconCache
+import com.udaytank.browse.ui.components.ManageOrbitsSheet
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
@@ -694,7 +695,16 @@ fun BrowserScreen(
                 onDismiss = { orbitSwitchOpen = false },
             )
         }
-        // Task 8 renders the Orbit management sheet on `manageOrbitsOpen`; not built here.
+        // ── Orbit management sheet (v4.2 Task 8) ────────────
+        if (manageOrbitsOpen) {
+            ManageOrbitsSheet(
+                orbits = orbits,
+                onCreate = viewModel::onCreateOrbit,
+                onRename = viewModel::onRenameOrbit,
+                onDelete = viewModel::onDeleteOrbit,
+                onDismiss = { manageOrbitsOpen = false },
+            )
+        }
 
         // ── Site permission prompt ──────────────────────────
         permissionPrompt?.let { prompt ->
