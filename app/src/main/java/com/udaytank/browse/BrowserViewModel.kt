@@ -16,6 +16,7 @@ import com.udaytank.browse.browser.feed.QuickDial
 import com.udaytank.browse.browser.feed.QuickDialPolicy
 import com.udaytank.browse.browser.feed.VisitedUrl
 import com.udaytank.browse.browser.feed.Weather
+import com.udaytank.browse.browser.feed.WeatherCodec
 import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.browser.Suggestion
 import com.udaytank.browse.browser.SuggestionEngine
@@ -1235,6 +1236,7 @@ class BrowserViewModel(
             // Location + aggregate stats are traces too on a "clean slate".
             settings.setWeatherCity("")
             settings.setWeatherUseLocation(false)
+            settings.setWeatherCache("")
             settings.resetLifetimeBlocked()
 
             // Hand the native teardown + process restart to MainActivity.
@@ -1706,6 +1708,15 @@ class BrowserViewModel(
     private val _weather = MutableStateFlow<Weather?>(null)
     val weather: StateFlow<Weather?> = _weather.asStateFlow()
 
+    init {
+        // Offline cache (v4.6): show the last-known weather immediately at launch, before (or
+        // instead of) a successful network refresh. A live forecast overwrites it when it arrives.
+        viewModelScope.launch {
+            val cached = settings.weatherCache.first().takeIf { it.isNotBlank() }?.let(WeatherCodec::decode)
+            if (cached != null && _weather.value == null) _weather.value = cached
+        }
+    }
+
     private var lastFeedRefreshAt = 0L
 
     /**
@@ -1749,7 +1760,13 @@ class BrowserViewModel(
         }
         lastWeatherAt = now
         lastWeatherKey = key
-        viewModelScope.launch { repo.forecast(place.lat, place.lon)?.let { _weather.value = it } }
+        viewModelScope.launch {
+            repo.forecast(place.lat, place.lon)?.let { fresh ->
+                _weather.value = fresh
+                // Persist for the offline cache (v4.6): shown on next launch / when a refresh fails.
+                settings.setWeatherCache(WeatherCodec.encode(fresh))
+            }
+        }
     }
 
     /** Geocode a typed city → place, cached per city string (avoids a lookup on every home entry). */

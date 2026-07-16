@@ -1,5 +1,6 @@
 package com.udaytank.browse.browser.feed
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -16,6 +17,41 @@ data class Weather(
     val description: String,
     val daily: List<DailyForecast>,
 )
+
+/**
+ * Pure JSON (de)serialization of a resolved [Weather] for the offline cache (v4.6). Lets the home
+ * widget show the last-known conditions immediately on launch and keep showing them when a refresh
+ * fails (no network) instead of blanking out. Kept separate from [WeatherJson] (which maps the
+ * Open-Meteo API shape) and free of any Android/network dependency so it's trivially testable.
+ */
+object WeatherCodec {
+    fun encode(w: Weather): String = JSONObject().apply {
+        put("t", w.tempC)
+        put("c", w.code)
+        put("d", w.description)
+        put(
+            "days",
+            JSONArray().apply {
+                w.daily.forEach { put(JSONObject().put("l", it.dayLabel).put("h", it.highC)) }
+            },
+        )
+    }.toString()
+
+    fun decode(json: String): Weather? = runCatching {
+        val o = JSONObject(json)
+        val daysArr = o.optJSONArray("days") ?: JSONArray()
+        val days = (0 until daysArr.length()).map {
+            val d = daysArr.getJSONObject(it)
+            DailyForecast(d.getString("l"), d.getInt("h"))
+        }
+        Weather(
+            tempC = o.getInt("t"),
+            code = o.getInt("c"),
+            description = o.getString("d"),
+            daily = days,
+        )
+    }.getOrNull()
+}
 
 /** Pure JSON mapping for Open-Meteo forecast responses (no network). */
 object WeatherJson {

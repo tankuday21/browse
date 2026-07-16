@@ -5,6 +5,39 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+class WeatherCodecTest {
+
+    @Test
+    fun `round-trips a weather with a daily forecast`() {
+        val original = Weather(
+            tempC = 22,
+            code = 3,
+            description = "Overcast",
+            daily = listOf(DailyForecast("Mon", 28), DailyForecast("Tue", 30)),
+        )
+        val decoded = WeatherCodec.decode(WeatherCodec.encode(original))
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun `round-trips with an empty forecast`() {
+        val original = Weather(tempC = -5, code = 71, description = "Snow", daily = emptyList())
+        assertEquals(original, WeatherCodec.decode(WeatherCodec.encode(original)))
+    }
+
+    @Test
+    fun `decode returns null on garbage`() {
+        assertNull(WeatherCodec.decode("not json"))
+        assertNull(WeatherCodec.decode("{}"))
+    }
+
+    @Test
+    fun `decode returns null when a daily entry is malformed`() {
+        // Missing "h" on a day → getInt throws → runCatching yields null (not a partial Weather).
+        assertNull(WeatherCodec.decode("""{"t":1,"c":1,"d":"x","days":[{"l":"Mon"}]}"""))
+    }
+}
+
 class WeatherJsonTest {
 
     private val json = """
