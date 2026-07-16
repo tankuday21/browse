@@ -41,6 +41,8 @@ import com.udaytank.browse.data.HistoryDao
 import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.HomeShortcutDao
 import com.udaytank.browse.data.HomeShortcutEntity
+import com.udaytank.browse.data.OrbitEntity
+import com.udaytank.browse.data.OrbitRepository
 import com.udaytank.browse.data.ReadingListDao
 import com.udaytank.browse.data.ReadingListEntry
 import com.udaytank.browse.data.SearchEngine
@@ -64,9 +66,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -162,6 +167,8 @@ class BrowserViewModel(
     private val zapRepository: ZapRepository? = null,
     /** v4.1 site-icon cache (null in tests → letters only). */
     private val faviconRepository: com.udaytank.browse.data.FaviconRepository? = null,
+    /** v4.2 Orbits (browsing profiles); null in tests that don't exercise Orbits. */
+    private val orbitRepository: OrbitRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -310,6 +317,89 @@ class BrowserViewModel(
     }
     val tabs: StateFlow<List<TabEntity>> = tabManager.tabs
     val activeTabId: StateFlow<Long?> = tabManager.activeTabId
+
+    // ── v4.2 Orbits (browsing profiles) ─────────────────────────────────────
+    /** Every Orbit, ordered by position. Empty (never null) when Orbits aren't wired (tests). */
+    val orbits: StateFlow<List<OrbitEntity>> =
+        (orbitRepository?.observeAll() ?: flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** A persisted-but-unset (0) id resolves to the first Orbit's id once one exists. */
+    private fun resolveActiveOrbitId(stored: Long): Long =
+        if (stored != 0L) stored else orbits.value.firstOrNull()?.id ?: 0L
+
+    val activeOrbitId: StateFlow<Long> = settings.activeOrbitId
+        .map { resolveActiveOrbitId(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    /** The currently active Orbit's row, or null before Orbits have loaded. */
+    fun activeOrbit(): OrbitEntity? = orbits.value.find { it.id == activeOrbitId.value }
+
+    /** Resolves a tab's WebView profile key via its Orbit; null for incognito/unrecognized tabs. */
+    fun profileKeyForTab(tabId: Long): String? {
+        val orbitId = tabs.value.find { it.id == tabId }?.orbitId ?: return null
+        return orbits.value.firstOrNull { it.id == orbitId }?.profileKey
+    }
+
+    /**
+     * Emits a just-deleted Orbit's ProfileStore key once its tabs (and their WebViews) are gone,
+     * so MainActivity (Task 5, which owns the WebViewHolder — this plain ViewModel never touches
+     * it directly) can delete the underlying profile. A profile can only be removed once nothing
+     * is still using it, hence the emit happens after tab close-out in [onDeleteOrbit].
+     */
+    private val _orbitProfileToDelete = MutableSharedFlow<String>()
+    val orbitProfileToDelete: SharedFlow<String> = _orbitProfileToDelete.asSharedFlow()
+
+    /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
+    fun onSwitchOrbit(id: Long) {
+        viewModelScope.launch {
+            settings.setActiveOrbitId(id)
+            val mostRecentTab = tabs.value.filter { it.orbitId == id }.maxByOrNull { it.position }
+            if (mostRecentTab != null) {
+                tabManager.switchTo(mostRecentTab.id)
+            } else {
+                tabManager.newTab(HOME_URL, orbitId = id)
+            }
+        }
+    }
+
+    fun onCreateOrbit(name: String, colorArgb: Int) {
+        viewModelScope.launch { orbitRepository?.create(name, colorArgb, System.currentTimeMillis()) }
+    }
+
+    fun onRenameOrbit(id: Long, name: String) {
+        viewModelScope.launch { orbitRepository?.rename(id, name) }
+    }
+
+    /**
+     * Deletes an Orbit (the repo itself refuses — and this is then a no-op — if it's the last
+     * one): closes every tab in it, moves the active Orbit elsewhere if it was active, and only
+     * then emits its profileKey on [orbitProfileToDelete] for the profile itself to be wiped.
+     */
+    fun onDeleteOrbit(id: Long) {
+        val repo = orbitRepository ?: return
+        viewModelScope.launch {
+            val orbit = repo.get(id) ?: return@launch
+            val wasActive = activeOrbitId.value == id
+            if (!repo.delete(id)) return@launch
+
+            tabs.value.filter { it.orbitId == id }.forEach { tabManager.closeTab(it.id, HOME_URL) }
+
+            if (wasActive) {
+                repo.observeAll().first().firstOrNull()?.let { settings.setActiveOrbitId(it.id) }
+            }
+
+            _orbitProfileToDelete.emit(orbit.profileKey)
+        }
+    }
+
+    /** Opens [url] in a fresh tab under [orbitId] and switches the active Orbit to it. */
+    fun onOpenLinkInOrbit(url: String, orbitId: Long) {
+        viewModelScope.launch {
+            settings.setActiveOrbitId(orbitId)
+            tabManager.newTab(url, orbitId = orbitId)
+        }
+    }
 
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -660,6 +750,15 @@ class BrowserViewModel(
         viewModelScope.launch {
             tabManager.initialize(HOME_URL)
         }
+        // Orbits: seed the default "Personal" Orbit, and if activeOrbitId is still the
+        // persisted-unset sentinel (0), resolve it to that Orbit so the very first launch
+        // already has a real active Orbit rather than waiting on a later read.
+        viewModelScope.launch {
+            val orbit = orbitRepository?.ensureDefault(System.currentTimeMillis())
+            if (orbit != null && settings.activeOrbitId.first() == 0L) {
+                settings.setActiveOrbitId(orbit.id)
+            }
+        }
         // A tab switch always brings the command bar back (auto-hide state is per-moment,
         // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).
         viewModelScope.launch {
@@ -689,7 +788,7 @@ class BrowserViewModel(
     // --- tab events ---
 
     fun onNewTab() {
-        viewModelScope.launch { tabManager.newTab(HOME_URL) }
+        viewModelScope.launch { tabManager.newTab(HOME_URL, orbitId = activeOrbitId.value) }
     }
 
     fun onNewIncognitoTab() {
@@ -733,7 +832,7 @@ class BrowserViewModel(
 
     fun onReopenClosed(entry: ClosedTabEntity) {
         viewModelScope.launch {
-            tabManager.newTab(entry.url)
+            tabManager.newTab(entry.url, orbitId = activeOrbitId.value)
             closedTabDao.deleteById(entry.id)
         }
     }
@@ -886,7 +985,7 @@ class BrowserViewModel(
 
     /** A link arriving from another app always opens in a fresh normal tab. */
     fun onExternalUrl(url: String) {
-        viewModelScope.launch { tabManager.newTab(url, incognito = false) }
+        viewModelScope.launch { tabManager.newTab(url, incognito = false, orbitId = activeOrbitId.value) }
     }
 
     // --- find in page ---
@@ -1377,7 +1476,7 @@ class BrowserViewModel(
         val parent = tabs.value.find { it.id == activeTabId.value }
         val incognito = parent?.isIncognito == true
         val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
-        viewModelScope.launch { tabManager.newTab(url, incognito, groupId) }
+        viewModelScope.launch { tabManager.newTab(url, incognito, groupId, orbitId = activeOrbitId.value) }
         onContextMenuDismissed()
     }
 
@@ -1552,6 +1651,7 @@ class BrowserViewModel(
                     weatherRepository = app.weatherRepository,
                     zapRepository = app.zapRepository,
                     faviconRepository = app.faviconRepository,
+                    orbitRepository = app.orbitRepository,
                 )
             }
         }

@@ -114,4 +114,9 @@ class BrowseApplication : Application() {
     val faviconRepository: com.udaytank.browse.data.FaviconRepository by lazy {
         com.udaytank.browse.data.FaviconRepository(database.faviconDao())
     }
+
+    /** v4.2 Orbits: user-created browsing profiles (isolated tabs + WebView profile). */
+    val orbitRepository: com.udaytank.browse.data.OrbitRepository by lazy {
+        com.udaytank.browse.data.OrbitRepository(database.orbitDao())
+    }
 }
