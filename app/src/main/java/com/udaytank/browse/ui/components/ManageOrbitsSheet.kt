@@ -223,7 +223,7 @@ fun ManageOrbitsSheet(
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("Delete \"${target.name}\"?") },
-            text = { Text("This permanently deletes this Orbit's tabs and cookies. This can't be undone.") },
+            text = { Text("This permanently deletes this Orbit's tabs, cookies, and history. This can't be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     onDelete(target.id)

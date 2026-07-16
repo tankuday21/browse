@@ -25,7 +25,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         FaviconEntity::class,
         OrbitEntity::class,
     ],
-    version = 15,
+    version = 16,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -45,6 +45,19 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v4.3 Orbits Phase 2: history becomes per-Orbit. Add the column, then backfill
+                // every existing row to the first Orbit (the seeded "Personal") so no visit is
+                // orphaned and legacy history stays visible in the default Orbit.
+                db.execSQL("ALTER TABLE history ADD COLUMN orbitId INTEGER")
+                db.execSQL(
+                    "UPDATE history SET orbitId = " +
+                        "(SELECT id FROM orbits ORDER BY position ASC, id ASC LIMIT 1)"
+                )
+            }
+        }
 
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {

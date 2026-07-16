@@ -441,6 +441,10 @@ class BrowserViewModel(
             val deletedOrbitTabIds = tabs.value.filter { it.orbitId == id }.map { it.id }
             deletedOrbitTabIds.forEach { tabManager.closeTab(it, HOME_URL) }
 
+            // Isolation: a deleted Orbit's browsing history must not survive it (mirrors the
+            // cookie/profile + tab purge). Irreversible, like deleteProfile.
+            historyDao.deleteForOrbit(id)
+
             _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
         }
     }
@@ -482,7 +486,10 @@ class BrowserViewModel(
         host != null && host in sites
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    val historyEntries: StateFlow<List<HistoryEntry>> = historyDao.observeAll()
+    // Orbit-scoped (v4.3): the History screen shows only the active Orbit's visits, and
+    // re-subscribes whenever the active Orbit changes.
+    val historyEntries: StateFlow<List<HistoryEntry>> = activeOrbitId
+        .flatMapLatest { orbitId -> historyDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val bookmarks: StateFlow<List<Bookmark>> = bookmarkDao.observeAll()
@@ -1046,7 +1053,7 @@ class BrowserViewModel(
         }
         suggestionJob = viewModelScope.launch {
             delay(200) // debounce typing
-            _suggestions.value = suggestionEngine.suggest(text)
+            _suggestions.value = suggestionEngine.suggest(text, activeOrbitId.value)
         }
     }
 
@@ -1138,7 +1145,13 @@ class BrowserViewModel(
         viewModelScope.launch { historyDao.deleteById(id) }
     }
 
+    /** Clears the active Orbit's history only (the History screen is Orbit-scoped in v4.3). */
     fun onClearHistory() {
+        viewModelScope.launch { historyDao.clearForOrbit(activeOrbitId.value) }
+    }
+
+    /** Clears history across every Orbit — the Settings "Clear browsing data" (all-Orbits) path. */
+    fun onClearAllHistory() {
         viewModelScope.launch { historyDao.clearAll() }
     }
 
@@ -1408,15 +1421,21 @@ class BrowserViewModel(
         if (tabId == activeTabId.value) _uiState.update { it.copy(isLoading = false) }
 
         // Incognito visits leave no trace in history.
-        val isIncognito = tabs.value.find { it.id == tabId }?.isIncognito == true
-        if (isIncognito) return
+        val tab = tabs.value.find { it.id == tabId }
+        if (tab?.isIncognito == true) return
+        // Record against the owning tab's Orbit (not the global active id): correct even for a
+        // late/background onPageFinished after the user has switched Orbits. Fall back to the
+        // active Orbit only if the tab has somehow no Orbit (should not happen for non-incognito).
+        val orbitId = tab?.orbitId ?: activeOrbitId.value
 
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            when (val decision = VisitPolicy.decide(historyDao.mostRecent(), url)) {
+            when (val decision = VisitPolicy.decide(historyDao.mostRecent(orbitId), url)) {
                 VisitDecision.Skip -> Unit
                 VisitDecision.RecordNew ->
-                    historyDao.insert(HistoryEntry(url = url, title = title ?: url, visitedAt = now))
+                    historyDao.insert(
+                        HistoryEntry(url = url, title = title ?: url, visitedAt = now, orbitId = orbitId)
+                    )
                 is VisitDecision.RefreshExisting ->
                     historyDao.updateVisitedAt(decision.existingId, now)
             }
@@ -1600,7 +1619,8 @@ class BrowserViewModel(
         if (isIncognito) return
         viewModelScope.launch {
             val excludeHosts = homeShortcuts.value.mapNotNull { UrlHosts.of(it.url) }.toSet()
-            val visited = historyDao.topVisited(60).map { VisitedUrl(it.url, it.title, it.visits) }
+            val visited = historyDao.topVisited(activeOrbitId.value, 60)
+                .map { VisitedUrl(it.url, it.title, it.visits) }
             _quickDials.value = QuickDialPolicy.rank(visited, excludeHosts)
 
             val now = System.currentTimeMillis()

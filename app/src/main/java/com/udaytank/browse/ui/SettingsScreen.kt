@@ -741,7 +741,7 @@ private fun PrivacySecuritySettings(
             text = { Text("Deletes your history, cookies, and cached files. Bookmarks are kept.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.onClearHistory()
+                    viewModel.onClearAllHistory()
                     onClearBrowsingData()
                     showClearDialog = false
                     Toast.makeText(context, "Browsing data cleared", Toast.LENGTH_SHORT).show()
