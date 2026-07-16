@@ -4,9 +4,11 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,14 +29,21 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,15 +65,20 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.browser.PrivacyStatsFormat
+import com.udaytank.browse.browser.TabBadge
 import com.udaytank.browse.browser.feed.FeedItem
 import com.udaytank.browse.browser.feed.QuickDial
 import com.udaytank.browse.browser.feed.Weather
 import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ShortcutDensity
+import androidx.compose.ui.text.input.KeyboardType
+import com.udaytank.browse.ui.components.FaviconOrLetter
+import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.FeedItemCard
 import com.udaytank.browse.ui.components.HomeSectionLabel
 import com.udaytank.browse.ui.components.QuickDialsRow
 import com.udaytank.browse.ui.components.WeatherCard
+import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
@@ -126,18 +140,7 @@ private fun ShortcutTile(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.combinedClickable(onClick = onOpen, onLongClick = onLongClick),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(scheme.surfaces.elevated, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    shortcut.title.take(1).uppercase(),
-                    style = orbitBody,
-                    color = scheme.accent.solid,
-                )
-            }
+            FaviconOrLetter(url = shortcut.url, label = shortcut.title, size = 56.dp)
             Text(
                 shortcut.title,
                 style = orbitCaption,
@@ -186,11 +189,75 @@ private fun AddShortcutTile(onClick: () -> Unit) {
 }
 
 /**
+ * The Home search entry (v4.1): a prominent centered pill under the wordmark. Tapping anywhere on
+ * it calls [onSearchClick] (which opens the shared address entry); the trailing mic calls
+ * [onVoiceSearch]. Purely a launcher — it holds no text of its own.
+ */
+@Composable
+private fun HomeSearchPill(onSearchClick: () -> Unit, onVoiceSearch: () -> Unit) {
+    val scheme = orbit()
+    Surface(
+        shape = RoundedCornerShape(OrbitRadii.bar),
+        color = scheme.surfaces.surface,
+        border = BorderStroke(1.dp, scheme.text.muted.copy(alpha = 0.16f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSearchClick() },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                tint = scheme.text.muted,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                "Search or type URL",
+                style = orbitBody,
+                color = scheme.text.muted,
+                maxLines = 1,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = OrbitSpacing.md),
+            )
+            Icon(
+                Icons.Filled.Mic,
+                contentDescription = "Voice search",
+                tint = scheme.accent.solid,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable { onVoiceSearch() },
+            )
+        }
+    }
+}
+
+/**
+ * A feed section's header: a subtle full-width hairline divider above the [HomeSectionLabel], so
+ * the quick-dials / Weather / News / Sports sections read as clearly separate bands.
+ */
+@Composable
+private fun FeedSectionHeader(label: String) {
+    val scheme = orbit()
+    HorizontalDivider(
+        color = scheme.text.muted.copy(alpha = 0.15f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = OrbitSpacing.md),
+    )
+    HomeSectionLabel(label)
+}
+
+/**
  * Focused default: logo/wordmark + ONE calm shortcut row. [showGreeting]/[showHomeStats]/
  * [shortcutDensity]/[homeWallpaper] (v3.1 Home prefs, Task 5) opt back into a richer canvas —
  * greeting line, privacy stats card (never on incognito), the full shortcut grid, and a subtle
- * built-in backdrop, respectively. No centered search pill: the shared OmniBar (Task 3/4) sits
- * bottom-anchored below this canvas and owns all address-entry.
+ * built-in backdrop, respectively. A prominent centered search pill (Task 3, v4.1) sits under the
+ * wordmark and owns address-entry on Home via [onSearchClick] / [onVoiceSearch]; the caller hides
+ * the bottom bar while Home is showing.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -202,6 +269,12 @@ fun HomePage(
     onRemoveShortcut: (Long) -> Unit,
     onMoveShortcutToFront: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onSearchClick: () -> Unit = {},
+    onVoiceSearch: () -> Unit = {},
+    // Home's own top bar (the bottom bar is hidden on Home): a Tabs count button + overflow ⋮.
+    tabCount: Int = 0,
+    onOpenTabs: () -> Unit = {},
+    onMenuClick: () -> Unit = {},
     lifetimeBlocked: Long = 0L,
     showGreeting: Boolean = false,
     showHomeStats: Boolean = false,
@@ -215,6 +288,7 @@ fun HomePage(
     sportsItems: List<FeedItem> = emptyList(),
     showFeed: Boolean = false,
     showWeather: Boolean = true,
+    showNews: Boolean = false,
 ) {
     val scheme = orbit()
     val clipboard = LocalClipboardManager.current
@@ -252,7 +326,9 @@ fun HomePage(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.TopCenter,
-                    modifier = Modifier.matchParentSize().alpha(0.42f),
+                    // Full presence on the dark home; a faint wash in light theme so the cosmic art
+                    // stays present without muddying a light background.
+                    modifier = Modifier.matchParentSize().alpha(if (scheme.dark) 0.42f else 0.16f),
                 )
                 Box(
                     modifier = Modifier
@@ -300,12 +376,17 @@ fun HomePage(
                     textAlign = TextAlign.Center,
                 )
             }
+            // Search pill on BOTH home and incognito home — it's the only search entry now that
+            // the bottom bar is hidden on Home. Tapping it enters edit mode, which brings the
+            // shared address bar up (in the incognito tab, the query opens in incognito).
+            Spacer(modifier = Modifier.height(OrbitSpacing.xl))
+            HomeSearchPill(onSearchClick = onSearchClick, onVoiceSearch = onVoiceSearch)
             Spacer(modifier = Modifier.height(OrbitSpacing.xl))
 
-            // ── Shortcut row/grid (C1) — user-curated, so shown in incognito too. No
-            // centered search pill anymore (v3.1): the shared OmniBar lives bottom-anchored
-            // below this whole canvas — tapping it enters edit mode exactly like on a web
-            // page. Density (Task 5/7) picks between one calm row and the full grid. ──
+            // ── Shortcut row/grid (C1) — NOT in incognito: a private tab is a clean landing with
+            // no saved shortcuts and no Add tile (per user). Density (Task 5/7) picks between one
+            // calm row and the full grid. ──
+            if (!isIncognito) {
             if (shortcutDensity == ShortcutDensity.MORE) {
                 // Manual 4-column grid — a LazyVerticalGrid can't nest inside this verticalScroll
                 // Column (both scroll vertically). Shortcut counts are small, so non-lazy is fine.
@@ -363,28 +444,29 @@ fun HomePage(
                     AddShortcutTile(onClick = { showAddDialog = true })
                 }
             }
+            } // end if (!isIncognito): shortcuts + Add tile are hidden on the incognito home
 
             // ── v3.2 feed — non-incognito, opt-in (showFeed). Quick dials, weather, news, sports.
             // Each section renders only when it has content, so an offline/empty feed just
             // collapses back to the calm focused home. ──
             if (!isIncognito && showFeed) {
                 if (quickDials.isNotEmpty()) {
-                    HomeSectionLabel("Shortcuts you visit")
+                    FeedSectionHeader("Shortcuts you visit")
                     QuickDialsRow(dials = quickDials, onOpen = onOpenUrl)
                 }
                 if (showWeather && weather != null) {
-                    HomeSectionLabel("Weather")
+                    FeedSectionHeader("Weather")
                     WeatherCard(weather = weather, place = weatherPlace)
                 }
-                if (newsItems.isNotEmpty()) {
-                    HomeSectionLabel("News")
+                if (showNews && newsItems.isNotEmpty()) {
+                    FeedSectionHeader("News")
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
                     ) { newsItems.forEach { FeedItemCard(item = it, onOpen = onOpenUrl) } }
                 }
                 if (sportsItems.isNotEmpty()) {
-                    HomeSectionLabel("Sports")
+                    FeedSectionHeader("Sports")
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
@@ -414,6 +496,32 @@ fun HomePage(
                 }
             }
         }
+
+        // ── Home top bar (Chrome-NTP style) ──────────────────
+        // The bottom bar is hidden on Home, so Tabs + the overflow ⋮ (which owns Settings and
+        // every page action) live here, top-right, floating over the canvas. Present in
+        // incognito too, whose home is likewise bottom-bar-less.
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(OrbitSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onOpenTabs) {
+                Text(
+                    text = TabBadge.label(tabCount),
+                    style = orbitCaption,
+                    color = scheme.text.primary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .border(1.5.dp, scheme.text.primary, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+            IconButton(onClick = onMenuClick) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "Menu", tint = scheme.text.primary)
+            }
+        }
     }
 
     if (showAddDialog) {
@@ -428,18 +536,19 @@ fun HomePage(
             title = { Text("Add to home") },
             text = {
                 Column {
-                    OutlinedTextField(
+                    OrbitTextField(
                         value = url,
                         onValueChange = { url = it },
-                        label = { Text("Link") },
-                        singleLine = true,
+                        label = "Link",
+                        placeholder = "https://example.com",
+                        leadingIcon = Icons.Filled.Search,
+                        keyboardType = KeyboardType.Uri,
                     )
-                    OutlinedTextField(
+                    OrbitTextField(
                         value = title,
                         onValueChange = { title = it },
-                        label = { Text("Name") },
-                        singleLine = true,
-                        modifier = Modifier.padding(top = 8.dp),
+                        label = "Name",
+                        modifier = Modifier.padding(top = OrbitSpacing.md),
                     )
                 }
             },

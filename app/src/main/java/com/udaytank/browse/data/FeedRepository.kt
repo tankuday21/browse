@@ -99,6 +99,7 @@ class FeedRepository(
         publishedAt = e.publishedAt,
         thumbnailUrl = e.thumbnailUrl,
         category = FeedCategory.valueOf(e.category),
+        description = e.description,
     )
 
     private fun toEntity(i: FeedItem) = FeedItemEntity(
@@ -108,6 +109,7 @@ class FeedRepository(
         publishedAt = i.publishedAt,
         thumbnailUrl = i.thumbnailUrl,
         category = i.category.name,
+        description = i.description,
     )
 
     private companion object {

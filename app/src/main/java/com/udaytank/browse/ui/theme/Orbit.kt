@@ -76,6 +76,17 @@ object OrbitMotion {
 
     /** [quick], typed for animating [Dp] values. */
     fun quickDp(): AnimationSpec<Dp> = tween(120)
+
+    /**
+     * The one standard UI transition (v4.1 "Chrome-smooth" pass): 220ms on the Orbit emphasized-
+     * decelerate curve. Use this for the common state changes — focus rings, color/alpha shifts,
+     * expand/collapse — so every surface animates with the same rhythm instead of ad-hoc tweens.
+     */
+    const val StandardMs = 220
+    fun <T> standard(): AnimationSpec<T> = tween(StandardMs, easing = Orbit.Easing)
+
+    /** Snappier variant for press feedback (scale) — enter/exit both feel instant but not abrupt. */
+    fun <T> press(): AnimationSpec<T> = tween(110, easing = Orbit.Easing)
 }
 
 /** A full color scheme: surfaces + text + accent, tagged with its brightness. */

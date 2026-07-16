@@ -23,6 +23,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import com.udaytank.browse.ui.theme.OrbitRadii
+import com.udaytank.browse.ui.theme.OrbitSpacing
+import com.udaytank.browse.ui.theme.orbit
+import com.udaytank.browse.ui.theme.orbitBody
+import com.udaytank.browse.ui.theme.orbitCaption
 
 @Composable
 fun FindBar(
@@ -38,31 +43,36 @@ fun FindBar(
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+    val scheme = orbit()
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp,
+        shape = RoundedCornerShape(OrbitRadii.bar),
+        color = scheme.surfaces.elevated,
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                textStyle = orbitBody.copy(color = scheme.text.primary),
+                cursorBrush = SolidColor(scheme.accent.solid),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) {
+                        Text("Find on page", style = orbitBody, color = scheme.text.muted)
+                    }
+                    inner()
+                },
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 20.dp, top = 16.dp, bottom = 16.dp)
+                    .padding(start = OrbitSpacing.xl, top = OrbitSpacing.lg, bottom = OrbitSpacing.lg)
                     .focusRequester(focusRequester),
             )
             Text(
                 text = if (total > 0) "$active/$total" else "0/0",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = orbitCaption,
+                color = scheme.text.muted,
             )
             IconButton(onClick = onPrev) {
                 Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous match")

@@ -17,6 +17,7 @@ class RssParserTest {
               <title>  First headline  </title>
               <link>https://example.com/a</link>
               <pubDate>Wed, 15 Jul 2026 08:30:00 GMT</pubDate>
+              <description>&lt;p&gt;A short&amp;nbsp;summary with &amp;amp; an entity.&lt;/p&gt;</description>
               <enclosure url="https://example.com/a.jpg" type="image/jpeg" length="1234"/>
             </item>
             <item>
@@ -37,6 +38,7 @@ class RssParserTest {
             <title>Atom entry</title>
             <link rel="alternate" href="https://example.org/entry1"/>
             <published>2026-07-15T08:30:00Z</published>
+            <summary type="html">&lt;b&gt;Atom&lt;/b&gt; summary text</summary>
           </entry>
         </feed>
     """.trimIndent()
@@ -53,6 +55,8 @@ class RssParserTest {
         assertEquals(FeedCategory.NEWS, first.category)
         assertEquals("sample", first.sourceId)
         assertTrue("pubDate should parse to epoch millis", first.publishedAt > 0L)
+        // <description> is stripped of HTML tags, entities unescaped, whitespace collapsed.
+        assertEquals("A short summary with & an entity.", first.description)
 
         val second = items[1]
         assertEquals("Second headline", second.title)
@@ -70,6 +74,7 @@ class RssParserTest {
         assertEquals(FeedCategory.SPORTS, e.category)
         assertNull(e.thumbnailUrl)
         assertTrue(e.publishedAt > 0L)
+        assertEquals("Atom summary text", e.description)
     }
 
     @Test

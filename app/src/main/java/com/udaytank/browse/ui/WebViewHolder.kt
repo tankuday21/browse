@@ -71,6 +71,12 @@ class WebViewHolder(
 
         /** The Element Zapper picker chose an element (v4.0): host + CSS selector for persistence. */
         fun onZapPicked(tabId: Long, host: String, selector: String, label: String)
+
+        /** The page declared a high-res apple-touch-icon (v4.1). Source-direct; never fired for incognito. */
+        fun onTouchIconUrl(host: String, url: String)
+
+        /** WebView decoded the site's favicon (v4.1) — the bitmap fallback. Never fired for incognito. */
+        fun onFaviconBitmap(host: String, bitmap: Bitmap)
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -646,6 +652,25 @@ class WebViewHolder(
                         val annoyCss = annoyance.cosmeticInjectionScript(pageHosts[tabId])
                         if (annoyCss.isNotEmpty()) view.evaluateJavascript(annoyCss, null)
                     }
+                    // Desktop site: a desktop UA alone doesn't defeat a site's
+                    // `<meta viewport width=device-width>`, which forces a mobile layout. Override
+                    // the viewport to a fixed desktop width so the page actually lays out wide.
+                    if (tabId in desktopTabs) view.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
+                    // Favicon (v4.1): read the site's OWN best declared icon and cache it high-res.
+                    // Never for incognito. Result comes back JSON-encoded ("\"https://...\"" or null).
+                    if (!incognito) {
+                        view.evaluateJavascript(BEST_ICON_JS) { result ->
+                            val iconUrl = result
+                                ?.trim()
+                                ?.removeSurrounding("\"")
+                                ?.replace("\\/", "/")
+                                ?.takeIf { it.startsWith("http") }
+                            val host = pageHosts[tabId]
+                            if (iconUrl != null && !host.isNullOrBlank()) {
+                                listener.onTouchIconUrl(host, iconUrl)
+                            }
+                        }
+                    }
                     listener.onPageFinished(tabId, url, view.title)
                 }
 
@@ -683,6 +708,20 @@ class WebViewHolder(
                     if (!title.isNullOrBlank()) {
                         listener.onTitleUpdated(tabId, view.url ?: return, title)
                     }
+                }
+
+                // Site-icon capture (v4.1). WebView parses the page's <link rel> tags for us and
+                // reports the site's own declared icon — so this is source-direct, never a proxy.
+                // NEVER captured for incognito tabs (`incognito` is this tab's flag, in closure
+                // scope): a private tab must leave no record of the hosts it visited.
+                override fun onReceivedTouchIconUrl(view: WebView, url: String?, precomposed: Boolean) {
+                    if (incognito || url.isNullOrBlank()) return
+                    pageHosts[tabId]?.takeIf { it.isNotBlank() }?.let { listener.onTouchIconUrl(it, url) }
+                }
+
+                override fun onReceivedIcon(view: WebView, icon: Bitmap?) {
+                    if (incognito || icon == null) return
+                    pageHosts[tabId]?.takeIf { it.isNotBlank() }?.let { listener.onFaviconBitmap(it, icon) }
                 }
 
                 override fun onPermissionRequest(request: android.webkit.PermissionRequest) {
@@ -852,6 +891,36 @@ class WebViewHolder(
     private companion object {
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+        /** Forces a desktop-width viewport so sites can't pin us to a mobile layout via their
+         *  own `width=device-width` meta. Paired with the desktop UA + wide-viewport settings. */
+        const val DESKTOP_VIEWPORT_JS =
+            "(function(){try{var m=document.querySelector('meta[name=viewport]');" +
+                "if(!m){m=document.createElement('meta');m.setAttribute('name','viewport');" +
+                "(document.head||document.documentElement).appendChild(m);}" +
+                "m.setAttribute('content','width=1024');}catch(e){}})();"
+
+        /**
+         * Reads the page's OWN declared icons and returns the highest-quality one's absolute URL
+         * (v4.1 favicon fix). Order: an SVG icon (infinitely scalable) wins outright; otherwise the
+         * largest `sizes=` wins (apple-touch-icon is scored 180 when unsized). Falls back to
+         * `/favicon.ico`. This is source-direct — it only reads what the site itself linked, never a
+         * third-party proxy — and gives crisp tiles instead of the 16px favicon WebView hands back.
+         */
+        const val BEST_ICON_JS =
+            "(function(){try{" +
+                "function abs(u){try{return new URL(u,document.baseURI).href}catch(e){return null}}" +
+                "var best=null,score=-1;" +
+                "var links=document.querySelectorAll('link[rel~=\"icon\"],link[rel=\"apple-touch-icon\"],link[rel=\"apple-touch-icon-precomposed\"]');" +
+                "for(var i=0;i<links.length;i++){var l=links[i];var href=l.getAttribute('href');if(!href)continue;" +
+                "var type=(l.getAttribute('type')||'').toLowerCase();var rel=(l.getAttribute('rel')||'').toLowerCase();" +
+                "var sizes=(l.getAttribute('sizes')||'').toLowerCase();var s=0;" +
+                "if(type.indexOf('svg')>=0||href.toLowerCase().indexOf('.svg')>=0){s=100000}" +
+                "else{var m=sizes.match(/(\\d+)x(\\d+)/);if(m){s=parseInt(m[1],10)}" +
+                "else if(rel.indexOf('apple-touch')>=0){s=180}else{s=32}}" +
+                "if(s>score){score=s;best=abs(href)}}" +
+                "return best||abs('/favicon.ico')" +
+                "}catch(e){return null}})();"
 
         /** Exposes `navigator.globalPrivacyControl === true` to page scripts (D5). */
         const val GPC_SHIM =

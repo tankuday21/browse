@@ -164,6 +164,8 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setShowFeed(enabled: Boolean) { showFeed.value = enabled }
     override val showWeather = MutableStateFlow(true)
     override suspend fun setShowWeather(enabled: Boolean) { showWeather.value = enabled }
+    override val showNews = MutableStateFlow(false)
+    override suspend fun setShowNews(enabled: Boolean) { showNews.value = enabled }
     override val weatherCity = MutableStateFlow("")
     override suspend fun setWeatherCity(city: String) { weatherCity.value = city }
     override val weatherUseLocation = MutableStateFlow(false)

@@ -15,3 +15,5 @@ keystore.properties
 
 # Subagent-driven-development scratch ledger
 .superpowers/
+
+.kotlin/

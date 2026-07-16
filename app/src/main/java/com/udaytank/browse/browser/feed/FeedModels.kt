@@ -11,4 +11,6 @@ data class FeedItem(
     val publishedAt: Long,
     val thumbnailUrl: String?,
     val category: FeedCategory,
+    /** Plain-text snippet from the source's description/summary; "" when absent. */
+    val description: String = "",
 )
