@@ -71,4 +71,17 @@ class HomePrefsTest {
 
         assertEquals(ShortcutDensity.FEW, repo.shortcutDensity.first())
     }
+
+    @Test
+    fun activeOrbitIdDefaultsToZeroAndRoundTrips() = runTest {
+        val repo = DataStoreSettingsRepository(newStore())
+
+        assertEquals(0L, repo.activeOrbitId.first())
+
+        repo.setActiveOrbitId(42L)
+        assertEquals(42L, repo.activeOrbitId.first())
+
+        repo.setActiveOrbitId(0L)
+        assertEquals(0L, repo.activeOrbitId.first())
+    }
 }
