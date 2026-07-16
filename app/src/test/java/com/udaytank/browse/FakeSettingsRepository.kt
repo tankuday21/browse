@@ -56,10 +56,18 @@ class FakeSettingsRepository : SettingsRepository {
         lifetimeBlocked.value += delta
     }
 
+    override suspend fun resetLifetimeBlocked() {
+        lifetimeBlocked.value = 0L
+    }
+
     override suspend fun toggleAdAllowedSite(host: String) {
         adAllowedSites.value =
             if (host in adAllowedSites.value) adAllowedSites.value - host
             else adAllowedSites.value + host
+    }
+
+    override suspend fun clearAdAllowedSites() {
+        adAllowedSites.value = emptySet()
     }
 
     override val adBlockLists = MutableStateFlow(FilterLists.DEFAULT_ENABLED_IDS)

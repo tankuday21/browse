@@ -50,12 +50,16 @@ interface SettingsRepository {
     /** Lifetime count of blocked requests across all pages (C3 home stats). */
     val lifetimeBlocked: Flow<Long>
     suspend fun addBlockedCount(delta: Long)
+    /** Black Hole panic-wipe: reset the lifetime blocked-request counter to zero. */
+    suspend fun resetLifetimeBlocked()
     suspend fun setSearchEngine(engine: SearchEngine)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setJavaScriptEnabled(enabled: Boolean)
     suspend fun setCookiesEnabled(enabled: Boolean)
     suspend fun setAdBlockEnabled(enabled: Boolean)
     suspend fun toggleAdAllowedSite(host: String)
+    /** Black Hole panic-wipe: forget every per-site ad allowlist host (a visited-site trace). */
+    suspend fun clearAdAllowedSites()
     val forceDarkWebsites: Flow<Boolean>
     suspend fun setForceDarkWebsites(enabled: Boolean)
     val httpsOnly: Flow<Boolean>
@@ -319,6 +323,10 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[LIFETIME_BLOCKED_KEY] = (it[LIFETIME_BLOCKED_KEY] ?: 0L) + delta }
     }
 
+    override suspend fun resetLifetimeBlocked() {
+        dataStore.edit { it.remove(LIFETIME_BLOCKED_KEY) }
+    }
+
     override suspend fun setAdBlockEnabled(enabled: Boolean) {
         dataStore.edit { it[AD_BLOCK_KEY] = enabled }
     }
@@ -329,6 +337,10 @@ class DataStoreSettingsRepository(
             prefs[AD_ALLOWED_SITES_KEY] =
                 if (host in current) current - host else current + host
         }
+    }
+
+    override suspend fun clearAdAllowedSites() {
+        dataStore.edit { it.remove(AD_ALLOWED_SITES_KEY) }
     }
 
     override suspend fun setJavaScriptEnabled(enabled: Boolean) {

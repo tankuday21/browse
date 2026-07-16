@@ -33,4 +33,8 @@ interface TabDao {
 
     @Query("UPDATE tabs SET groupId = NULL WHERE groupId = :groupId")
     suspend fun clearGroup(groupId: Long)
+
+    /** Global wipe (Black Hole panic-wipe). TabManager clears its in-memory state alongside. */
+    @Query("DELETE FROM tabs")
+    suspend fun clearAll()
 }

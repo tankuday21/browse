@@ -42,6 +42,10 @@ interface FeedDao {
     @Query("DELETE FROM rss_sources WHERE id = :id")
     suspend fun deleteSource(id: String)
 
+    /** Black Hole panic-wipe: drop user-added feeds (id 'custom:…'); seeded presets are kept. */
+    @Query("DELETE FROM rss_sources WHERE id LIKE 'custom:%'")
+    suspend fun clearCustomSources()
+
     @Query("SELECT COUNT(*) FROM rss_sources")
     suspend fun sourceCount(): Int
 }

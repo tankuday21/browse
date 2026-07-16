@@ -29,4 +29,9 @@ class ArticleStore(private val baseDir: File) {
         if (path == null) return
         runCatching { File(path).delete() }
     }
+
+    /** Removes every saved article file (Black Hole panic-wipe). Best-effort, never throws. */
+    fun clearAll() {
+        runCatching { baseDir.listFiles()?.forEach { it.delete() } }
+    }
 }

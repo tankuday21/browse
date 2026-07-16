@@ -30,4 +30,8 @@ interface ReadingListDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM reading_list WHERE url = :url)")
     suspend fun existsByUrl(url: String): Boolean
+
+    /** Global wipe (Black Hole panic-wipe). Callers delete the on-disk article files first. */
+    @Query("DELETE FROM reading_list")
+    suspend fun clearAll()
 }

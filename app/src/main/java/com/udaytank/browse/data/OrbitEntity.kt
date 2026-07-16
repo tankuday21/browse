@@ -42,4 +42,8 @@ interface OrbitDao {
 
     @Query("DELETE FROM orbits WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    /** Global wipe (Black Hole panic-wipe); cold start re-seeds a fresh default Orbit. */
+    @Query("DELETE FROM orbits")
+    suspend fun clearAll()
 }

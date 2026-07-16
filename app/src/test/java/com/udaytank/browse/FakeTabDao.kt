@@ -42,4 +42,8 @@ class FakeTabDao : TabDao {
     override suspend fun clearGroup(groupId: Long) {
         stored.replaceAll { if (it.groupId == groupId) it.copy(groupId = null) else it }
     }
+
+    override suspend fun clearAll() {
+        stored.clear()
+    }
 }

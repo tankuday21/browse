@@ -51,5 +51,11 @@ class ThumbnailStore(context: Context) {
         if (tabId >= 0) fileFor(tabId).delete()
     }
 
+    /** Drops every thumbnail — memory LRU and disk (Black Hole panic-wipe). */
+    fun clearAll() {
+        memory.evictAll()
+        runCatching { dir.listFiles()?.forEach { it.delete() } }
+    }
+
     private fun fileFor(tabId: Long) = File(dir, "$tabId.jpg")
 }

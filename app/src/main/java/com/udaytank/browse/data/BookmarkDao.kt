@@ -43,4 +43,8 @@ interface BookmarkDao {
     /** Purges a deleted Orbit's bookmarks — a hard isolation requirement. */
     @Query("DELETE FROM bookmarks WHERE orbitId = :orbitId")
     suspend fun deleteForOrbit(orbitId: Long)
+
+    /** Global wipe across every Orbit (Black Hole panic-wipe). */
+    @Query("DELETE FROM bookmarks")
+    suspend fun clearAll()
 }

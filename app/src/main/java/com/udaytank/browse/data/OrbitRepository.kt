@@ -57,4 +57,11 @@ class OrbitRepository(
         dao.deleteById(id)
         true
     }
+
+    /**
+     * Deletes every Orbit (Black Hole panic-wipe). Bypasses the last-Orbit guard on purpose:
+     * the caller re-seeds a fresh default on cold start. Native WebView profiles must be deleted
+     * separately (by profileKey) — this only clears the DB rows.
+     */
+    suspend fun clearAll() = withContext(io) { dao.clearAll() }
 }

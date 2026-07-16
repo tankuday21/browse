@@ -39,4 +39,8 @@ class FakeReadingListDao : ReadingListDao {
 
     override suspend fun existsByUrl(url: String): Boolean =
         entries.value.any { it.url == url }
+
+    override suspend fun clearAll() {
+        entries.value = emptyList()
+    }
 }

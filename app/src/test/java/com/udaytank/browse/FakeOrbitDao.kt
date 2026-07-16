@@ -31,4 +31,8 @@ class FakeOrbitDao : OrbitDao {
     override suspend fun deleteById(id: Long) {
         orbits.value = orbits.value.filterNot { it.id == id }
     }
+
+    override suspend fun clearAll() {
+        orbits.value = emptyList()
+    }
 }

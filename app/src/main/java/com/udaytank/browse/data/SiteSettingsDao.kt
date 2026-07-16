@@ -19,4 +19,8 @@ interface SiteSettingsDao {
 
     @Query("DELETE FROM site_settings WHERE host = :host")
     suspend fun deleteByHost(host: String)
+
+    /** Global wipe (Black Hole panic-wipe). */
+    @Query("DELETE FROM site_settings")
+    suspend fun clearAll()
 }

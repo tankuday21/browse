@@ -57,4 +57,8 @@ interface FaviconDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: FaviconEntity)
+
+    /** Global wipe (Black Hole panic-wipe). */
+    @Query("DELETE FROM favicons")
+    suspend fun clearAll()
 }

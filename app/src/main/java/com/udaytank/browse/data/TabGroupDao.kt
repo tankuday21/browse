@@ -21,4 +21,8 @@ interface TabGroupDao {
 
     @Query("SELECT * FROM tab_groups ORDER BY position")
     suspend fun getAll(): List<TabGroupEntity>
+
+    /** Global wipe (Black Hole panic-wipe). */
+    @Query("DELETE FROM tab_groups")
+    suspend fun clearAll()
 }

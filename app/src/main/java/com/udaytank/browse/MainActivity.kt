@@ -228,6 +228,19 @@ class MainActivity : FragmentActivity() {
      * Save-as-PDF. The adapter is null when no live WebView exists (home page), which the menu
      * already disables for; the toast covers any race where the page vanished in between.
      */
+    /**
+     * Black Hole: relaunch the app in a fresh task and kill this process, so a clean cold start
+     * rebuilds all in-memory state (a pristine default Orbit + one home tab) with no half-torn-
+     * down WebViews or stale tab state lingering.
+     */
+    private fun restartProcess() {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+            ?.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK) }
+        if (intent != null) startActivity(intent)
+        finishAffinity()
+        Runtime.getRuntime().exit(0)
+    }
+
     private fun printCurrentPage(holder: WebViewHolder) {
         val tabId = viewModel.activeTabId.value
         val adapter = tabId?.let { holder.printAdapter(it) }
@@ -415,6 +428,22 @@ class MainActivity : FragmentActivity() {
                     viewModel.orbitProfileToDelete.collect { deletion ->
                         deletion.tabIds.forEach { tabId -> holder.close(tabId) }
                         holder.deleteProfile(deletion.profileKey)
+                    }
+                }
+
+                // Black Hole (v4.5): the VM has already wiped all data + files by the time it
+                // emits. Finish the native side — destroy every WebView, delete every profile
+                // (cookies/DOM storage), clear cached storage + thumbnails — then restart the
+                // process so a cold start rebuilds a pristine default Orbit + one home tab.
+                LaunchedEffect(Unit) {
+                    viewModel.blackHoleReady.collect { profileKeys ->
+                        // clearBrowsingData() clears each live WebView's HTTP cache, so it must run
+                        // BEFORE destroyAll() empties the WebView map (else the cache clear no-ops).
+                        holder.clearBrowsingData()
+                        holder.destroyAll()
+                        profileKeys.forEach { holder.deleteProfile(it) }
+                        holder.clearThumbnails()
+                        restartProcess()
                     }
                 }
 

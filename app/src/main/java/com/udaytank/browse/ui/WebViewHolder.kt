@@ -492,6 +492,11 @@ class WebViewHolder(
         WebStorage.getInstance().deleteAllData()
     }
 
+    /** Drops every page thumbnail (memory + disk) — Black Hole panic-wipe. */
+    fun clearThumbnails() {
+        thumbnails.clearAll()
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     fun obtain(tabId: Long, incognito: Boolean = false, profileKey: String? = null): WebView = webViews.getOrPut(tabId) {
         KeepAliveWebView(context).apply {

@@ -24,4 +24,8 @@ interface ZappedElementDao {
 
     @Query("DELETE FROM zapped_elements WHERE host = :host")
     suspend fun deleteForHost(host: String)
+
+    /** Global wipe (Black Hole panic-wipe). */
+    @Query("DELETE FROM zapped_elements")
+    suspend fun clearAll()
 }

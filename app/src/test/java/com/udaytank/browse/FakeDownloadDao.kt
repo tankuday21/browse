@@ -71,4 +71,8 @@ class FakeDownloadDao : DownloadDao {
             if (it.id == id) it.copy(attempts = 0) else it
         }
     }
+
+    override suspend fun clearAll() {
+        entries.value = emptyList()
+    }
 }

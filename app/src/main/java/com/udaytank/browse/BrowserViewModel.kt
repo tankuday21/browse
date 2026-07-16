@@ -366,6 +366,16 @@ class BrowserViewModel(
     private val _orbitProfileToDelete = MutableSharedFlow<OrbitDeletion>(replay = 1, extraBufferCapacity = 1)
     val orbitProfileToDelete: SharedFlow<OrbitDeletion> = _orbitProfileToDelete.asSharedFlow()
 
+    /**
+     * Black Hole panic-wipe: emitted once the data wipe is done, carrying every WebView profile
+     * key to tear down (all Orbits' profiles + the fixed "incognito" profile). MainActivity
+     * destroys all live WebViews, deletes each profile, clears cookies/storage/thumbnails, then
+     * restarts the process — a cold start rebuilds a clean default Orbit + one home tab.
+     * replay = 1 for the same re-subscribe safety as [orbitProfileToDelete].
+     */
+    private val _blackHoleReady = MutableSharedFlow<List<String>>(replay = 1, extraBufferCapacity = 1)
+    val blackHoleReady: SharedFlow<List<String>> = _blackHoleReady.asSharedFlow()
+
     /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
     fun onSwitchOrbit(id: Long) {
         viewModelScope.launch {
@@ -1176,6 +1186,62 @@ class BrowserViewModel(
         viewModelScope.launch { historyDao.clearAll() }
     }
 
+    /**
+     * Black Hole — the panic wipe. Erases EVERY browsing trace: all Room tables (across every
+     * Orbit + incognito), on-disk files (downloads, saved articles, thumbnails), and the
+     * browsing-trace preference keys. Then emits [blackHoleReady] so MainActivity tears down the
+     * native WebViews, deletes every profile (cookies/DOM storage), and restarts the process —
+     * a cold start re-seeds a clean default Orbit and a single home tab. Irreversible; no undo.
+     */
+    fun onBlackHole() {
+        viewModelScope.launch {
+            // Capture profile keys BEFORE the orbits table is wiped; add the fixed incognito one.
+            val profileKeys = orbits.value.map { it.profileKey } + INCOGNITO_PROFILE_KEY
+
+            // Stop any in-flight downloads so nothing rewrites a file we're about to delete.
+            runCatching { downloadDao.getActive().forEach { downloadController.cancel(it.id) } }
+
+            // Delete on-disk trace files first (their paths live in rows we're about to drop).
+            withContext(ioDispatcher) {
+                runCatching {
+                    downloadDao.observeAll().first().forEach { entry ->
+                        entry.filePath?.let { path -> java.io.File(path).delete() }
+                    }
+                }
+                runCatching { articleStore.clearAll() }
+            }
+
+            // Wipe every table. rss_sources (seeded presets) are intentionally kept.
+            historyDao.clearAll()
+            bookmarkDao.clearAll()
+            homeShortcutDao.clearAll()
+            downloadDao.clearAll()
+            readingListDao.clearAll()
+            closedTabDao.clear()
+            tabGroupDao.clearAll()
+            siteSettingsDao.clearAll()
+            zapRepository?.clearAll()
+            faviconRepository?.clearAll()
+            feedRepository?.clearItems()
+            // User-added RSS subscriptions are an interest trace; seeded presets are kept.
+            feedRepository?.clearCustomSources()
+            tabDao.clearAll()
+            orbitRepository?.clearAll()
+
+            // Reset browsing-trace preferences (active orbit re-resolves on cold start).
+            settings.setActiveOrbitId(0L)
+            settings.clearAdAllowedSites()
+            settings.setBackgroundMediaSites(emptySet())
+            // Location + aggregate stats are traces too on a "clean slate".
+            settings.setWeatherCity("")
+            settings.setWeatherUseLocation(false)
+            settings.resetLifetimeBlocked()
+
+            // Hand the native teardown + process restart to MainActivity.
+            _blackHoleReady.emit(profileKeys)
+        }
+    }
+
     fun onDeleteBookmark(url: String) {
         val orbitId = activeOrbitId.value
         viewModelScope.launch { bookmarkDao.deleteByUrl(orbitId, url) }
@@ -1751,6 +1817,9 @@ class BrowserViewModel(
 
     companion object {
         const val HOME_URL = "browse://home"
+
+        /** The fixed WebView profile name every incognito tab shares (see WebViewHolder). */
+        const val INCOGNITO_PROFILE_KEY = "incognito"
 
         /** Min gap between background feed refreshes triggered by opening the home page. */
         const val FEED_REFRESH_THROTTLE_MS = 30 * 60 * 1000L
