@@ -22,13 +22,14 @@ class SuggestionEngine(
     private val bookmarkDao: BookmarkDao,
     private val fetchSearchSuggestions: suspend (String) -> List<String> = ::googleSuggest,
 ) {
-    suspend fun suggest(query: String): List<Suggestion> {
+    suspend fun suggest(query: String, orbitId: Long): List<Suggestion> {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return emptyList()
 
         val bookmarks = bookmarkDao.search(trimmed, 2)
             .map { Suggestion(it.title, it.url, SuggestionKind.BOOKMARK) }
-        val history = historyDao.search(trimmed, 3)
+        // History suggestions are Orbit-scoped: one Orbit's URLs never autocomplete in another.
+        val history = historyDao.search(orbitId, trimmed, 3)
             .map { Suggestion(it.title, it.url, SuggestionKind.HISTORY) }
         val web = runCatching { fetchSearchSuggestions(trimmed) }.getOrDefault(emptyList())
             .take(3)

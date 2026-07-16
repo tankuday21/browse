@@ -16,18 +16,23 @@ class FakeHistoryDao : HistoryDao {
         entries.value = entries.value + entry.copy(id = (entries.value.size + 1).toLong())
     }
 
-    override fun observeAll(): Flow<List<HistoryEntry>> =
-        entries.map { it.sortedByDescending { e -> e.visitedAt } }
+    override fun observeForOrbit(orbitId: Long): Flow<List<HistoryEntry>> =
+        entries.map { list ->
+            list.filter { it.orbitId == orbitId }.sortedByDescending { e -> e.visitedAt }
+        }
 
-    override suspend fun mostRecent(): HistoryEntry? =
-        entries.value.maxWithOrNull(compareBy({ it.visitedAt }, { it.id }))
+    override suspend fun mostRecent(orbitId: Long): HistoryEntry? =
+        entries.value
+            .filter { it.orbitId == orbitId }
+            .maxWithOrNull(compareBy({ it.visitedAt }, { it.id }))
 
     override suspend fun updateTitleForUrl(url: String, title: String) {
         entries.value = entries.value.map { if (it.url == url) it.copy(title = title) else it }
     }
 
-    override suspend fun search(query: String, limit: Int): List<HistoryEntry> =
+    override suspend fun search(orbitId: Long, query: String, limit: Int): List<HistoryEntry> =
         entries.value
+            .filter { it.orbitId == orbitId }
             .filter { it.url.contains(query, true) || it.title.contains(query, true) }
             .sortedByDescending { it.visitedAt }
             .take(limit)
@@ -42,12 +47,21 @@ class FakeHistoryDao : HistoryDao {
         entries.value = entries.value.filterNot { it.id == id }
     }
 
+    override suspend fun clearForOrbit(orbitId: Long) {
+        entries.value = entries.value.filterNot { it.orbitId == orbitId }
+    }
+
+    override suspend fun deleteForOrbit(orbitId: Long) {
+        entries.value = entries.value.filterNot { it.orbitId == orbitId }
+    }
+
     override suspend fun clearAll() {
         entries.value = emptyList()
     }
 
-    override suspend fun topVisited(limit: Int): List<TopVisitedRow> =
+    override suspend fun topVisited(orbitId: Long, limit: Int): List<TopVisitedRow> =
         entries.value
+            .filter { it.orbitId == orbitId }
             .groupBy { it.url }
             .map { (url, rows) ->
                 val newest = rows.maxByOrNull { it.visitedAt }!!

@@ -43,26 +43,41 @@ class BrowseDatabaseTest {
 
     @Test
     fun historyInsertAndReadNewestFirst() = runBlocking {
-        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1))
-        db.historyDao().insert(HistoryEntry(url = "https://b.com", title = "B", visitedAt = 2))
-        val all = db.historyDao().observeAll().first()
+        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1, orbitId = 1))
+        db.historyDao().insert(HistoryEntry(url = "https://b.com", title = "B", visitedAt = 2, orbitId = 1))
+        val all = db.historyDao().observeForOrbit(1).first()
         assertEquals(listOf("https://b.com", "https://a.com"), all.map { it.url })
-        assertEquals("https://b.com", db.historyDao().mostRecent()?.url)
+        assertEquals("https://b.com", db.historyDao().mostRecent(1)?.url)
     }
 
     @Test
-    fun historyClearAll() = runBlocking {
-        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1))
-        db.historyDao().clearAll()
-        assertTrue(db.historyDao().observeAll().first().isEmpty())
+    fun historyClearForOrbit() = runBlocking {
+        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1, orbitId = 1))
+        db.historyDao().clearForOrbit(1)
+        assertTrue(db.historyDao().observeForOrbit(1).first().isEmpty())
     }
 
     @Test
     fun historyUpdateVisitedAtBumpsTimestamp() = runBlocking {
-        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1))
-        val id = db.historyDao().mostRecent()!!.id
+        db.historyDao().insert(HistoryEntry(url = "https://a.com", title = "A", visitedAt = 1, orbitId = 1))
+        val id = db.historyDao().mostRecent(1)!!.id
         db.historyDao().updateVisitedAt(id, 99)
-        assertEquals(99L, db.historyDao().mostRecent()?.visitedAt)
+        assertEquals(99L, db.historyDao().mostRecent(1)?.visitedAt)
+    }
+
+    @Test
+    fun historyIsIsolatedPerOrbit() = runBlocking {
+        db.historyDao().insert(HistoryEntry(url = "https://personal.com", title = "P", visitedAt = 1, orbitId = 1))
+        db.historyDao().insert(HistoryEntry(url = "https://work.com", title = "W", visitedAt = 2, orbitId = 2))
+        assertEquals(listOf("https://personal.com"), db.historyDao().observeForOrbit(1).first().map { it.url })
+        assertEquals(listOf("https://work.com"), db.historyDao().observeForOrbit(2).first().map { it.url })
+        // Deleting one Orbit's history leaves the other's intact.
+        db.historyDao().deleteForOrbit(2)
+        assertTrue(db.historyDao().observeForOrbit(2).first().isEmpty())
+        assertEquals(1, db.historyDao().observeForOrbit(1).first().size)
+        // topVisited and search are Orbit-scoped too.
+        assertEquals(listOf("https://personal.com"), db.historyDao().topVisited(1, 10).map { it.url })
+        assertTrue(db.historyDao().search(1, "work", 10).isEmpty())
     }
 
     @Test
@@ -414,6 +429,33 @@ class BrowseDatabaseTest {
         db.query("SELECT orbitId FROM tabs WHERE url = 'https://incognito.com'").use { c ->
             assertTrue(c.moveToFirst())
             assertTrue(c.isNull(0))
+        }
+    }
+
+    @Test
+    fun migrate15to16_addsOrbitIdAndBackfillsHistoryToFirstOrbit() {
+        helper.createDatabase(DB, 15).apply {
+            // Two orbits; position ASC → the first is the backfill target.
+            execSQL(
+                "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
+                    "VALUES (10, 'Personal', 1, 0, 'orbit_10', 'person')"
+            )
+            execSQL(
+                "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
+                    "VALUES (11, 'Work', 2, 1, 'orbit_11', 'work')"
+            )
+            execSQL("INSERT INTO history (url, title, visitedAt) VALUES ('https://a.com', 'A', 1)")
+            execSQL("INSERT INTO history (url, title, visitedAt) VALUES ('https://b.com', 'B', 2)")
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 16, true, BrowseDatabase.MIGRATION_15_16)
+
+        db.query("SELECT orbitId FROM history ORDER BY url").use { c ->
+            assertEquals(2, c.count)
+            while (c.moveToNext()) {
+                assertFalse(c.isNull(0))
+                assertEquals(10L, c.getLong(0)) // backfilled to the first (position 0) orbit
+            }
         }
     }
 
