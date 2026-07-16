@@ -16,7 +16,12 @@ class OrbitRepository(
         dao.getAll().firstOrNull() ?: create("Personal", BrowseDatabase.DEFAULT_ORBIT_COLOR, now)
     }
 
-    suspend fun create(name: String, colorArgb: Int, now: Long): OrbitEntity = withContext(io) {
+    suspend fun create(
+        name: String,
+        colorArgb: Int,
+        now: Long,
+        iconKey: String = "person",
+    ): OrbitEntity = withContext(io) {
         val count = dao.count()
         val row = OrbitEntity(
             name = name.trim().ifBlank { "Orbit" }.take(30),
@@ -26,6 +31,7 @@ class OrbitRepository(
             // autoincrement id, which SQLite guarantees is monotonic and never reused
             // (unlike count(), which drops on delete and can collide or reuse a key).
             profileKey = "",
+            iconKey = iconKey,
         )
         val id = dao.insert(row)
         val finalRow = row.copy(id = id, profileKey = "orbit_$id")
@@ -39,6 +45,10 @@ class OrbitRepository(
 
     suspend fun setColor(id: Long, colorArgb: Int) = withContext(io) {
         dao.getById(id)?.let { dao.update(it.copy(colorArgb = colorArgb)) }
+    }
+
+    suspend fun setIcon(id: Long, iconKey: String) = withContext(io) {
+        dao.getById(id)?.let { dao.update(it.copy(iconKey = iconKey)) }
     }
 
     /** Returns false (no-op) if this is the last Orbit — at least one must always remain. */

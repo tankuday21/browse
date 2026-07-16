@@ -25,7 +25,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         FaviconEntity::class,
         OrbitEntity::class,
     ],
-    version = 14,
+    version = 15,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -45,6 +45,13 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v4.2 Orbit identity icons: each Orbit gets an icon key (default 'person').
+                db.execSQL("ALTER TABLE orbits ADD COLUMN iconKey TEXT NOT NULL DEFAULT 'person'")
+            }
+        }
 
         val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {

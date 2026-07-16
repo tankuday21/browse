@@ -1,5 +1,6 @@
 package com.udaytank.browse.ui
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -73,11 +74,13 @@ import com.udaytank.browse.data.HomeShortcutEntity
 import com.udaytank.browse.data.ShortcutDensity
 import androidx.compose.ui.text.input.KeyboardType
 import com.udaytank.browse.ui.components.FaviconOrLetter
+import com.udaytank.browse.ui.components.OrbitAvatar
 import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.FeedItemCard
 import com.udaytank.browse.ui.components.HomeSectionLabel
 import com.udaytank.browse.ui.components.QuickDialsRow
 import com.udaytank.browse.ui.components.WeatherCard
+import com.udaytank.browse.ui.theme.OrbitMotion
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitScheme
 import com.udaytank.browse.ui.theme.OrbitSpacing
@@ -280,6 +283,9 @@ fun HomePage(
      * Orbits not wired). Tapping it opens the Orbit quick-switch sheet.
      */
     activeOrbitColor: Int? = null,
+    /** The active Orbit's iconKey (v4.2 avatars) and id (crossfade key). */
+    activeOrbitIcon: String? = null,
+    activeOrbitId: Long? = null,
     onOpenOrbitSwitch: () -> Unit = {},
     lifetimeBlocked: Long = 0L,
     showGreeting: Boolean = false,
@@ -515,11 +521,17 @@ fun HomePage(
         ) {
             if (activeOrbitColor != null) {
                 IconButton(onClick = onOpenOrbitSwitch) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp)
-                            .background(Color(activeOrbitColor), CircleShape),
-                    )
+                    Crossfade(
+                        targetState = activeOrbitId,
+                        animationSpec = tween(OrbitMotion.StandardMs, easing = com.udaytank.browse.ui.theme.Orbit.Easing),
+                        label = "homeOrbitIndicator",
+                    ) {
+                        OrbitAvatar(
+                            colorArgb = activeOrbitColor,
+                            iconKey = activeOrbitIcon ?: "person",
+                            size = 22.dp,
+                        )
+                    }
                 }
             }
             IconButton(onClick = onOpenTabs) {

@@ -1,9 +1,7 @@
 package com.udaytank.browse.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +10,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.udaytank.browse.data.OrbitEntity
 import com.udaytank.browse.ui.theme.OrbitRadii
@@ -102,10 +98,11 @@ private fun OrbitRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
     ) {
-        Box(
-            modifier = Modifier
-                .size(16.dp)
-                .background(Color(entry.colorArgb), CircleShape),
+        OrbitAvatar(
+            colorArgb = entry.colorArgb,
+            iconKey = entry.iconKey,
+            size = 32.dp,
+            selected = isActive,
         )
         Text(
             entry.name,

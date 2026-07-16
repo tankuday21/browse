@@ -16,6 +16,8 @@ data class OrbitEntity(
     val position: Int,
     /** Stable ProfileStore profile name. Generated once at creation; never reused. */
     val profileKey: String,
+    /** Identity icon key (see OrbitIcons) rendered on the Orbit's colored avatar. */
+    val iconKey: String = "person",
 )
 
 @Dao

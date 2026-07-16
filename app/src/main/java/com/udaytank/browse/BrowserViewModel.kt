@@ -379,12 +379,22 @@ class BrowserViewModel(
         }
     }
 
-    fun onCreateOrbit(name: String, colorArgb: Int) {
-        viewModelScope.launch { orbitRepository?.create(name, colorArgb, System.currentTimeMillis()) }
+    fun onCreateOrbit(name: String, colorArgb: Int, iconKey: String = "person") {
+        viewModelScope.launch {
+            orbitRepository?.create(name, colorArgb, System.currentTimeMillis(), iconKey)
+        }
     }
 
     fun onRenameOrbit(id: Long, name: String) {
         viewModelScope.launch { orbitRepository?.rename(id, name) }
+    }
+
+    fun onSetOrbitIcon(id: Long, iconKey: String) {
+        viewModelScope.launch { orbitRepository?.setIcon(id, iconKey) }
+    }
+
+    fun onSetOrbitColor(id: Long, colorArgb: Int) {
+        viewModelScope.launch { orbitRepository?.setColor(id, colorArgb) }
     }
 
     /**

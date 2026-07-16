@@ -91,6 +91,7 @@ class BrowseApplication : Application() {
                 BrowseDatabase.MIGRATION_11_12,
                 BrowseDatabase.MIGRATION_12_13,
                 BrowseDatabase.MIGRATION_13_14,
+                BrowseDatabase.MIGRATION_14_15,
             )
             .build()
     }

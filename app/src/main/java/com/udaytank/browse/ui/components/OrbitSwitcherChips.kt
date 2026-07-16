@@ -1,8 +1,6 @@
 package com.udaytank.browse.ui.components
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -29,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,7 +73,8 @@ fun OrbitSwitcherChips(
         orbits.forEach { entity ->
             OrbitChip(
                 selected = !incognitoMode && entity.id == activeOrbitId,
-                fillColor = Color(entity.colorArgb),
+                colorArgb = entity.colorArgb,
+                iconKey = entity.iconKey,
                 label = entity.name,
                 count = tabCountFor(entity.id),
                 onClick = { onSelectOrbit(entity.id) },
@@ -91,16 +89,18 @@ fun OrbitSwitcherChips(
     }
 }
 
-/** One Orbit's chip: color dot + name + tab count, filling with the Orbit's own color when active. */
+/** One Orbit's chip: an [OrbitAvatar] + name + tab count, filling with the Orbit's own color when active. */
 @Composable
 private fun OrbitChip(
     selected: Boolean,
-    fillColor: Color,
+    colorArgb: Int,
+    iconKey: String,
     label: String,
     count: Int,
     onClick: () -> Unit,
 ) {
     val scheme = orbit()
+    val fillColor = Color(colorArgb)
     val containerColor by animateColorAsState(
         targetValue = if (selected) fillColor else scheme.surfaces.elevated,
         animationSpec = OrbitMotion.standard(),
@@ -121,15 +121,9 @@ private fun OrbitChip(
             horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.xs),
             modifier = Modifier.padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.sm),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(fillColor)
-                    // A thin ring keeps the dot legible even when the chip is filled with the
-                    // same Orbit color (selected state) — otherwise dot-on-same-color vanishes.
-                    .border(1.dp, onContainer.copy(alpha = 0.35f), CircleShape),
-            )
+            // Always the Orbit's own true color/icon (not the animated container fill) — the
+            // avatar is the one stable identity glyph, independent of this chip's selection tint.
+            OrbitAvatar(colorArgb = colorArgb, iconKey = iconKey, size = 20.dp)
             Text(
                 if (count > 0) "$label ($count)" else label,
                 style = orbitCaption,
@@ -206,6 +200,3 @@ private fun IncognitoChip(selected: Boolean, count: Int, onClick: () -> Unit) {
         }
     }
 }
-
-/** Picks black or white — whichever contrasts more — for text/icons drawn on top of [bg]. */
-private fun contrastingOn(bg: Color): Color = if (bg.luminance() > 0.5f) Color.Black else Color.White

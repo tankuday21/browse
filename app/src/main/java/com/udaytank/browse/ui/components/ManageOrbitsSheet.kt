@@ -3,6 +3,7 @@ package com.udaytank.browse.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,17 +81,22 @@ val OrbitColors: List<Int> = listOf(
 @Composable
 fun ManageOrbitsSheet(
     orbits: List<OrbitEntity>,
-    onCreate: (name: String, colorArgb: Int) -> Unit,
+    onCreate: (name: String, colorArgb: Int, iconKey: String) -> Unit,
     onRename: (id: Long, name: String) -> Unit,
+    onSetIcon: (id: Long, iconKey: String) -> Unit,
+    onSetColor: (id: Long, colorArgb: Int) -> Unit,
     onDelete: (id: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val scheme = orbit()
     var editingId by remember { mutableStateOf<Long?>(null) }
     var editingName by remember { mutableStateOf("") }
+    var editingColor by remember { mutableStateOf(OrbitColors.first()) }
+    var editingIcon by remember { mutableStateOf(OrbitIcons.first().key) }
     var deleteTarget by remember { mutableStateOf<OrbitEntity?>(null) }
     var newName by remember { mutableStateOf("") }
     var newColor by remember { mutableStateOf<Int?>(null) }
+    var newIcon by remember { mutableStateOf(OrbitIcons.first().key) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -115,8 +121,14 @@ fun ManageOrbitsSheet(
                     EditingOrbitRow(
                         name = editingName,
                         onNameChange = { editingName = it },
+                        color = editingColor,
+                        onColorChange = { editingColor = it },
+                        iconKey = editingIcon,
+                        onIconChange = { editingIcon = it },
                         onConfirm = {
                             if (editingName.isNotBlank()) onRename(entry.id, editingName.trim())
+                            onSetColor(entry.id, editingColor)
+                            onSetIcon(entry.id, editingIcon)
                             editingId = null
                         },
                         onCancel = { editingId = null },
@@ -128,6 +140,8 @@ fun ManageOrbitsSheet(
                         onEdit = {
                             editingId = entry.id
                             editingName = entry.name
+                            editingColor = entry.colorArgb
+                            editingIcon = entry.iconKey
                         },
                         onDelete = { deleteTarget = entry },
                     )
@@ -151,9 +165,10 @@ fun ManageOrbitsSheet(
                     imeAction = ImeAction.Done,
                     onImeAction = {
                         if (newName.isNotBlank()) {
-                            onCreate(newName.trim(), newColor ?: OrbitColors.first())
+                            onCreate(newName.trim(), newColor ?: OrbitColors.first(), newIcon)
                             newName = ""
                             newColor = null
+                            newIcon = OrbitIcons.first().key
                         }
                     },
                 )
@@ -171,12 +186,19 @@ fun ManageOrbitsSheet(
                         )
                     }
                 }
+                // Icon picker (v4.2): pick which glyph rides on top of the color above.
+                OrbitIconPickerRow(
+                    selectedKey = newIcon,
+                    onSelect = { newIcon = it },
+                    modifier = Modifier.padding(top = OrbitSpacing.sm),
+                )
                 Button(
                     onClick = {
                         if (newName.isNotBlank()) {
-                            onCreate(newName.trim(), newColor ?: OrbitColors.first())
+                            onCreate(newName.trim(), newColor ?: OrbitColors.first(), newIcon)
                             newName = ""
                             newColor = null
+                            newIcon = OrbitIcons.first().key
                         }
                     },
                     enabled = newName.isNotBlank(),
@@ -215,7 +237,11 @@ fun ManageOrbitsSheet(
     }
 }
 
-/** One existing-Orbit row: color dot, name, an edit (pencil) affordance, and a delete (trash) action. */
+/**
+ * One existing-Orbit row: an [OrbitAvatar] (tapping it opens the same edit mode as the pencil —
+ * it's the fastest way in to change the icon/color), name, an edit (pencil) affordance, and a
+ * delete (trash) action.
+ */
 @Composable
 private fun OrbitManageRow(
     entry: OrbitEntity,
@@ -232,10 +258,11 @@ private fun OrbitManageRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
     ) {
-        Box(
-            modifier = Modifier
-                .size(16.dp)
-                .background(Color(entry.colorArgb), CircleShape),
+        OrbitAvatar(
+            colorArgb = entry.colorArgb,
+            iconKey = entry.iconKey,
+            size = 32.dp,
+            modifier = Modifier.clickable(onClick = onEdit),
         )
         Text(
             entry.name,
@@ -245,7 +272,7 @@ private fun OrbitManageRow(
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onEdit) {
-            Icon(Icons.Filled.Edit, contentDescription = "Rename ${entry.name}", tint = scheme.text.secondary)
+            Icon(Icons.Filled.Edit, contentDescription = "Edit ${entry.name}", tint = scheme.text.secondary)
         }
         IconButton(onClick = onDelete, enabled = deleteEnabled) {
             Icon(
@@ -257,35 +284,125 @@ private fun OrbitManageRow(
     }
 }
 
-/** The same row, swapped into inline-edit mode: an [OrbitTextField] plus confirm/cancel icons. */
+/**
+ * The same row, swapped into inline-edit mode: an [OrbitTextField] for the name plus confirm/
+ * cancel icons, then a color row and an icon row (v4.2) so a single "Edit" affordance covers
+ * renaming AND restyling an existing Orbit's identity.
+ */
 @Composable
 private fun EditingOrbitRow(
     name: String,
     onNameChange: (String) -> Unit,
+    color: Int,
+    onColorChange: (Int) -> Unit,
+    iconKey: String,
+    onIconChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val scheme = orbit()
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
     ) {
-        OrbitTextField(
-            value = name,
-            onValueChange = onNameChange,
-            label = "Name",
-            imeAction = ImeAction.Done,
-            onImeAction = onConfirm,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onConfirm) {
-            Icon(Icons.Filled.Check, contentDescription = "Save name", tint = scheme.accent.solid)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+        ) {
+            OrbitTextField(
+                value = name,
+                onValueChange = onNameChange,
+                label = "Name",
+                imeAction = ImeAction.Done,
+                onImeAction = onConfirm,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onConfirm) {
+                Icon(Icons.Filled.Check, contentDescription = "Save", tint = scheme.accent.solid)
+            }
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Filled.Close, contentDescription = "Cancel edit", tint = scheme.text.muted)
+            }
         }
-        IconButton(onClick = onCancel) {
-            Icon(Icons.Filled.Close, contentDescription = "Cancel rename", tint = scheme.text.muted)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = OrbitSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+        ) {
+            OrbitColors.forEach { colorArgb ->
+                ColorSwatch(
+                    colorArgb = colorArgb,
+                    selected = colorArgb == color,
+                    onClick = { onColorChange(colorArgb) },
+                )
+            }
+        }
+        OrbitIconPickerRow(
+            selectedKey = iconKey,
+            onSelect = onIconChange,
+            modifier = Modifier.padding(top = OrbitSpacing.xs),
+        )
+    }
+}
+
+/** A horizontally-scrolling row of every [OrbitIcons] option, for picking an Orbit's glyph. */
+@Composable
+private fun OrbitIconPickerRow(
+    selectedKey: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.xs),
+    ) {
+        OrbitIcons.forEach { option ->
+            IconSwatch(
+                option = option,
+                selected = option.key == selectedKey,
+                onClick = { onSelect(option.key) },
+            )
+        }
+    }
+}
+
+/** One tappable icon option from [OrbitIcons]; a ring shows the current selection. */
+@Composable
+private fun IconSwatch(
+    option: OrbitIconOption,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val scheme = orbit()
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(44.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(36.dp)
+                .background(scheme.surfaces.elevated, CircleShape)
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, scheme.accent.solid, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Icon(
+                option.icon,
+                contentDescription = option.label,
+                tint = if (selected) scheme.accent.solid else scheme.text.secondary,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

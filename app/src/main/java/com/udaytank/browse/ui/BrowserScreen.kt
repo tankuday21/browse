@@ -66,6 +66,7 @@ import com.udaytank.browse.ui.components.FindBar
 import com.udaytank.browse.ui.components.HomeSearchOverlay
 import com.udaytank.browse.ui.components.LocalFaviconCache
 import com.udaytank.browse.ui.components.ManageOrbitsSheet
+import com.udaytank.browse.ui.components.OrbitAvatar
 import com.udaytank.browse.ui.components.OmniBar
 import com.udaytank.browse.ui.components.OmniBarInset
 import com.udaytank.browse.ui.components.OmniBarReservedHeight
@@ -167,6 +168,12 @@ fun BrowserScreen(
     } else {
         orbits.find { it.id == activeOrbitId }?.colorArgb
     }
+    // v4.2 icon-avatars pass: the same active-Orbit lookup, for the indicator's glyph.
+    val activeOrbitIcon = if (isIncognito) {
+        null
+    } else {
+        orbits.find { it.id == activeOrbitId }?.iconKey
+    }
     // v4.2 Orbits (I1 fix): resolve the active tab's WebView profile key REACTIVELY from the
     // collected `orbits` state above (rather than viewModel.profileKeyForTab(), a plain,
     // non-reactive function read once at composition). On cold start `orbits` can still be empty
@@ -265,6 +272,8 @@ fun BrowserScreen(
             // top bar's ⋮ — the latter is composed even when this OmniBar is hidden on home.
             menu = {},
             activeOrbitColor = activeOrbitColor,
+            activeOrbitIcon = activeOrbitIcon,
+            activeOrbitId = if (isIncognito) null else activeOrbitId,
             onOpenOrbitSwitch = { orbitSwitchOpen = true },
             modifier = Modifier
                 .pointerInput(isEditing) {
@@ -345,6 +354,8 @@ fun BrowserScreen(
                         },
                         onMenuClick = { menuOpen = true },
                         activeOrbitColor = activeOrbitColor,
+                        activeOrbitIcon = activeOrbitIcon,
+                        activeOrbitId = if (isIncognito) null else activeOrbitId,
                         onOpenOrbitSwitch = { orbitSwitchOpen = true },
                         // Page fills the space: no bottom-bar footprint to reserve on home, so the
                         // canvas runs to the nav bar (no black strip). navigationBarsPadding keeps
@@ -729,6 +740,8 @@ fun BrowserScreen(
                 orbits = orbits,
                 onCreate = viewModel::onCreateOrbit,
                 onRename = viewModel::onRenameOrbit,
+                onSetIcon = viewModel::onSetOrbitIcon,
+                onSetColor = viewModel::onSetOrbitColor,
                 onDelete = viewModel::onDeleteOrbit,
                 onDismiss = { manageOrbitsOpen = false },
             )
@@ -768,12 +781,7 @@ fun BrowserScreen(
                     orbits.filter { it.id != activeOrbitId }.forEach { target ->
                         ListItem(
                             leadingContent = {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(target.colorArgb)),
-                                )
+                                OrbitAvatar(colorArgb = target.colorArgb, iconKey = target.iconKey, size = 24.dp)
                             },
                             headlineContent = { Text("Open in ${target.name}") },
                             modifier = Modifier.clickable {

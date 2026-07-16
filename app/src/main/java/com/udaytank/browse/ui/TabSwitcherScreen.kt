@@ -98,6 +98,7 @@ import com.udaytank.browse.browser.UrlHosts
 import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.data.TabGroupEntity
+import com.udaytank.browse.ui.components.OrbitColors
 import com.udaytank.browse.ui.components.OrbitListRow
 import com.udaytank.browse.ui.components.OrbitSwitcherChips
 import com.udaytank.browse.ui.components.OrbitTopBar
@@ -118,19 +119,6 @@ private val GroupColors = listOf(
     Color(0xFF3DDC97),
     Color(0xFFFFB84D),
     Color(0xFFFF6B8A),
-)
-
-/**
- * Rotating ARGB palette for the tab switcher's quick "+" Orbit create (Task 8 will replace this
- * with a full manage/rename/delete/color-picker sheet and re-point [onAddOrbit] at it).
- */
-private val OrbitQuickCreatePalette = listOf(
-    0xFF2C5BE6.toInt(), // launch blue
-    0xFF7A5CFF.toInt(), // cosmic violet
-    0xFF46D0F5.toInt(), // cyan
-    0xFF3DDC97.toInt(), // green
-    0xFFFFB84D.toInt(), // amber
-    0xFFFF6B8A.toInt(), // pink
 )
 
 /** Flattened render order for the switcher grid: group headers interleaved with their tabs. */
@@ -246,6 +234,19 @@ fun TabSwitcherScreen(
                         }
                     },
                 )
+                // Ambient identity cue (v4.2 icon-avatars pass): a thin top accent line tinted to
+                // the active Orbit's color, only in normal (non-incognito) mode — a subtle "you're
+                // in THIS Orbit" reminder even before the eye reaches the selector chips below.
+                if (!incognitoMode) {
+                    orbits.find { it.id == activeOrbitId }?.let { activeOrbit ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .background(Color(activeOrbit.colorArgb)),
+                        )
+                    }
+                }
                 // One-time old-WebView note (Task 9): only once >1 Orbit exists is per-Orbit
                 // cookie isolation actually meaningful, and only devices whose WebView predates
                 // MULTI_PROFILE fail to deliver it — so nudge those users toward the Play Store
@@ -276,9 +277,11 @@ fun TabSwitcherScreen(
                         selection = emptySet()
                     },
                     onAddOrbit = {
+                        // Shared palette (v4.2): the same [OrbitColors] the manage sheet's "Add
+                        // Orbit" swatches use, so quick-create and the full picker never disagree.
                         viewModel.onCreateOrbit(
                             "Orbit ${orbits.size + 1}",
-                            OrbitQuickCreatePalette[orbits.size % OrbitQuickCreatePalette.size],
+                            OrbitColors[orbits.size % OrbitColors.size],
                         )
                     },
                 )
