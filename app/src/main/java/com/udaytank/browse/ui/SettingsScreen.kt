@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
@@ -616,6 +617,7 @@ private fun PrivacySecuritySettings(
     val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    var showBlackHoleDialog by remember { mutableStateOf(false) }
 
     CategoryScaffold(title = "Privacy & security", onBack = onBack) {
         SectionHeader("Ad blocking")
@@ -732,6 +734,30 @@ private fun PrivacySecuritySettings(
         ) {
             Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
         }
+
+        Spacer(Modifier.height(OrbitSpacing.xl))
+        SectionHeader("Danger zone")
+        Text(
+            "Black Hole erases everything — every Orbit, tab, cookie, bookmark, shortcut, " +
+                "history entry, download, and saved page — and resets Andromeda to a clean slate. " +
+                "This cannot be undone.",
+            style = orbitCaption,
+            color = orbit().text.muted,
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.xs),
+        )
+        TextButton(
+            onClick = { showBlackHoleDialog = true },
+            modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
+        ) {
+            Icon(
+                Icons.Filled.DeleteForever,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(end = OrbitSpacing.sm),
+            )
+            Text("Black Hole — erase everything", color = MaterialTheme.colorScheme.error)
+        }
+        Spacer(Modifier.height(OrbitSpacing.xl))
     }
 
     if (showClearDialog) {
@@ -751,6 +777,33 @@ private fun PrivacySecuritySettings(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showBlackHoleDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlackHoleDialog = false },
+            icon = { Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Enter the Black Hole?") },
+            text = {
+                Text(
+                    "This permanently erases ALL of your data in Andromeda — every Orbit, tab, " +
+                        "cookie, login, bookmark, home shortcut, history entry, download, and saved " +
+                        "page. The app restarts to a clean slate. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBlackHoleDialog = false
+                    Toast.makeText(context, "Erasing everything…", Toast.LENGTH_SHORT).show()
+                    viewModel.onBlackHole()
+                }) {
+                    Text("Erase everything", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlackHoleDialog = false }) { Text("Cancel") }
             },
         )
     }

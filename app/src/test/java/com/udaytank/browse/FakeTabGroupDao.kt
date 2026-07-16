@@ -26,4 +26,8 @@ class FakeTabGroupDao : TabGroupDao {
     override fun observeAll(): Flow<List<TabGroupEntity>> = groups
 
     override suspend fun getAll(): List<TabGroupEntity> = groups.value
+
+    override suspend fun clearAll() {
+        groups.value = emptyList()
+    }
 }

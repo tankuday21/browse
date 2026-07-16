@@ -39,4 +39,8 @@ interface DownloadDao {
 
     @Query("UPDATE downloads SET attempts = 0 WHERE id = :id")
     suspend fun resetAttempts(id: Long)
+
+    /** Global wipe (Black Hole panic-wipe). Callers delete the on-disk files first. */
+    @Query("DELETE FROM downloads")
+    suspend fun clearAll()
 }

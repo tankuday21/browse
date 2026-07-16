@@ -20,4 +20,8 @@ class FakeSiteSettingsDao : SiteSettingsDao {
     override suspend fun deleteByHost(host: String) {
         entries.value = entries.value.filterNot { it.host == host }
     }
+
+    override suspend fun clearAll() {
+        entries.value = emptyList()
+    }
 }

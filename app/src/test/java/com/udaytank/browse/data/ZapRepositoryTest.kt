@@ -22,6 +22,7 @@ class ZapRepositoryTest {
         }
         override suspend fun deleteById(id: Long) { items.removeAll { it.id == id } }
         override suspend fun deleteForHost(host: String) { items.removeAll { it.host == host } }
+        override suspend fun clearAll() { items.clear() }
     }
 
     private fun repo() = ZapRepository(FakeDao(), Dispatchers.Unconfined)

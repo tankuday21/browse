@@ -56,6 +56,8 @@ interface SettingsRepository {
     suspend fun setCookiesEnabled(enabled: Boolean)
     suspend fun setAdBlockEnabled(enabled: Boolean)
     suspend fun toggleAdAllowedSite(host: String)
+    /** Black Hole panic-wipe: forget every per-site ad allowlist host (a visited-site trace). */
+    suspend fun clearAdAllowedSites()
     val forceDarkWebsites: Flow<Boolean>
     suspend fun setForceDarkWebsites(enabled: Boolean)
     val httpsOnly: Flow<Boolean>
@@ -329,6 +331,10 @@ class DataStoreSettingsRepository(
             prefs[AD_ALLOWED_SITES_KEY] =
                 if (host in current) current - host else current + host
         }
+    }
+
+    override suspend fun clearAdAllowedSites() {
+        dataStore.edit { it.remove(AD_ALLOWED_SITES_KEY) }
     }
 
     override suspend fun setJavaScriptEnabled(enabled: Boolean) {

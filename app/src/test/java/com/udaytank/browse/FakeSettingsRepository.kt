@@ -62,6 +62,10 @@ class FakeSettingsRepository : SettingsRepository {
             else adAllowedSites.value + host
     }
 
+    override suspend fun clearAdAllowedSites() {
+        adAllowedSites.value = emptySet()
+    }
+
     override val adBlockLists = MutableStateFlow(FilterLists.DEFAULT_ENABLED_IDS)
     override suspend fun toggleAdBlockList(id: String) {
         adBlockLists.value =

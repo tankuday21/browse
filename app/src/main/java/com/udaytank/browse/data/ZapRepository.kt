@@ -43,4 +43,7 @@ class ZapRepository(
 
     suspend fun remove(id: Long) = withContext(io) { dao.deleteById(id) }
     suspend fun clearForHost(host: String) = withContext(io) { dao.deleteForHost(host) }
+
+    /** Forget every hidden element across all sites (Black Hole panic-wipe). */
+    suspend fun clearAll() = withContext(io) { dao.clearAll() }
 }

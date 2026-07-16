@@ -1,5 +1,6 @@
 package com.udaytank.browse
 
+import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.OrbitRepository
 import com.udaytank.browse.reading.ArticleStore
 import kotlinx.coroutines.Dispatchers
@@ -220,6 +221,46 @@ class BrowserViewModelOrbitTest {
         assertTrue(bookmarks.bookmarks.value.none { it.orbitId == work.id })
         assertTrue(shortcuts.shortcuts.value.none { it.orbitId == work.id })
         assertTrue(bookmarks.bookmarks.value.any { it.url == "https://keep.com" })
+    }
+
+    @Test
+    fun `onBlackHole wipes every store, resets active orbit, and signals all profile keys`() = runTest {
+        val history = FakeHistoryDao()
+        val bookmarks = FakeBookmarkDao()
+        val shortcuts = FakeHomeShortcutDao()
+        val settings = FakeSettingsRepository()
+        val vm = vm(historyDao = history, bookmarkDao = bookmarks, homeShortcutDao = shortcuts, settings = settings)
+        advanceUntilIdle()
+        val personal = vm.orbits.value.single()
+
+        // Seed data across the active Orbit.
+        history.entries.value = listOf(HistoryEntry(1, "https://a.com", "A", 1, personal.id))
+        bookmarks.bookmarks.value = listOf(
+            com.udaytank.browse.data.Bookmark(url = "https://b.com", title = "B", createdAt = 1, orbitId = personal.id)
+        )
+        shortcuts.shortcuts.value = listOf(
+            com.udaytank.browse.data.HomeShortcutEntity(url = "https://c.com", title = "C", position = 0, orbitId = personal.id)
+        )
+
+        val emitted = mutableListOf<List<String>>()
+        val job = launch { vm.blackHoleReady.collect { emitted.add(it) } }
+        advanceUntilIdle()
+
+        vm.onBlackHole()
+        advanceUntilIdle()
+
+        // Every store emptied.
+        assertTrue(history.entries.value.isEmpty())
+        assertTrue(bookmarks.bookmarks.value.isEmpty())
+        assertTrue(shortcuts.shortcuts.value.isEmpty())
+        assertTrue(vm.orbits.value.isEmpty())
+        assertEquals(0L, settings.activeOrbitId.value)
+
+        // The teardown signal carries the (former) Orbit's profile key + the incognito profile.
+        assertEquals(1, emitted.size)
+        assertTrue(emitted.single().contains(personal.profileKey))
+        assertTrue(emitted.single().contains(BrowserViewModel.INCOGNITO_PROFILE_KEY))
+        job.cancel()
     }
 
     @Test

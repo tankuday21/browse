@@ -112,4 +112,8 @@ class FakeBookmarkDao : BookmarkDao {
     override suspend fun deleteForOrbit(orbitId: Long) {
         bookmarks.value = bookmarks.value.filterNot { it.orbitId == orbitId }
     }
+
+    override suspend fun clearAll() {
+        bookmarks.value = emptyList()
+    }
 }

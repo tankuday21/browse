@@ -21,6 +21,9 @@ class FaviconRepository(
 ) {
     fun observeAll(): Flow<List<FaviconEntity>> = dao.observeAll()
 
+    /** Drop the entire icon cache (Black Hole panic-wipe). */
+    suspend fun clearAll() = withContext(io) { dao.clearAll() }
+
     /** Preferred, high-res: the apple-touch-icon URL the page declared. */
     suspend fun saveTouchIcon(host: String, url: String, now: Long) {
         if (host.isBlank() || url.isBlank()) return

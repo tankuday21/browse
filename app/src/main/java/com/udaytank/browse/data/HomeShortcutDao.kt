@@ -31,6 +31,10 @@ interface HomeShortcutDao {
     @Query("DELETE FROM home_shortcuts WHERE orbitId = :orbitId")
     suspend fun deleteForOrbit(orbitId: Long)
 
+    /** Global wipe across every Orbit (Black Hole panic-wipe). */
+    @Query("DELETE FROM home_shortcuts")
+    suspend fun clearAll()
+
     /**
      * Reordering one Orbit's grid = atomic rewrite of just that Orbit's rows; callers pass the
      * list with positions reindexed. Other Orbits' tiles are untouched.

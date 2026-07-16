@@ -55,6 +55,9 @@ class FeedRepository(
 
     suspend fun deleteSource(id: String) = withContext(io) { dao.deleteSource(id) }
 
+    /** Drops every cached feed item (Black Hole panic-wipe); seeded sources are kept. */
+    suspend fun clearItems() = withContext(io) { dao.clearItems() }
+
     /**
      * Fetch every enabled HTTPS source, parse, upsert, and prune to a rolling window. Failure of
      * one source is skipped, never fatal. Runs entirely off the main thread.

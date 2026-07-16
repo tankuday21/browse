@@ -37,5 +37,9 @@ class FakeHomeShortcutDao : HomeShortcutDao {
         shortcuts.value = shortcuts.value.filterNot { it.orbitId == orbitId }
     }
 
+    override suspend fun clearAll() {
+        shortcuts.value = emptyList()
+    }
+
     // replaceAllForOrbit comes from the interface's default @Transaction implementation.
 }
