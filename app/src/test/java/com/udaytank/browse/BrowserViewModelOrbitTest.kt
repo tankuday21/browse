@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -26,17 +27,23 @@ class BrowserViewModelOrbitTest {
         historyDao: FakeHistoryDao = FakeHistoryDao(),
         bookmarkDao: FakeBookmarkDao = FakeBookmarkDao(),
         homeShortcutDao: FakeHomeShortcutDao = FakeHomeShortcutDao(),
+        downloadDao: FakeDownloadDao = FakeDownloadDao(),
+        closedTabDao: FakeClosedTabDao = FakeClosedTabDao(),
+        tabGroupDao: FakeTabGroupDao = FakeTabGroupDao(),
+        readingListDao: FakeReadingListDao = FakeReadingListDao(),
+        siteSettingsDao: FakeSiteSettingsDao = FakeSiteSettingsDao(),
+        articleStore: ArticleStore = ArticleStore(createTempDirectory("reading").toFile()),
     ) = BrowserViewModel(
         historyDao,
         bookmarkDao,
         tabDao,
         settings,
-        FakeDownloadDao(),
-        FakeClosedTabDao(),
-        FakeTabGroupDao(),
-        FakeReadingListDao(),
-        ArticleStore(createTempDirectory("reading").toFile()),
-        FakeSiteSettingsDao(),
+        downloadDao,
+        closedTabDao,
+        tabGroupDao,
+        readingListDao,
+        articleStore,
+        siteSettingsDao,
         homeShortcutDao,
         RecordingDownloadController(),
         ioDispatcher = Dispatchers.Unconfined,
@@ -224,16 +231,33 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
-    fun `onBlackHole wipes every store, resets active orbit, and signals all profile keys`() = runTest {
+    fun `onBlackHole wipes every store and file, resets trace prefs, and signals all profile keys`() = runTest {
         val history = FakeHistoryDao()
         val bookmarks = FakeBookmarkDao()
         val shortcuts = FakeHomeShortcutDao()
+        val downloads = FakeDownloadDao()
+        val closedTabs = FakeClosedTabDao()
+        val tabGroups = FakeTabGroupDao()
+        val readingList = FakeReadingListDao()
+        val siteSettings = FakeSiteSettingsDao()
         val settings = FakeSettingsRepository()
-        val vm = vm(historyDao = history, bookmarkDao = bookmarks, homeShortcutDao = shortcuts, settings = settings)
+        val articleStore = ArticleStore(createTempDirectory("reading").toFile())
+        val vm = vm(
+            historyDao = history, bookmarkDao = bookmarks, homeShortcutDao = shortcuts,
+            downloadDao = downloads, closedTabDao = closedTabs, tabGroupDao = tabGroups,
+            readingListDao = readingList, siteSettingsDao = siteSettings, settings = settings,
+            articleStore = articleStore,
+        )
         advanceUntilIdle()
         val personal = vm.orbits.value.single()
 
-        // Seed data across the active Orbit.
+        // A real on-disk download file + a saved article file, to prove file deletion.
+        val downloadFile = java.io.File.createTempFile("blackhole", ".bin").apply { writeText("secret") }
+        val articlePath = articleStore.save(1, "<p>secret</p>")
+        assertTrue(downloadFile.exists())
+        assertNotNull(articleStore.load(articlePath))
+
+        // Seed every wired store.
         history.entries.value = listOf(HistoryEntry(1, "https://a.com", "A", 1, personal.id))
         bookmarks.bookmarks.value = listOf(
             com.udaytank.browse.data.Bookmark(url = "https://b.com", title = "B", createdAt = 1, orbitId = personal.id)
@@ -241,6 +265,16 @@ class BrowserViewModelOrbitTest {
         shortcuts.shortcuts.value = listOf(
             com.udaytank.browse.data.HomeShortcutEntity(url = "https://c.com", title = "C", position = 0, orbitId = personal.id)
         )
+        downloads.insert(
+            com.udaytank.browse.data.DownloadEntry(fileName = "f.bin", url = "https://d.com/f", createdAt = 1, filePath = downloadFile.absolutePath)
+        )
+        closedTabs.insert(com.udaytank.browse.data.ClosedTabEntity(url = "https://e.com", title = "E", closedAt = 1))
+        tabGroups.insert(com.udaytank.browse.data.TabGroupEntity(name = "G", color = 1, position = 0))
+        readingList.insert(com.udaytank.browse.data.ReadingListEntry(url = "https://f.com", title = "F", addedAt = 1))
+        siteSettings.upsert(com.udaytank.browse.data.SiteSettingsEntity(host = "g.com"))
+        settings.setWeatherCity("Mumbai")
+        settings.addBlockedCount(500)
+        settings.toggleAdAllowedSite("leak.com")
 
         val emitted = mutableListOf<List<String>>()
         val job = launch { vm.blackHoleReady.collect { emitted.add(it) } }
@@ -249,18 +283,33 @@ class BrowserViewModelOrbitTest {
         vm.onBlackHole()
         advanceUntilIdle()
 
-        // Every store emptied.
+        // Every Room store emptied.
         assertTrue(history.entries.value.isEmpty())
         assertTrue(bookmarks.bookmarks.value.isEmpty())
         assertTrue(shortcuts.shortcuts.value.isEmpty())
+        assertTrue(downloads.entries.value.isEmpty())
+        assertTrue(closedTabs.entries.value.isEmpty())
+        assertTrue(tabGroups.groups.value.isEmpty())
+        assertTrue(readingList.entries.value.isEmpty())
+        assertTrue(siteSettings.entries.value.isEmpty())
         assertTrue(vm.orbits.value.isEmpty())
+
+        // On-disk files gone.
+        assertTrue(!downloadFile.exists())
+        assertNull(articleStore.load(articlePath))
+
+        // Trace prefs reset.
         assertEquals(0L, settings.activeOrbitId.value)
+        assertEquals("", settings.weatherCity.value)
+        assertEquals(0L, settings.lifetimeBlocked.value)
+        assertTrue(settings.adAllowedSites.value.isEmpty())
 
         // The teardown signal carries the (former) Orbit's profile key + the incognito profile.
         assertEquals(1, emitted.size)
         assertTrue(emitted.single().contains(personal.profileKey))
         assertTrue(emitted.single().contains(BrowserViewModel.INCOGNITO_PROFILE_KEY))
         job.cancel()
+        downloadFile.delete()
     }
 
     @Test

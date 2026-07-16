@@ -50,6 +50,8 @@ interface SettingsRepository {
     /** Lifetime count of blocked requests across all pages (C3 home stats). */
     val lifetimeBlocked: Flow<Long>
     suspend fun addBlockedCount(delta: Long)
+    /** Black Hole panic-wipe: reset the lifetime blocked-request counter to zero. */
+    suspend fun resetLifetimeBlocked()
     suspend fun setSearchEngine(engine: SearchEngine)
     suspend fun setThemeMode(mode: ThemeMode)
     suspend fun setJavaScriptEnabled(enabled: Boolean)
@@ -319,6 +321,10 @@ class DataStoreSettingsRepository(
 
     override suspend fun addBlockedCount(delta: Long) {
         dataStore.edit { it[LIFETIME_BLOCKED_KEY] = (it[LIFETIME_BLOCKED_KEY] ?: 0L) + delta }
+    }
+
+    override suspend fun resetLifetimeBlocked() {
+        dataStore.edit { it.remove(LIFETIME_BLOCKED_KEY) }
     }
 
     override suspend fun setAdBlockEnabled(enabled: Boolean) {

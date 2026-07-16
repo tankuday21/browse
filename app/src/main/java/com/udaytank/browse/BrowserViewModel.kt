@@ -1223,6 +1223,8 @@ class BrowserViewModel(
             zapRepository?.clearAll()
             faviconRepository?.clearAll()
             feedRepository?.clearItems()
+            // User-added RSS subscriptions are an interest trace; seeded presets are kept.
+            feedRepository?.clearCustomSources()
             tabDao.clearAll()
             orbitRepository?.clearAll()
 
@@ -1230,6 +1232,10 @@ class BrowserViewModel(
             settings.setActiveOrbitId(0L)
             settings.clearAdAllowedSites()
             settings.setBackgroundMediaSites(emptySet())
+            // Location + aggregate stats are traces too on a "clean slate".
+            settings.setWeatherCity("")
+            settings.setWeatherUseLocation(false)
+            settings.resetLifetimeBlocked()
 
             // Hand the native teardown + process restart to MainActivity.
             _blackHoleReady.emit(profileKeys)

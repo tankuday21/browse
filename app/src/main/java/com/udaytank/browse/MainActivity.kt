@@ -437,9 +437,11 @@ class MainActivity : FragmentActivity() {
                 // process so a cold start rebuilds a pristine default Orbit + one home tab.
                 LaunchedEffect(Unit) {
                     viewModel.blackHoleReady.collect { profileKeys ->
+                        // clearBrowsingData() clears each live WebView's HTTP cache, so it must run
+                        // BEFORE destroyAll() empties the WebView map (else the cache clear no-ops).
+                        holder.clearBrowsingData()
                         holder.destroyAll()
                         profileKeys.forEach { holder.deleteProfile(it) }
-                        holder.clearBrowsingData()
                         holder.clearThumbnails()
                         restartProcess()
                     }
