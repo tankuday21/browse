@@ -167,6 +167,13 @@ fun BrowserScreen(
     } else {
         orbits.find { it.id == activeOrbitId }?.colorArgb
     }
+    // v4.2 Orbits (I1 fix): resolve the active tab's WebView profile key REACTIVELY from the
+    // collected `orbits` state above (rather than viewModel.profileKeyForTab(), a plain,
+    // non-reactive function read once at composition). On cold start `orbits` can still be empty
+    // for a frame before the Flow populates; this recomposes the moment it does, instead of
+    // permanently binding the tab's memoized WebView to the default profile (see the TabWebView
+    // gate below, which withholds WebView creation until this resolves for non-incognito tabs).
+    val activeProfileKey = orbits.find { it.id == activeTab?.orbitId }?.profileKey
 
     // OmniBar shrink-not-hide: the VM's scroll hysteresis says Full/Slim; every state where the
     // bar must never shrink (home, editing, reader, find, bar-anchored menu/sheet open) simply
@@ -367,7 +374,14 @@ fun BrowserScreen(
                         background = MaterialTheme.colorScheme.surface,
                         onText = MaterialTheme.colorScheme.onSurface,
                     )
-                } else {
+                } else if (isIncognito || activeProfileKey != null) {
+                    // Gate (I1 fix): a non-incognito tab's WebView is only ever created once its
+                    // Orbit's profileKey is known — obtain() binds ProfileStore ONCE at creation
+                    // (getOrPut memoizes the WebView), so creating it while `orbits` hasn't loaded
+                    // yet would freeze the tab onto the default profile for its whole lifetime,
+                    // defeating per-Orbit isolation. Incognito tabs are exempt: their profileKey
+                    // is null by design (they use the fixed "incognito" profile instead) and must
+                    // still create immediately.
                     TabWebView(
                         holder = holder,
                         tabId = currentTabId,
@@ -376,13 +390,24 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
-                        profileKey = viewModel.profileKeyForTab(currentTabId),
+                        profileKey = activeProfileKey,
                         // Content-above-bar with a FIXED inset at the bar's full height — never
                         // resized on scroll (see the note where effectiveBarState is computed).
                         modifier = Modifier
                             .fillMaxSize()
                             .navigationBarsPadding()
                             .padding(bottom = OmniBarReservedHeight),
+                    )
+                } else {
+                    // Orbits haven't resolved yet (cold-start race) — hold off on creating the
+                    // WebView rather than binding it to the default profile. Self-heals the
+                    // instant `orbits` populates, since `activeProfileKey` above is reactive.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding()
+                            .padding(bottom = OmniBarReservedHeight)
+                            .background(orbit().surfaces.base),
                     )
                 }
                 state.pageError?.let { errorDescription ->

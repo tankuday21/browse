@@ -357,7 +357,13 @@ class BrowserViewModel(
      * delete the underlying profile. A profile can only be removed once nothing is still using
      * it, hence the emit happens after tab close-out in [onDeleteOrbit].
      */
-    private val _orbitProfileToDelete = MutableSharedFlow<OrbitDeletion>()
+    // replay = 1 (I2 fix): the sole collector (MainActivity's composition-scoped LaunchedEffect)
+    // can momentarily have no subscriber, e.g. mid Activity-recreation. With replay = 0 an
+    // emission during that window is dropped forever and the Orbit's cookies never get wiped
+    // (deleteProfile never runs). Replaying the last deletion to a re-subscribing collector is
+    // safe: WebViewHolder.deleteProfile is runCatching-guarded and idempotent — replaying it
+    // against an already-deleted (or never-existent) profile is a harmless no-op.
+    private val _orbitProfileToDelete = MutableSharedFlow<OrbitDeletion>(replay = 1, extraBufferCapacity = 1)
     val orbitProfileToDelete: SharedFlow<OrbitDeletion> = _orbitProfileToDelete.asSharedFlow()
 
     /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
