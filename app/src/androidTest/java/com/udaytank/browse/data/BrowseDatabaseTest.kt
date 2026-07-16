@@ -512,6 +512,45 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate17to18_createsCredentialsTable() {
+        helper.createDatabase(DB, 17).close()
+        val db = helper.runMigrationsAndValidate(DB, 18, true, BrowseDatabase.MIGRATION_17_18)
+        // Insert works and the unique index is present.
+        db.execSQL(
+            "INSERT INTO credentials (orbitId, host, username, passwordCipher, iv, updatedAt) " +
+                "VALUES (1, 'a.com', 'u', X'0102', X'03', 1)"
+        )
+        db.query("SELECT COUNT(*) FROM credentials").use { c ->
+            c.moveToFirst()
+            assertEquals(1, c.getInt(0))
+        }
+        var hasIndex = false
+        db.query("PRAGMA index_list(credentials)").use { c ->
+            while (c.moveToNext()) if (c.getString(1) == "index_credentials_orbitId_host_username") hasIndex = true
+        }
+        assertTrue(hasIndex)
+    }
+
+    @Test
+    fun credentialDao_orbitScopingAndPurge() = runBlocking {
+        val dao = database.credentialDao()
+        dao.upsert(CredentialEntity(orbitId = 1, host = "a.com", username = "u", passwordCipher = byteArrayOf(1), iv = byteArrayOf(2), updatedAt = 1))
+        dao.upsert(CredentialEntity(orbitId = 2, host = "a.com", username = "u", passwordCipher = byteArrayOf(3), iv = byteArrayOf(4), updatedAt = 2))
+        // Same (host, username) in a different Orbit coexists.
+        assertEquals(1, dao.getForOrbitAndHost(1, "a.com").size)
+        assertEquals(1, dao.getForOrbitAndHost(2, "a.com").size)
+        // Re-saving the same (orbit, host, username) REPLACES (unique index), not duplicates.
+        dao.upsert(CredentialEntity(orbitId = 1, host = "a.com", username = "u", passwordCipher = byteArrayOf(9), iv = byteArrayOf(9), updatedAt = 3))
+        assertEquals(1, dao.observeForOrbit(1).first().size)
+        // Purge one Orbit; the other survives.
+        dao.deleteForOrbit(2)
+        assertTrue(dao.observeForOrbit(2).first().isEmpty())
+        assertEquals(1, dao.observeForOrbit(1).first().size)
+        dao.clearAll()
+        assertTrue(dao.observeForOrbit(1).first().isEmpty())
+    }
+
+    @Test
     fun downloadDao_progressAndStateRoundTrip() = runBlocking {
         val dao = database.downloadDao()
         val id = dao.insertReturning(

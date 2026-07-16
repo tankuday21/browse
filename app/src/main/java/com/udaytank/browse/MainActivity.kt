@@ -52,6 +52,7 @@ import com.udaytank.browse.ui.BookmarksScreen
 import com.udaytank.browse.ui.BrowserScreen
 import com.udaytank.browse.ui.DownloadsScreen
 import com.udaytank.browse.ui.HistoryScreen
+import com.udaytank.browse.ui.PasswordsScreen
 import com.udaytank.browse.ui.IncognitoLockScreen
 import com.udaytank.browse.ui.OnboardingScreen
 import com.udaytank.browse.ui.ReadingListScreen
@@ -408,6 +409,9 @@ class MainActivity : FragmentActivity() {
                         override fun onZapPicked(tabId: Long, host: String, selector: String, label: String) =
                             viewModel.onZapPicked(tabId, host, selector, label)
 
+                        override fun onLoginSubmitted(tabId: Long, host: String, username: String, password: String) =
+                            viewModel.onLoginSubmitted(tabId, host, username, password)
+
                         override fun onTouchIconUrl(host: String, url: String) =
                             viewModel.onTouchIconUrl(host, url)
 
@@ -428,6 +432,14 @@ class MainActivity : FragmentActivity() {
                     viewModel.orbitProfileToDelete.collect { deletion ->
                         deletion.tabIds.forEach { tabId -> holder.close(tabId) }
                         holder.deleteProfile(deletion.profileKey)
+                    }
+                }
+
+                // v4.7 Passwords: the user chose a saved login to fill; inject it into the tab's
+                // page. The password only reaches the WebView on this explicit user action.
+                LaunchedEffect(Unit) {
+                    viewModel.fillCredentialRequest.collect { fill ->
+                        holder.fillCredentials(fill.tabId, fill.username, fill.password)
                     }
                 }
 
@@ -543,6 +555,7 @@ class MainActivity : FragmentActivity() {
                             holder = holder,
                             onOpenHistory = { navController.navigate("history") },
                             onOpenBookmarks = { navController.navigate("bookmarks") },
+                            onOpenPasswords = { navController.navigate("passwords") },
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },
@@ -595,6 +608,12 @@ class MainActivity : FragmentActivity() {
                                 viewModel.onOpenUrl(url)
                                 navController.popBackStack()
                             },
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable("passwords") {
+                        PasswordsScreen(
+                            viewModel = viewModel,
                             onBack = { navController.popBackStack() },
                         )
                     }

@@ -170,6 +170,8 @@ class BrowserViewModel(
     private val faviconRepository: com.udaytank.browse.data.FaviconRepository? = null,
     /** v4.2 Orbits (browsing profiles); null in tests that don't exercise Orbits. */
     private val orbitRepository: OrbitRepository? = null,
+    /** v4.7 Passwords (per-Orbit encrypted vault); null in tests that don't exercise it. */
+    private val credentialRepository: com.udaytank.browse.data.CredentialRepository? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -377,6 +379,78 @@ class BrowserViewModel(
     private val _blackHoleReady = MutableSharedFlow<List<String>>(replay = 1, extraBufferCapacity = 1)
     val blackHoleReady: SharedFlow<List<String>> = _blackHoleReady.asSharedFlow()
 
+    // ── v4.7 Passwords ──────────────────────────────────────
+    /** A submitted login awaiting the user's "Save password?" decision. */
+    data class SaveCredentialPrompt(val host: String, val username: String, val password: String)
+
+    /** Saved logins are available for the current page; the UI offers to fill one of [usernames]. */
+    data class FillPromptState(val tabId: Long, val host: String, val usernames: List<String>)
+
+    /** Instruction to MainActivity to inject a chosen login into a tab's page (user-initiated). */
+    data class FillCredentialAction(val tabId: Long, val username: String, val password: String)
+
+    private val _saveCredentialPrompt = MutableStateFlow<SaveCredentialPrompt?>(null)
+    val saveCredentialPrompt: StateFlow<SaveCredentialPrompt?> = _saveCredentialPrompt.asStateFlow()
+
+    private val _fillPrompt = MutableStateFlow<FillPromptState?>(null)
+    val fillPrompt: StateFlow<FillPromptState?> = _fillPrompt.asStateFlow()
+
+    private val _fillCredentialRequest = MutableSharedFlow<FillCredentialAction>(extraBufferCapacity = 1)
+    val fillCredentialRequest: SharedFlow<FillCredentialAction> = _fillCredentialRequest.asSharedFlow()
+
+    /**
+     * A login form was submitted. Never save from incognito (defense-in-depth — the capture bridge
+     * is already withheld from incognito tabs). Offers a save/update prompt for the active Orbit.
+     */
+    fun onLoginSubmitted(tabId: Long, host: String, username: String, password: String) {
+        if (credentialRepository == null || password.isEmpty()) return
+        val isIncognito = tabs.value.find { it.id == tabId }?.isIncognito == true
+        if (isIncognito) return
+        _saveCredentialPrompt.value = SaveCredentialPrompt(host, username, password)
+    }
+
+    /** User accepted the save prompt → encrypt + store under the active Orbit. */
+    fun onSaveCredential() {
+        val prompt = _saveCredentialPrompt.value ?: return
+        val repo = credentialRepository ?: return
+        val orbitId = activeOrbitId.value
+        _saveCredentialPrompt.value = null
+        viewModelScope.launch {
+            repo.save(orbitId, prompt.host, prompt.username, prompt.password, System.currentTimeMillis())
+        }
+    }
+
+    fun onDismissSaveCredentialPrompt() { _saveCredentialPrompt.value = null }
+
+    /** User tapped a saved login to fill: re-decrypt (kept out of long-lived state) and inject it. */
+    fun onFillCredential(tabId: Long, host: String, username: String) {
+        val repo = credentialRepository ?: return
+        _fillPrompt.value = null
+        viewModelScope.launch {
+            val match = repo.credentialsForHost(activeOrbitId.value, host).find { it.username == username }
+            if (match != null) {
+                _fillCredentialRequest.emit(FillCredentialAction(tabId, match.username, match.password))
+            }
+        }
+    }
+
+    fun onDismissFillPrompt() { _fillPrompt.value = null }
+
+    /** The active Orbit's saved logins (management screen). */
+    val credentials: StateFlow<List<com.udaytank.browse.data.CredentialEntity>> = activeOrbitId
+        .flatMapLatest { orbitId ->
+            credentialRepository?.observeForOrbit(orbitId) ?: flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Reveal one saved login's password (management screen); null if it can't be decrypted. */
+    suspend fun revealCredential(entity: com.udaytank.browse.data.CredentialEntity): String? =
+        credentialRepository?.reveal(entity)
+
+    fun onDeleteCredential(id: Long) {
+        viewModelScope.launch { credentialRepository?.delete(id) }
+    }
+
     /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
     fun onSwitchOrbit(id: Long) {
         viewModelScope.launch {
@@ -457,6 +531,7 @@ class BrowserViewModel(
             historyDao.deleteForOrbit(id)
             bookmarkDao.deleteForOrbit(id)
             homeShortcutDao.deleteForOrbit(id)
+            credentialRepository?.deleteForOrbit(id)
 
             _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
         }
@@ -1226,6 +1301,7 @@ class BrowserViewModel(
             feedRepository?.clearItems()
             // User-added RSS subscriptions are an interest trace; seeded presets are kept.
             feedRepository?.clearCustomSources()
+            credentialRepository?.clearAll()
             tabDao.clearAll()
             orbitRepository?.clearAll()
 
@@ -1505,6 +1581,7 @@ class BrowserViewModel(
         }
         if (tabId == activeTabId.value) {
             onBarShouldShow() // navigation start re-reveals the auto-hidden bar
+            _fillPrompt.value = null // a new page supersedes any pending fill offer
             _uiState.update {
                 it.copy(currentUrl = url, addressBarText = url, isLoading = true, progress = 0, pageError = null)
             }
@@ -1537,6 +1614,19 @@ class BrowserViewModel(
                     )
                 is VisitDecision.RefreshExisting ->
                     historyDao.updateVisitedAt(decision.existingId, now)
+            }
+        }
+
+        // v4.7 Passwords: if the active tab's page has saved logins for its host, offer to fill.
+        val repo = credentialRepository
+        if (repo != null && tabId == activeTabId.value) {
+            viewModelScope.launch {
+                val host = UrlHosts.of(url)
+                val usernames = if (host.isNullOrBlank()) emptyList()
+                else repo.credentialsForHost(orbitId, host).map { it.username }
+                _fillPrompt.value =
+                    if (usernames.isNotEmpty() && host != null) FillPromptState(tabId, host, usernames)
+                    else null
             }
         }
     }
@@ -1870,6 +1960,7 @@ class BrowserViewModel(
                     zapRepository = app.zapRepository,
                     faviconRepository = app.faviconRepository,
                     orbitRepository = app.orbitRepository,
+                    credentialRepository = app.credentialRepository,
                 )
             }
         }

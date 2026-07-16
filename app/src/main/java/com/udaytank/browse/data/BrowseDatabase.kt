@@ -24,8 +24,9 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         ZappedElementEntity::class,
         FaviconEntity::class,
         OrbitEntity::class,
+        CredentialEntity::class,
     ],
-    version = 17,
+    version = 18,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -41,10 +42,31 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun zappedElementDao(): ZappedElementDao
     abstract fun faviconDao(): FaviconDao
     abstract fun orbitDao(): OrbitDao
+    abstract fun credentialDao(): CredentialDao
 
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v4.7 Passwords Phase 1: per-Orbit encrypted credential vault.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `credentials` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`orbitId` INTEGER NOT NULL, " +
+                        "`host` TEXT NOT NULL, " +
+                        "`username` TEXT NOT NULL, " +
+                        "`passwordCipher` BLOB NOT NULL, " +
+                        "`iv` BLOB NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_credentials_orbitId_host_username` " +
+                        "ON `credentials` (`orbitId`, `host`, `username`)"
+                )
+            }
+        }
 
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {

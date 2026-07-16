@@ -94,6 +94,7 @@ class BrowseApplication : Application() {
                 BrowseDatabase.MIGRATION_14_15,
                 BrowseDatabase.MIGRATION_15_16,
                 BrowseDatabase.MIGRATION_16_17,
+                BrowseDatabase.MIGRATION_17_18,
             )
             .build()
     }
@@ -121,5 +122,13 @@ class BrowseApplication : Application() {
     /** v4.2 Orbits: user-created browsing profiles (isolated tabs + WebView profile). */
     val orbitRepository: com.udaytank.browse.data.OrbitRepository by lazy {
         com.udaytank.browse.data.OrbitRepository(database.orbitDao())
+    }
+
+    /** v4.7 Passwords: per-Orbit credential vault, encrypted with an AndroidKeyStore key. */
+    val credentialRepository: com.udaytank.browse.data.CredentialRepository by lazy {
+        com.udaytank.browse.data.CredentialRepository(
+            database.credentialDao(),
+            com.udaytank.browse.data.KeystoreCredentialCipher(),
+        )
     }
 }

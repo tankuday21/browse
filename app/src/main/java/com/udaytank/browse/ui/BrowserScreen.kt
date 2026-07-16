@@ -63,7 +63,9 @@ import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.data.WeatherLocation
 import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.FillPasswordBar
 import com.udaytank.browse.ui.components.HomeSearchOverlay
+import com.udaytank.browse.ui.components.SavePasswordBar
 import com.udaytank.browse.ui.components.LocalFaviconCache
 import com.udaytank.browse.ui.components.ManageOrbitsSheet
 import com.udaytank.browse.ui.components.OrbitAvatar
@@ -85,6 +87,7 @@ fun BrowserScreen(
     holder: WebViewHolder,
     onOpenHistory: () -> Unit,
     onOpenBookmarks: () -> Unit,
+    onOpenPasswords: () -> Unit,
     onOpenTabs: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
@@ -600,6 +603,23 @@ fun BrowserScreen(
                         .padding(bottom = 8.dp),
                 )
             }
+            // v4.7 Passwords: save/fill prompts sit just above the address bar.
+            val savePrompt by viewModel.saveCredentialPrompt.collectAsStateWithLifecycle()
+            val fillPrompt by viewModel.fillPrompt.collectAsStateWithLifecycle()
+            savePrompt?.let { p ->
+                SavePasswordBar(
+                    host = p.host,
+                    onSave = viewModel::onSaveCredential,
+                    onDismiss = viewModel::onDismissSaveCredentialPrompt,
+                )
+            }
+            fillPrompt?.let { fp ->
+                FillPasswordBar(
+                    usernames = fp.usernames,
+                    onFill = { viewModel.onFillCredential(fp.tabId, fp.host, it) },
+                    onDismiss = viewModel::onDismissFillPrompt,
+                )
+            }
             if (state.findQuery != null) {
                 FindBar(
                     query = state.findQuery ?: "",
@@ -675,6 +695,7 @@ fun BrowserScreen(
                 onNewIncognitoTab = { viewModel.onNewIncognitoTab(); menuOpen = false },
                 onOpenBookmarks = { onOpenBookmarks(); menuOpen = false },
                 onOpenHistory = { onOpenHistory(); menuOpen = false },
+                onOpenPasswords = { onOpenPasswords(); menuOpen = false },
                 onOpenDownloads = { onOpenDownloads(); menuOpen = false },
                 activeDownloadCount = activeDownloadCount,
                 onOpenReadingList = { onOpenReadingList(); menuOpen = false },
