@@ -350,6 +350,7 @@ fun BrowserScreen(
                         isLoading = state.isLoading,
                         pendingCommand = state.pendingCommand,
                         onCommandConsumed = viewModel::onCommandConsumed,
+                        profileKey = viewModel.profileKeyForTab(currentTabId),
                         // Content-above-bar with a FIXED inset at the bar's full height — never
                         // resized on scroll (see the note where effectiveBarState is computed).
                         modifier = Modifier

@@ -472,6 +472,18 @@ class WebViewHolder(
         }
     }
 
+    /**
+     * Removes a deleted Orbit's WebView profile (v4.2) so its cookies/storage are actually
+     * purged, not just orphaned. ProfileStore only allows deleting a profile once no live
+     * WebView is using it — callers must close the Orbit's tabs first (see
+     * BrowserViewModel.onDeleteOrbit, which emits [BrowserViewModel.orbitProfileToDelete] only
+     * after that close-out completes).
+     */
+    fun deleteProfile(profileKey: String) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return
+        runCatching { androidx.webkit.ProfileStore.getInstance().deleteProfile(profileKey) }
+    }
+
     /** Clears cache, cookies, and web storage. History/tabs are the data layer's job. */
     fun clearBrowsingData() {
         webViews.values.forEach { it.clearCache(true) }
@@ -480,7 +492,7 @@ class WebViewHolder(
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun obtain(tabId: Long, incognito: Boolean = false): WebView = webViews.getOrPut(tabId) {
+    fun obtain(tabId: Long, incognito: Boolean = false, profileKey: String? = null): WebView = webViews.getOrPut(tabId) {
         KeepAliveWebView(context).apply {
             settings.javaScriptEnabled = jsEnabled
             applySafeBrowsing(this)
@@ -511,6 +523,15 @@ class WebViewHolder(
                 // foreground media tab. NEVER attached to incognito tabs — a private page must not
                 // report titles/state to the media session/notification.
                 addJavascriptInterface(MediaJsBridge(tabId), com.udaytank.browse.browser.MediaControl.BRIDGE_NAME)
+                // Per-Orbit cookie/storage isolation (v4.2): same ProfileStore mechanism as
+                // incognito above, keyed by the tab's Orbit instead of the fixed "incognito" name.
+                if (profileKey != null && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    runCatching {
+                        val store = androidx.webkit.ProfileStore.getInstance()
+                        val profile = store.getOrCreateProfile(profileKey)
+                        androidx.webkit.WebViewCompat.setProfile(this, profile.name)
+                    }
+                }
             }
 
             // Element Zapper bridge (v4.0): attached to ALL tabs (incognito can pick in-session);
