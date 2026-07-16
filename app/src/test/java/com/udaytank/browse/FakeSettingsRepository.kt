@@ -178,6 +178,8 @@ class FakeSettingsRepository : SettingsRepository {
     override suspend fun setWeatherCity(city: String) { weatherCity.value = city }
     override val weatherUseLocation = MutableStateFlow(false)
     override suspend fun setWeatherUseLocation(enabled: Boolean) { weatherUseLocation.value = enabled }
+    override val weatherCache = MutableStateFlow("")
+    override suspend fun setWeatherCache(json: String) { weatherCache.value = json }
 
     override val activeOrbitId = MutableStateFlow(0L)
     override suspend fun setActiveOrbitId(id: Long) { activeOrbitId.value = id }

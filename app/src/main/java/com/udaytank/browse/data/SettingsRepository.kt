@@ -118,6 +118,9 @@ interface SettingsRepository {
     /** Use opt-in coarse location for weather instead of [weatherCity]. */
     val weatherUseLocation: Flow<Boolean>
     suspend fun setWeatherUseLocation(enabled: Boolean)
+    /** Last-known weather (WeatherCodec JSON) for the offline cache; "" if none. */
+    val weatherCache: Flow<String>
+    suspend fun setWeatherCache(json: String)
 
     /** Which Orbit is active. 0 = unset → VM resolves to the first Orbit. */
     val activeOrbitId: Flow<Long>
@@ -415,6 +418,11 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[WEATHER_USE_LOCATION_KEY] = enabled }
     }
 
+    override val weatherCache: Flow<String> = dataStore.data.map { it[WEATHER_CACHE_KEY] ?: "" }
+    override suspend fun setWeatherCache(json: String) {
+        dataStore.edit { if (json.isBlank()) it.remove(WEATHER_CACHE_KEY) else it[WEATHER_CACHE_KEY] = json }
+    }
+
     override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
     override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
 
@@ -430,6 +438,7 @@ class DataStoreSettingsRepository(
         val SHOW_NEWS_KEY = booleanPreferencesKey("show_news")
         val WEATHER_CITY_KEY = stringPreferencesKey("weather_city")
         val WEATHER_USE_LOCATION_KEY = booleanPreferencesKey("weather_use_location")
+        val WEATHER_CACHE_KEY = stringPreferencesKey("weather_cache")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
