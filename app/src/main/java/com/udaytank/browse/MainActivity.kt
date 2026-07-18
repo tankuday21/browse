@@ -105,7 +105,12 @@ class MainActivity : FragmentActivity() {
      */
     private var pendingCapture: Triple<Int, java.io.File, Uri>? = null
 
-    /** FIFO of launched chooser generations — pairs each launcher result with its launch. */
+    /**
+     * FIFO of launched chooser generations — pairs each launcher result with its launch.
+     * Assumes results arrive in launch order (true for the single full-screen picker flow;
+     * two simultaneously-alive pickers in freeform/split-screen could mispair — accepted:
+     * self-healing 1:1 drain, exactly-once preserved, same rarity class as the v4.8 note).
+     */
     private val inFlightChoosers = ArrayDeque<Int>()
 
     /** System document picker for file uploads (v4.8). Field-registered — required pre-RESUMED. */

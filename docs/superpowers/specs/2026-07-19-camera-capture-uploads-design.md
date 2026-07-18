@@ -19,8 +19,8 @@ picker — Chrome parity.
 
 `resolveUploadResult(picked, capture, captureHasData)` (generic, pure) — the result-parsing
 extension: the picker's URIs win; when the picker returned nothing but the camera wrote into
-our capture file, the capture URI is the result; else null (exactly-once contract unchanged —
-`FileChooserCoordinator` is untouched).
+our capture file, the capture URI is the result; else null. The exactly-once contract is
+unchanged; `FileChooserCoordinator` gained generation matching (below) to protect it.
 
 ## Activity side (MainActivity)
 
@@ -57,9 +57,9 @@ permission from inside the upload flow; front/back hint (`capture="user"`).
 ## Testing
 
 - Unit (JVM): `captureMode` matrix — no camera → None; pdf-only → None; image/* + capture →
-  Direct; image/* no capture → Offer; empty accepts → Offer (or Direct with capture); mixed
+  Direct; image/* no capture → Offer; empty accepts → Offer even with capture; mixed
   pdf+image → Offer. `resolveUploadResult` — picker wins; camera fallback only with data;
-  neither → null.
+  neither → null. Coordinator: stale-generation result dropped, current still resolves.
 - On-device: a "Take photo" input opens the camera and the shot uploads; a plain image input
   shows the camera inside the chooser; canceling the camera leaves the input working; a
   PDF-only input shows no camera.
