@@ -19,13 +19,17 @@ package com.udaytank.browse.browser
 class FileChooserCoordinator<R : Any> {
 
     private var pending: ((R?) -> Unit)? = null
+    private var generation = 0
 
     /**
      * A new chooser request: supersede any stale pending callback (resolved null), store
-     * [callback], then run [launch]. A false return from [launch] (picker couldn't open)
-     * resolves [callback] null right away — the input must not be left stuck.
+     * [callback], then run [launch] with this request's GENERATION — the caller keeps it with
+     * whatever per-launch state it owns (v5.3: the camera-capture temp file) and hands it back
+     * to [finish], which drops results from superseded launches. A false return from [launch]
+     * (picker couldn't open) resolves [callback] null right away — the input must not be left
+     * stuck.
      */
-    fun begin(callback: (R?) -> Unit, launch: () -> Boolean) {
+    fun begin(callback: (R?) -> Unit, launch: (generation: Int) -> Boolean) {
         // Drain the slot (clear-and-capture, mirroring finish()) until it stays empty: a
         // reentrant begin() from inside a stale callback's null-resolution re-fills it, and
         // storing over that registration would orphan it — a callback that never resolves.
@@ -35,14 +39,21 @@ class FileChooserCoordinator<R : Any> {
             stale.invoke(null)
         }
         pending = callback
-        if (!launch()) {
+        if (!launch(++generation)) {
             pending = null
             callback(null)
         }
     }
 
-    /** The picker returned: resolve-and-clear the pending callback; no-op if nothing pending. */
-    fun finish(result: R?) {
+    /**
+     * The picker returned. Resolves-and-clears the pending callback ONLY when [generation]
+     * matches the current request — a stale result from a superseded launch (its callback was
+     * already resolved null) must not consume the NEW request's callback or state (v5.3: doing
+     * so deleted the new capture file and silently dropped the user's photo). No-op when
+     * nothing is pending (e.g. redelivery after process death).
+     */
+    fun finish(generation: Int, result: R?) {
+        if (generation != this.generation) return
         val callback = pending ?: return
         pending = null
         callback(result)

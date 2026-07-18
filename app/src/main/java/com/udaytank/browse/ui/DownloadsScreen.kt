@@ -81,7 +81,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-private const val FILE_PROVIDER_AUTHORITY = "com.udaytank.andromeda.files"
 
 /** Human-readable byte size, e.g. "12.3 MB". */
 private fun bytesHuman(bytes: Long): String {
@@ -425,8 +424,10 @@ private fun SpeedSparkline(samples: List<Long>) {
 
 private fun mimeOf(entry: DownloadEntry): String = entry.mimeType ?: "*/*"
 
+// Authority derives from the package (matches the manifest's ${applicationId}.files) so a
+// future applicationIdSuffix can't silently break download open/share (v5.3 review).
 private fun fileUriFor(context: android.content.Context, path: String) =
-    FileProvider.getUriForFile(context, FILE_PROVIDER_AUTHORITY, File(path))
+    FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
 
 /** Resolves a downloaded-manager-owned uri for a legacy (`useSystemDownloader`) row, or null. */
 private fun legacyUriFor(context: android.content.Context, downloadId: Long): Uri? {

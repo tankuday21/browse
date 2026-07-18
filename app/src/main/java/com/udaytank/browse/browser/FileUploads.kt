@@ -44,4 +44,45 @@ object FileUploads {
         single != null -> listOf(single)
         else -> null
     }
+
+    /** How the camera participates in a file-chooser request (v5.3). */
+    enum class CaptureMode {
+        /** No camera option: unavailable, or the input accepts no images. */
+        None,
+
+        /** The page set the capture attribute — open the camera directly, no chooser. */
+        Direct,
+
+        /** Images are acceptable — the camera rides along inside the system chooser. */
+        Offer,
+    }
+
+    /**
+     * Decides the camera's role for an upload (v5.3). [mimeTypes] is the normalized accept
+     * list ([normalizeAcceptTypes]); empty means "anything", which includes images.
+     * [cameraAvailable] is the Activity's CAMERA-permission check — the manifest declares
+     * CAMERA (WebRTC/QR), and Android forbids ACTION_IMAGE_CAPTURE from apps that declare but
+     * don't hold it.
+     */
+    fun captureMode(mimeTypes: List<String>, captureEnabled: Boolean, cameraAvailable: Boolean): CaptureMode {
+        if (!cameraAvailable) return CaptureMode.None
+        val explicitImages = mimeTypes.any { it.startsWith("image/") }
+        val acceptsImages = mimeTypes.isEmpty() || explicitImages
+        return when {
+            !acceptsImages -> CaptureMode.None
+            // Direct only for an EXPLICIT image accept (HTML Media Capture / Chrome parity):
+            // an accept-less `capture` input means "any file" — jumping to the camera would
+            // lock the user out of picking a PDF. It rides along in the chooser instead.
+            captureEnabled && explicitImages -> CaptureMode.Direct
+            else -> CaptureMode.Offer
+        }
+    }
+
+    /**
+     * Extends [parseChooserResult] for camera captures (v5.3): the picker's URIs always win;
+     * when the picker returned nothing but the camera wrote bytes into our capture file, the
+     * capture URI is the result; otherwise null (exactly-once contract unchanged).
+     */
+    fun <T : Any> resolveUploadResult(picked: List<T>?, capture: T?, captureHasData: Boolean): List<T>? =
+        picked ?: if (capture != null && captureHasData) listOf(capture) else null
 }
