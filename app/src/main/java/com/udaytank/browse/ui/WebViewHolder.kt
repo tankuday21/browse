@@ -12,6 +12,7 @@ import android.webkit.CookieManager
 import android.webkit.SafeBrowsingResponse
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -80,6 +81,17 @@ class WebViewHolder(
 
         /** WebView decoded the site's favicon (v4.1) — the bitmap fallback. Never fired for incognito. */
         fun onFaviconBitmap(host: String, bitmap: Bitmap)
+
+        /**
+         * The page requested a file picker for an `<input type="file">` (v4.8). Implementations
+         * MUST invoke [filePathCallback] exactly once — with the picked URIs or null on
+         * cancel/failure — and return true; returning false without touching the callback lets
+         * the (nonexistent) default handling run, i.e. the input stays inert.
+         */
+        fun onShowFileChooser(
+            filePathCallback: ValueCallback<Array<Uri>>,
+            params: WebChromeClient.FileChooserParams,
+        ): Boolean
     }
 
     private val webViews = mutableMapOf<Long, WebView>()
@@ -849,6 +861,15 @@ class WebViewHolder(
                     customViewTabId = tabId
                     listener.onFullscreenVideo(view)
                 }
+
+                // v4.8 File uploads: route <input type="file"> to the Activity's system picker.
+                // Without this override no callback path exists and upload buttons on every
+                // site silently do nothing.
+                override fun onShowFileChooser(
+                    view: WebView,
+                    filePathCallback: ValueCallback<Array<Uri>>,
+                    fileChooserParams: FileChooserParams,
+                ): Boolean = listener.onShowFileChooser(filePathCallback, fileChooserParams)
 
                 override fun onHideCustomView() {
                     // Engine-initiated hide (e.g. the page itself exited fullscreen, or
