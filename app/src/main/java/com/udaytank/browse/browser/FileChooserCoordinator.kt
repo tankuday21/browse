@@ -26,7 +26,14 @@ class FileChooserCoordinator<R : Any> {
      * resolves [callback] null right away — the input must not be left stuck.
      */
     fun begin(callback: (R?) -> Unit, launch: () -> Boolean) {
-        pending?.invoke(null)
+        // Drain the slot (clear-and-capture, mirroring finish()) until it stays empty: a
+        // reentrant begin() from inside a stale callback's null-resolution re-fills it, and
+        // storing over that registration would orphan it — a callback that never resolves.
+        while (true) {
+            val stale = pending ?: break
+            pending = null
+            stale.invoke(null)
+        }
         pending = callback
         if (!launch()) {
             pending = null

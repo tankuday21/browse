@@ -72,6 +72,26 @@ class FileChooserCoordinatorTest {
     }
 
     @Test
+    fun `reentrant begin from inside a superseded callback is not orphaned`() {
+        val coordinator = FileChooserCoordinator<List<String>>()
+        val inner = Recorder()
+        val outer = Recorder()
+        var firstCount = 0
+        coordinator.begin(
+            callback = {
+                firstCount++
+                // First chooser superseded; its resolution reentrantly opens another one.
+                coordinator.begin(inner.callback) { true }
+            },
+        ) { true }
+        coordinator.begin(outer.callback) { true } // supersedes: first → null, inner drained → null
+        coordinator.finish(listOf("picked"))
+        assertEquals(1, firstCount)
+        assertEquals(listOf<List<String>?>(null), inner.received) // resolved, never orphaned
+        assertEquals(listOf<List<String>?>(listOf("picked")), outer.received)
+    }
+
+    @Test
     fun `reentrant begin from inside finish does not double-resolve`() {
         val coordinator = FileChooserCoordinator<List<String>>()
         val second = Recorder()
