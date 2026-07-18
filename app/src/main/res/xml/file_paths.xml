@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-files-path name="downloads" path="Download/" />
+    <!-- v5.3: camera-capture temp files for <input type="file" capture> uploads. -->
+    <cache-path name="captures" path="captures/" />
 </paths>

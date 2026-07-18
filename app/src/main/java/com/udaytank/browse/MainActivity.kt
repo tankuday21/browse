@@ -74,6 +74,9 @@ class MainActivity : FragmentActivity() {
     private companion object {
         /** Intent extra carried by the static launcher shortcuts (res/xml/shortcuts.xml). */
         const val SHORTCUT_EXTRA = "andromeda.shortcut"
+
+        /** Age after which an orphaned camera-capture temp file is reaped (v5.3). */
+        const val CAPTURE_TTL_MS = 86_400_000L // 1 day
     }
 
     private val viewModel: BrowserViewModel by viewModels { BrowserViewModel.Factory }
@@ -94,18 +97,53 @@ class MainActivity : FragmentActivity() {
      */
     private val fileChooser = FileChooserCoordinator<Array<Uri>>()
 
+    /**
+     * The camera-capture temp file for the in-flight chooser (v5.3): the physical file (so we
+     * can check it received bytes and delete it when unused) + its FileProvider URI (what the
+     * camera writes to and what the page receives). One chooser at a time, like the callback.
+     */
+    private var pendingCapture: Pair<java.io.File, Uri>? = null
+
     /** System document picker for file uploads (v4.8). Field-registered — required pre-RESUMED. */
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data
         val clip = data?.clipData?.let { c -> List(c.itemCount) { c.getItemAt(it).uri } } ?: emptyList()
-        val uris = FileUploads.parseChooserResult(
+        val picked = FileUploads.parseChooserResult(
             ok = result.resultCode == RESULT_OK,
             single = data?.data,
             clip = clip,
         )
+        // v5.3: camera apps return RESULT_OK with a null data intent — the capture file is the
+        // result, but only when the camera actually wrote bytes into it.
+        val capture = pendingCapture
+        pendingCapture = null
+        val captureHasData = result.resultCode == RESULT_OK && capture != null && capture.first.length() > 0L
+        val uris = FileUploads.resolveUploadResult(picked, capture?.second, captureHasData)
+        // A temp file the page didn't receive (picker chosen, or canceled) is deleted now.
+        if (capture != null && uris?.contains(capture.second) != true) capture.first.delete()
         fileChooser.finish(uris?.toTypedArray())
+    }
+
+    /**
+     * Builds the ACTION_IMAGE_CAPTURE intent writing into a fresh cacheDir/captures temp file
+     * (v5.3), or null if the FileProvider URI can't be built. Also reaps stale capture files —
+     * orphans from crashes or process death that the result callback never cleaned up.
+     */
+    private fun makeCameraIntent(): Intent? {
+        val dir = java.io.File(cacheDir, "captures").apply { mkdirs() }
+        dir.listFiles()?.forEach {
+            if (System.currentTimeMillis() - it.lastModified() > CAPTURE_TTL_MS) it.delete()
+        }
+        val file = java.io.File(dir, "upload-${System.currentTimeMillis()}.jpg")
+        val uri = runCatching {
+            androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
+        }.getOrNull() ?: return null
+        pendingCapture = file to uri
+        return Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+            .putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
     }
 
     /**
@@ -132,11 +170,33 @@ class MainActivity : FragmentActivity() {
             }
         }
         val title = params.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a file"
+
+        // v5.3: a superseded chooser's unused temp file is deleted before arming a new one.
+        pendingCapture?.first?.delete()
+        pendingCapture = null
+        // cameraAvailable = the CAMERA permission is HELD: the manifest declares it (WebRTC/QR),
+        // and Android forbids ACTION_IMAGE_CAPTURE from apps that declare-but-don't-hold it.
+        val mode = FileUploads.captureMode(
+            mimeTypes,
+            captureEnabled = params.isCaptureEnabled,
+            cameraAvailable = androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.CAMERA
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+        )
+        val cameraIntent = if (mode != FileUploads.CaptureMode.None) makeCameraIntent() else null
+        val launchIntent = when {
+            mode == FileUploads.CaptureMode.Direct && cameraIntent != null -> cameraIntent
+            cameraIntent != null -> Intent.createChooser(intent, title)
+                .putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+            else -> Intent.createChooser(intent, title)
+        }
         fileChooser.begin(callback = { filePathCallback.onReceiveValue(it) }) {
             try {
-                fileChooserLauncher.launch(Intent.createChooser(intent, title))
+                fileChooserLauncher.launch(launchIntent)
                 true
             } catch (_: ActivityNotFoundException) {
+                pendingCapture?.first?.delete()
+                pendingCapture = null
                 false
             }
         }
