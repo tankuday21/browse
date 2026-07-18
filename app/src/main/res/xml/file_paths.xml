@@ -3,4 +3,6 @@
     <external-files-path name="downloads" path="Download/" />
     <!-- v5.3: camera-capture temp files for <input type="file" capture> uploads. -->
     <cache-path name="captures" path="captures/" />
+    <!-- v5.4: the shared "page as QR" PNG (single overwritten file). -->
+    <cache-path name="qr" path="qr/" />
 </paths>
