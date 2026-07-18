@@ -1794,8 +1794,14 @@ class BrowserViewModel(
             ?: tabs.value.find { it.id == activeTabId.value }
         val incognito = parent?.isIncognito == true
         val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
-        val orbitId = if (incognito) null else parent?.orbitId ?: activeOrbitId.value
-        viewModelScope.launch { tabManager.newTab(url, incognito, groupId, orbitId = orbitId) }
+        val orbitId = if (incognito) null else (parent?.orbitId ?: activeOrbitId.value)
+        // Foreground only while the popup's parent is still the tab the user is looking at.
+        // Activating a tab from another Orbit/mode would break the active-tab ↔ active-Orbit
+        // invariant (the switcher filters by activeOrbitId — the active tab would vanish).
+        val foreground = parent?.id == activeTabId.value
+        viewModelScope.launch {
+            tabManager.newTab(url, incognito, groupId, orbitId = orbitId, foreground = foreground)
+        }
     }
 
     fun onTitleUpdated(tabId: Long, url: String, title: String) {

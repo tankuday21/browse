@@ -924,11 +924,28 @@ class WebViewHolder(
                     // (safe to destroy synchronously — we're not inside ITS callback).
                     popupInterceptors.remove(tabId)?.destroy()
                     val interceptor = WebView(context)
+                    // The interceptor must never touch the network or disk: no JS (default),
+                    // no cache writes, and — decisive — shouldInterceptRequest below blanks
+                    // every request. An incognito/Orbit parent's popup must not leak a request
+                    // through the default profile's cookies before capture.
+                    interceptor.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    if (incognito && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                        runCatching {
+                            val store = androidx.webkit.ProfileStore.getInstance()
+                            androidx.webkit.WebViewCompat.setProfile(
+                                interceptor, store.getOrCreateProfile("incognito").name
+                            )
+                        }
+                    }
                     var captured = false
                     val capture = capture@{ url: String? ->
                         if (captured || url.isNullOrBlank() || url == "about:blank") return@capture
                         captured = true
-                        if (popupInterceptors[tabId] === interceptor) popupInterceptors.remove(tabId)
+                        // Superseded or parent-closed interceptors are already destroyed —
+                        // a late engine callback must not resurrect the dropped popup (or
+                        // double-destroy). Identity gates the WHOLE capture, not just removal.
+                        if (popupInterceptors[tabId] !== interceptor) return@capture
+                        popupInterceptors.remove(tabId)
                         // Never destroy a WebView synchronously from inside its own engine
                         // callback; an unattached View's post() never runs, so use the handler.
                         mainHandler.post { interceptor.destroy() }
@@ -940,15 +957,34 @@ class WebViewHolder(
                             return true // never actually load in the interceptor
                         }
 
-                        // Belt-and-braces: some engine paths start the child load without
-                        // routing through shouldOverrideUrlLoading first.
+                        // Belt-and-braces: some engine paths (e.g. POST navigations, which
+                        // shouldOverrideUrlLoading contractually skips) start the child load
+                        // directly. A start means a request may be in flight — stop it.
                         override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
+                            v.stopLoading()
                             capture(url)
                         }
+
+                        // The guarantee: whatever callback path the engine picks, no request
+                        // from the interceptor ever reaches the network.
+                        override fun shouldInterceptRequest(
+                            v: WebView,
+                            request: WebResourceRequest,
+                        ): WebResourceResponse =
+                            WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
                     }
                     popupInterceptors[tabId] = interceptor
                     transport.webView = interceptor
                     resultMsg.sendToTarget()
+                    // A popup that never navigates (about:blank + document.write) would pin a
+                    // renderer-backed WebView for the tab's lifetime — reap it after a grace
+                    // period. Identity check keeps this a no-op once captured/superseded/closed.
+                    mainHandler.postDelayed({
+                        if (popupInterceptors[tabId] === interceptor) {
+                            popupInterceptors.remove(tabId)
+                            interceptor.destroy()
+                        }
+                    }, INTERCEPTOR_REAP_MS)
                     return true
                 }
 
@@ -1130,6 +1166,9 @@ class WebViewHolder(
     }
 
     private companion object {
+        /** Grace period before an un-navigated popup interceptor is reaped (v5.0). */
+        const val INTERCEPTOR_REAP_MS = 10_000L
+
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 

@@ -34,14 +34,41 @@ for free: HTTPS-Only, ad-block, Safe Browsing, and the v4.9 external-scheme hand
 straight to `upi:`/`intent://` lands in the confirm prompt — gesture bit is gone by then, which
 is exactly right for a popup).
 
+## Interceptor containment (review-hardened)
+
+The interceptor must never touch network or disk — an incognito/Orbit parent's popup must not
+leak a request through the default profile before capture:
+- `shouldInterceptRequest` blanks EVERY request (the decisive layer, whatever callback path the
+  engine picks);
+- `onPageStarted` calls `stopLoading()` before capturing (POST navigations skip
+  `shouldOverrideUrlLoading` contractually);
+- `cacheMode = LOAD_NO_CACHE`, JS off (default), incognito parents get the incognito profile as
+  a final belt;
+- capture is identity-gated on the interceptor map — a late engine callback after supersede or
+  parent-close must not resurrect a dropped popup or double-destroy;
+- un-navigated interceptors are reaped after a 10s grace period (no pinned renderer).
+
+## Foregrounding rule
+
+The popup foregrounds only while its parent is still the active tab (the overwhelmingly common
+case — capture is near-instant). If the user already switched tab/Orbit/mode, the popup opens
+in the background: activating a tab from another Orbit would break the active-tab ↔
+active-Orbit invariant the tab switcher's filter relies on. `TabManager.newTab` gained a
+`foreground: Boolean = true` parameter for this.
+
 ## Honest limits (documented, deliberate)
 
 - **`window.opener` is severed.** The popup opens as an independent tab; OAuth popups that
   `postMessage` back to their opener won't complete. Phase 2 (transport adoption) fixes this;
   most sign-in flows offer a redirect fallback.
+- **A form POST to `target="_blank"` degrades to a GET of the action URL** — the body can't be
+  captured (POSTs bypass `shouldOverrideUrlLoading` and `onPageStarted` only exposes the URL).
+  Rare pattern; Phase 2's transport adoption fixes it properly.
 - A popup that never navigates (about:blank + `document.write`) is dropped — its interceptor
-  is destroyed with the parent tab.
-- No "popup blocked" UI for gesture-less attempts (engine + gate just refuse).
+  is reaped after 10s.
+- No "popup blocked" UI for gesture-less attempts (engine + gate just refuse). Gesture-less
+  `target="_blank"` clicks simulated by JS previously loaded in-place; they are now blocked —
+  intended popup-blocker behavior, Chrome-consistent.
 
 ## Incognito
 

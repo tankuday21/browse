@@ -316,9 +316,25 @@ class BrowserViewModelTest {
         vm.onNewIncognitoTab(); advanceUntilIdle()
         val incognitoParent = vm.activeTabId.value!!
         vm.onNewTab(); advanceUntilIdle() // user switched away — a NORMAL tab is now active
+        val activeBefore = vm.activeTabId.value
         vm.onPopupWindow(incognitoParent, "https://late-popup.com"); advanceUntilIdle()
         val popup = vm.tabs.value.first { it.url == "https://late-popup.com" }
         assertTrue(popup.isIncognito) // inherits the PARENT's mode, not the active tab's
+        // The parent is no longer what the user is looking at → the popup must NOT foreground
+        // (activating a tab from another mode/Orbit breaks the switcher's invariant).
+        assertEquals(activeBefore, vm.activeTabId.value)
+        assertFalse(popup.isActive)
+    }
+
+    @Test
+    fun `popup inherits its parent tab's Orbit`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewTab(); advanceUntilIdle() // explicit tab — carries the active Orbit id
+        val parent = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        vm.onPopupWindow(parent.id, "https://orbit-popup.com"); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.url == "https://orbit-popup.com" }
+        assertEquals(parent.orbitId, popup.orbitId)
+        assertEquals(popup.id, vm.activeTabId.value) // parent was active → popup foregrounds
     }
 
     @Test

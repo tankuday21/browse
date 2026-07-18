@@ -57,12 +57,17 @@ class TabManager(
      * [orbitId] is the Orbit a new non-incognito tab should persist as belonging to. Incognito
      * tabs never carry an Orbit (they're ephemeral and isolated by construction), so [orbitId] is
      * forced to null for them regardless of what's passed in.
+     *
+     * [foreground] = false adds the tab WITHOUT activating it (v5.0 popups whose parent is no
+     * longer the tab the user is looking at — activating a tab from another Orbit/mode would
+     * break the active-tab ↔ active-Orbit invariant the tab switcher relies on).
      */
     suspend fun newTab(
         url: String,
         incognito: Boolean = false,
         groupId: Long? = null,
         orbitId: Long? = null,
+        foreground: Boolean = true,
     ): Long {
         val position = (_tabs.value.maxOfOrNull { it.position } ?: -1) + 1
         val effectiveOrbitId = if (incognito) null else orbitId
@@ -71,18 +76,24 @@ class TabManager(
         } else {
             tabDao.insert(
                 TabEntity(
-                    url = url, title = url, position = position, isActive = true,
+                    url = url, title = url, position = position, isActive = foreground,
                     groupId = groupId, orbitId = effectiveOrbitId,
                 )
             )
         }
-        _tabs.value = _tabs.value.map { it.copy(isActive = false) } +
-            TabEntity(
-                id = id, url = url, title = url, position = position, isActive = true,
-                isIncognito = incognito, groupId = groupId, orbitId = effectiveOrbitId,
-            )
-        _activeTabId.value = id
-        if (!incognito) tabDao.setActive(id)
+        val entity = TabEntity(
+            id = id, url = url, title = url, position = position, isActive = foreground,
+            isIncognito = incognito, groupId = groupId, orbitId = effectiveOrbitId,
+        )
+        _tabs.value = if (foreground) {
+            _tabs.value.map { it.copy(isActive = false) } + entity
+        } else {
+            _tabs.value + entity
+        }
+        if (foreground) {
+            _activeTabId.value = id
+            if (!incognito) tabDao.setActive(id)
+        }
         return id
     }
 
