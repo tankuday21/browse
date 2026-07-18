@@ -46,7 +46,7 @@ class IntentHardeningTest {
     @Test
     fun grantFlagsAreReplacedWholesale() {
         val hostile = parse(
-            "intent://x#Intent;scheme=zxing;launchFlags=0x00000043;end" // GRANT_READ|GRANT_WRITE|NEW_TASK
+            "intent://x#Intent;scheme=zxing;launchFlags=0x00000043;end" // GRANT_READ|GRANT_WRITE|FROM_BACKGROUND
         )
         val hardened = IntentHardening.harden(hostile, self)!!
         assertEquals(Intent.FLAG_ACTIVITY_NEW_TASK, hardened.flags)

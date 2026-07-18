@@ -36,6 +36,7 @@ object IntentHardening {
         }
         parsed.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         parsed.replaceExtras(null as android.os.Bundle?)
+        parsed.clipData = null // belt-and-braces: grant flags are gone, so carry no URIs either
         if (parsed.`package` == selfPackage) parsed.`package` = null
         return parsed
     }
