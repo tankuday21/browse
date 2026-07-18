@@ -28,8 +28,12 @@ object QrPayload {
     fun classify(raw: String): Payload {
         val text = raw.trim()
         if (text.isEmpty()) return Payload.Text(text)
-        if (text.startsWith("http://", ignoreCase = true) || text.startsWith("https://", ignoreCase = true)) {
-            return Payload.Web(text)
+        val isHttp = text.startsWith("http://", ignoreCase = true) ||
+            text.startsWith("https://", ignoreCase = true)
+        if (isHttp) {
+            // A URL never contains interior whitespace; a payload like "https://x\nmore" is
+            // structured data, not a URL — show it as text rather than loading a mangled URL.
+            return if (text.any { it.isWhitespace() }) Payload.Text(text) else Payload.Web(text)
         }
         // QR text is arbitrary (unlike WebView navigations, which are always absolute URIs):
         // a DOTTED first segment is a domain, not a scheme — "example.com/menu" and even

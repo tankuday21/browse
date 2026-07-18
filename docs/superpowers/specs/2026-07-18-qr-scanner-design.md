@@ -26,7 +26,12 @@ No new manifest permissions — `CAMERA` is already declared (WebRTC prompts use
 ## Scan screen — `ui/QrScanScreen.kt`
 
 - Camera permission via `rememberLauncherForActivityResult(RequestPermission)`; denied state
-  shows an inline explanation + retry (no dead screen).
+  shows an inline explanation + retry (no dead screen). A PERMANENT denial (Android 11+ returns
+  denied with no dialog) is detected via `shouldShowRequestPermissionRationale` and the button
+  switches to "Open Settings" (`ACTION_APPLICATION_DETAILS_SETTINGS`) rather than a futile retry.
+- **Async-bind safety:** the `ProcessCameraProvider` future resolves on the main thread; a
+  `disposed` flag (set in `onDispose`) plus a DESTROYED-lifecycle check make the listener bail
+  out if the screen was popped before init finished (binding to a dead lifecycle would crash).
 - CameraX `PreviewView` in an `AndroidView`, back camera, `ImageAnalysis`
   (STRATEGY_KEEP_ONLY_LATEST) feeding ZXing (`MultiFormatReader`, QR_CODE only) with the
   Y-plane as `PlanarYUVLuminanceSource` (QR finder patterns are rotation-invariant).
@@ -40,8 +45,10 @@ No new manifest permissions — `CAMERA` is already declared (WebRTC prompts use
 - **Web(url)** → `viewModel.onOpenInNewTab(url)`, pop back to browser.
 - **App(url)** → user-initiated by construction (they aimed the camera), so dispatch directly:
   `intent://` through `IntentHardening.harden` (same component/BROWSABLE/flags/extras rules as
-  v4.9), everything else as `ACTION_VIEW` + NEW_TASK; `RuntimeException`-wide catch → toast
-  "No app can open this code". Pop back.
+  v4.9), everything else as `ACTION_VIEW` + NEW_TASK; `RuntimeException`-wide catch AND
+  parse/harden-failure both → toast "No app can open this code". Pop back.
+- Each result callback fires through the nav entry's RESUMED check, so a decode landing the
+  same frame as a manual Close can't double-pop the back stack.
 - **Text(raw)** → stays on the scan screen: result card with the text, Copy and Search
   buttons; Search runs `UrlInput.toLoadableUrl(text, searchEngine)` in a new tab (VM
   `onSearchFromQr`).

@@ -297,6 +297,15 @@ class BrowserViewModelTest {
         assertEquals(group.id, child.groupId)
     }
 
+    @Test
+    fun `onSearchFromQr opens a search-url tab for plain text`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onSearchFromQr("hello there"); advanceUntilIdle()
+        val tab = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        // Non-URL text becomes a search query on the active engine, not a navigation.
+        assertTrue(tab.url.contains("hello") && tab.url.startsWith("http"))
+    }
+
     // --- popups (v5.0: window.open / target="_blank" → new tab) ---
 
     @Test

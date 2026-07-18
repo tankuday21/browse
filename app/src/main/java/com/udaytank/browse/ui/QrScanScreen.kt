@@ -128,7 +128,14 @@ fun QrScanScreen(
                     text = text,
                     onCopy = {
                         val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
-                        clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("qr", text))
+                        // A scanned code can be a WiFi password — flag it sensitive so Android 13+
+                        // keeps it out of the clipboard preview.
+                        val clip = android.content.ClipData.newPlainText("qr", text).apply {
+                            description.extras = android.os.PersistableBundle().apply {
+                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                            }
+                        }
+                        clipboard?.setPrimaryClip(clip)
                     },
                     onSearch = { onSearch(text) },
                     onScanAgain = { textResult = null; decoded.set(false) },
@@ -136,24 +143,41 @@ fun QrScanScreen(
                 )
             }
         } else {
-            // Denied (or not yet granted): explain + retry — never a dead black screen.
+            // Denied (or not yet granted): explain + retry — never a dead black screen. After a
+            // permanent denial (Android 11+ returns denied with no dialog), the system prompt
+            // can't reappear, so send the user to app settings instead of a futile retry.
+            val activity = context as? android.app.Activity
+            val permanentlyDenied = permissionAsked && activity != null &&
+                !activity.shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
             Column(
                 modifier = Modifier.fillMaxSize().padding(OrbitSpacing.xxl),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    "Camera access is needed to scan QR codes",
+                    if (permanentlyDenied) "Camera access is blocked. Enable it in Settings to scan QR codes."
+                    else "Camera access is needed to scan QR codes",
                     style = orbitBody,
                     color = Color.White,
                     textAlign = TextAlign.Center,
                 )
                 if (permissionAsked) {
                     Button(
-                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        onClick = {
+                            if (permanentlyDenied) {
+                                context.startActivity(
+                                    android.content.Intent(
+                                        android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        android.net.Uri.fromParts("package", context.packageName, null),
+                                    )
+                                )
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
                         shape = RoundedCornerShape(OrbitRadii.pill),
                         modifier = Modifier.padding(top = OrbitSpacing.lg),
-                    ) { Text("Grant camera access", style = orbitBody) }
+                    ) { Text(if (permanentlyDenied) "Open Settings" else "Grant camera access", style = orbitBody) }
                 }
             }
         }
@@ -175,9 +199,14 @@ private fun ScannerPreview(decoded: AtomicBoolean, onDecoded: (String) -> Unit) 
     var provider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var torchOn by remember { mutableStateOf(false) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    // The provider future resolves async on the main thread; if the screen is disposed (fast
+    // back-out) before it fires, binding to a destroyed lifecycle would crash. This flag lets
+    // the listener bail out.
+    val disposed = remember { AtomicBoolean(false) }
 
     DisposableEffect(Unit) {
         onDispose {
+            disposed.set(true)
             provider?.unbindAll()
             analysisExecutor.shutdown()
         }
@@ -190,6 +219,13 @@ private fun ScannerPreview(decoded: AtomicBoolean, onDecoded: (String) -> Unit) 
                 val previewView = PreviewView(ctx)
                 val future = ProcessCameraProvider.getInstance(ctx)
                 future.addListener({
+                    // Disposed (or lifecycle already dead) before init finished — do not bind.
+                    if (disposed.get() ||
+                        lifecycleOwner.lifecycle.currentState == androidx.lifecycle.Lifecycle.State.DESTROYED
+                    ) {
+                        runCatching { future.get().unbindAll() }
+                        return@addListener
+                    }
                     val cameraProvider = future.get()
                     provider = cameraProvider
                     val preview = Preview.Builder().build().also {
@@ -215,6 +251,10 @@ private fun ScannerPreview(decoded: AtomicBoolean, onDecoded: (String) -> Unit) 
                             val text = try {
                                 reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
                             } catch (_: NotFoundException) {
+                                null
+                            } catch (_: RuntimeException) {
+                                // ZXing can throw AIOOBE etc. on garbage frames; an uncaught
+                                // throwable on this executor thread would kill the process.
                                 null
                             } finally {
                                 reader.reset()

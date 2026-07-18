@@ -328,9 +328,12 @@ class MainActivity : FragmentActivity() {
      * page links, and any launch failure degrades to a toast, never a crash.
      */
     private fun openQrAppLink(url: String) {
+        fun noApp() =
+            android.widget.Toast.makeText(this, "No app can open this code", android.widget.Toast.LENGTH_SHORT).show()
         val intent = if (url.startsWith("intent:", ignoreCase = true)) {
-            val parsed = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull() ?: return
-            IntentHardening.harden(parsed, packageName) ?: return
+            val parsed = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull()
+                ?: return noApp()
+            IntentHardening.harden(parsed, packageName) ?: return noApp()
         } else {
             Intent(Intent.ACTION_VIEW, Uri.parse(url))
         }
@@ -338,7 +341,7 @@ class MainActivity : FragmentActivity() {
         try {
             startActivity(intent)
         } catch (_: RuntimeException) {
-            android.widget.Toast.makeText(this, "No app can open this code", android.widget.Toast.LENGTH_SHORT).show()
+            noApp()
         }
     }
 
@@ -742,20 +745,20 @@ class MainActivity : FragmentActivity() {
                             onBack = { navController.popBackStack() },
                         )
                     }
-                    composable("qrscan") {
+                    composable("qrscan") { entry ->
+                        // A decode arrives via previewView.post and could land the same frame the
+                        // user taps Close — both pop. Only act while this entry is still resumed,
+                        // so a late decode after a manual back-out is dropped (no double-pop).
+                        fun ifResumed(action: () -> Unit) {
+                            if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                action()
+                                navController.popBackStack()
+                            }
+                        }
                         com.udaytank.browse.ui.QrScanScreen(
-                            onOpenWeb = { url ->
-                                viewModel.onOpenInNewTab(url)
-                                navController.popBackStack()
-                            },
-                            onOpenApp = { url ->
-                                openQrAppLink(url)
-                                navController.popBackStack()
-                            },
-                            onSearch = { text ->
-                                viewModel.onSearchFromQr(text)
-                                navController.popBackStack()
-                            },
+                            onOpenWeb = { url -> ifResumed { viewModel.onOpenInNewTab(url) } },
+                            onOpenApp = { url -> ifResumed { openQrAppLink(url) } },
+                            onSearch = { text -> ifResumed { viewModel.onSearchFromQr(text) } },
                             onBack = { navController.popBackStack() },
                         )
                     }

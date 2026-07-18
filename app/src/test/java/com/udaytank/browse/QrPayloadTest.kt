@@ -57,4 +57,28 @@ class QrPayloadTest {
         assertEquals(Payload.Text("just-a-token"), QrPayload.classify("just-a-token"))
         assertEquals(Payload.Text(""), QrPayload.classify("   "))
     }
+
+    @Test
+    fun `tel and sms schemes dispatch as app`() {
+        assertEquals(Payload.App("tel:+15551234"), QrPayload.classify("tel:+15551234"))
+        assertEquals(Payload.App("sms:+15551234"), QrPayload.classify("sms:+15551234"))
+    }
+
+    @Test
+    fun `an IP address is treated as a web address`() {
+        assertEquals(Payload.Web("https://192.168.1.1"), QrPayload.classify("192.168.1.1"))
+    }
+
+    @Test
+    fun `a dotted version token is treated as text, not a web address`() {
+        // java.net.URI rejects "v1.2.3" as an authority (UrlHosts.of returns null), so the
+        // bare-domain heuristic doesn't fire — it stays text and the Search action can act on
+        // it, rather than opening a dead tab.
+        assertEquals(Payload.Text("v1.2.3"), QrPayload.classify("v1.2.3"))
+    }
+
+    @Test
+    fun `an http payload with interior whitespace is text, not a mangled url`() {
+        assertEquals(Payload.Text("https://x.com\nignore this"), QrPayload.classify("https://x.com\nignore this"))
+    }
 }
