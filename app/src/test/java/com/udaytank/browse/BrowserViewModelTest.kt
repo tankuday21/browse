@@ -296,6 +296,50 @@ class BrowserViewModelTest {
         assertEquals(group.id, child.groupId)
     }
 
+    // --- popups (v5.0: window.open / target="_blank" → new tab) ---
+
+    @Test
+    fun `popup from incognito parent stays incognito with no orbit`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewIncognitoTab(); advanceUntilIdle()
+        val parentId = vm.activeTabId.value!!
+        vm.onPopupWindow(parentId, "https://popup.com"); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.url == "https://popup.com" }
+        assertTrue(popup.isIncognito)
+        assertNull(popup.orbitId)
+        assertEquals(popup.id, vm.activeTabId.value) // popups foreground, like open-in-new-tab
+    }
+
+    @Test
+    fun `popup is keyed on its parent tab even when another tab is active`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewIncognitoTab(); advanceUntilIdle()
+        val incognitoParent = vm.activeTabId.value!!
+        vm.onNewTab(); advanceUntilIdle() // user switched away — a NORMAL tab is now active
+        vm.onPopupWindow(incognitoParent, "https://late-popup.com"); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.url == "https://late-popup.com" }
+        assertTrue(popup.isIncognito) // inherits the PARENT's mode, not the active tab's
+    }
+
+    @Test
+    fun `popup joins parent island when auto-islands on`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        val parentId = vm.tabs.value.first().id
+        vm.onCreateGroupWithTabs("Island", listOf(parentId)); advanceUntilIdle()
+        vm.onPopupWindow(parentId, "https://popup-child.com"); advanceUntilIdle()
+        val group = vm.tabGroups.value.single()
+        val popup = vm.tabs.value.first { it.url == "https://popup-child.com" }
+        assertEquals(group.id, popup.groupId)
+    }
+
+    @Test
+    fun `popup with unknown parent falls back to the active tab's context`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onPopupWindow(parentTabId = 9999L, "https://orphan-popup.com"); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.url == "https://orphan-popup.com" }
+        assertFalse(popup.isIncognito)
+    }
+
     @Test
     fun `reopen closed tab restores url and removes ring entry`() = runTest {
         val vm = vm(); advanceUntilIdle()

@@ -1782,6 +1782,22 @@ class BrowserViewModel(
         onContextMenuDismissed()
     }
 
+    /**
+     * A page opened a popup — target="_blank" or gesture-backed window.open — and the holder
+     * captured its first URL (v5.0). Open it as a real tab inheriting the PARENT tab's context:
+     * its incognito mode (an incognito page's popup must stay incognito), its Orbit, and its
+     * island. Keyed on [parentTabId], not the active tab — the capture is asynchronous and the
+     * user could have switched tabs; if the parent is already gone, fall back to the active tab.
+     */
+    fun onPopupWindow(parentTabId: Long, url: String) {
+        val parent = tabs.value.find { it.id == parentTabId }
+            ?: tabs.value.find { it.id == activeTabId.value }
+        val incognito = parent?.isIncognito == true
+        val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
+        val orbitId = if (incognito) null else parent?.orbitId ?: activeOrbitId.value
+        viewModelScope.launch { tabManager.newTab(url, incognito, groupId, orbitId = orbitId) }
+    }
+
     fun onTitleUpdated(tabId: Long, url: String, title: String) {
         viewModelScope.launch {
             tabManager.onContentChanged(tabId, url, title)
