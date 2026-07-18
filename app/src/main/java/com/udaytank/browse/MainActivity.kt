@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import com.udaytank.browse.browser.FileChooserCoordinator
 import com.udaytank.browse.browser.FileUploads
 import com.udaytank.browse.browser.UrlHosts
 import kotlinx.coroutines.launch
@@ -86,12 +87,11 @@ class MainActivity : FragmentActivity() {
     private var fullscreenVideoView by mutableStateOf<View?>(null)
 
     /**
-     * The WebView's pending `<input type="file">` callback (v4.8). Exactly-once contract: every
-     * path (picked / cancelled / superseded / no picker app) resolves it with a value or null
-     * before it's cleared — never invoking it would leave the page's input stuck, invoking it
-     * twice throws.
+     * Exactly-once lifecycle of the WebView's pending `<input type="file">` callback (v4.8) —
+     * the state machine lives in [FileChooserCoordinator] (JVM unit-tested); this class only
+     * supplies the platform pieces (intent, launcher, MimeTypeMap).
      */
-    private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
+    private val fileChooser = FileChooserCoordinator<Array<Uri>>()
 
     /** System document picker for file uploads (v4.8). Field-registered — required pre-RESUMED. */
     private val fileChooserLauncher = registerForActivityResult(
@@ -104,21 +104,18 @@ class MainActivity : FragmentActivity() {
             single = data?.data,
             clip = clip,
         )
-        pendingFileChooser?.onReceiveValue(uris?.toTypedArray())
-        pendingFileChooser = null
+        fileChooser.finish(uris?.toTypedArray())
     }
 
     /**
      * Opens the system picker for a page's file input. Always consumes [filePathCallback]
-     * (returns true): a stale pending chooser is resolved null first, and a launch failure
-     * (no picker app) resolves null immediately rather than leaving the input stuck.
+     * (returns true): the coordinator supersedes any stale pending chooser (resolved null) and
+     * resolves null on launch failure rather than leaving the input stuck.
      */
     private fun showFileChooser(
         filePathCallback: ValueCallback<Array<Uri>>,
         params: WebChromeClient.FileChooserParams,
     ): Boolean {
-        pendingFileChooser?.onReceiveValue(null)
-        pendingFileChooser = filePathCallback
         val mimeTypes = FileUploads.normalizeAcceptTypes(params.acceptTypes.orEmpty().toList()) { ext ->
             MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
         }
@@ -127,15 +124,20 @@ class MainActivity : FragmentActivity() {
             // A single concrete type filters directly; several go via EXTRA_MIME_TYPES over */*.
             type = mimeTypes.singleOrNull() ?: "*/*"
             if (mimeTypes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+            // MODE_SAVE / MODE_OPEN_FOLDER: WebView never emits these; they fall through to
+            // a plain single-select picker.
             if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
         }
-        try {
-            fileChooserLauncher.launch(Intent.createChooser(intent, "Choose a file"))
-        } catch (_: ActivityNotFoundException) {
-            pendingFileChooser = null
-            filePathCallback.onReceiveValue(null)
+        val title = params.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a file"
+        fileChooser.begin(callback = { filePathCallback.onReceiveValue(it) }) {
+            try {
+                fileChooserLauncher.launch(Intent.createChooser(intent, title))
+                true
+            } catch (_: ActivityNotFoundException) {
+                false
+            }
         }
         return true
     }

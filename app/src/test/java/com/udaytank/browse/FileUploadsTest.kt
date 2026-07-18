@@ -34,10 +34,20 @@ class FileUploadsTest {
     }
 
     @Test
-    fun `blanks and unknown extensions are dropped`() {
+    fun `blanks are ignored`() {
         assertEquals(
             listOf("image/png"),
-            FileUploads.normalizeAcceptTypes(listOf("", "  ", ".xyzunknown", ".png"), toMime),
+            FileUploads.normalizeAcceptTypes(listOf("", "  ", ".png"), toMime),
+        )
+    }
+
+    @Test
+    fun `any unmappable entry abandons the whole filter`() {
+        // A partial filter would grey out exactly the type the page asked for (.dwg here) —
+        // empty result means the caller opens an unfiltered picker instead.
+        assertEquals(
+            emptyList<String>(),
+            FileUploads.normalizeAcceptTypes(listOf(".dwg", "image/png"), toMime),
         )
     }
 
@@ -50,8 +60,8 @@ class FileUploadsTest {
     }
 
     @Test
-    fun `bare words without dot or slash are dropped`() {
-        assertEquals(emptyList<String>(), FileUploads.normalizeAcceptTypes(listOf("jpg", "image"), toMime))
+    fun `bare words without dot or slash abandon the filter`() {
+        assertEquals(emptyList<String>(), FileUploads.normalizeAcceptTypes(listOf("jpg", ".png"), toMime))
     }
 
     @Test
