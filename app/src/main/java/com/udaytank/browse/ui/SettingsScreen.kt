@@ -616,6 +616,7 @@ private fun PrivacySecuritySettings(
     val gpcEnabled by viewModel.gpcEnabled.collectAsStateWithLifecycle()
     val httpsOnly by viewModel.httpsOnly.collectAsStateWithLifecycle()
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
+    val lockPasswords by viewModel.lockPasswords.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
     var showBlackHoleDialog by remember { mutableStateOf(false) }
 
@@ -724,6 +725,12 @@ private fun PrivacySecuritySettings(
                 title = "Lock incognito with biometrics",
                 checked = lockIncognito,
                 onCheckedChange = viewModel::onLockIncognitoToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Require screen lock for passwords",
+                checked = lockPasswords,
+                onCheckedChange = viewModel::onLockPasswordsToggled,
             )
         }
 

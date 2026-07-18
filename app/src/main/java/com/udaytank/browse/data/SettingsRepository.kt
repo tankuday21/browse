@@ -66,6 +66,9 @@ interface SettingsRepository {
     suspend fun setHttpsOnly(enabled: Boolean)
     val lockIncognito: Flow<Boolean>
     suspend fun setLockIncognito(enabled: Boolean)
+    /** Require device biometric/credential auth to open the Passwords screen (v5.1, default ON). */
+    val lockPasswords: Flow<Boolean>
+    suspend fun setLockPasswords(enabled: Boolean)
     val autoIslands: Flow<Boolean>
     suspend fun setAutoIslands(enabled: Boolean)
     val switcherListLayout: Flow<Boolean>
@@ -171,6 +174,13 @@ class DataStoreSettingsRepository(
     override val lockIncognito: Flow<Boolean> = dataStore.data.map { it[LOCK_INCOGNITO_KEY] ?: false }
     override suspend fun setLockIncognito(enabled: Boolean) {
         dataStore.edit { it[LOCK_INCOGNITO_KEY] = enabled }
+    }
+
+    // Default TRUE: saved passwords are gated out of the box; the no-screen-lock bypass
+    // (BiometricManager canAuthenticate) lives at the Activity layer, not here.
+    override val lockPasswords: Flow<Boolean> = dataStore.data.map { it[LOCK_PASSWORDS_KEY] ?: true }
+    override suspend fun setLockPasswords(enabled: Boolean) {
+        dataStore.edit { it[LOCK_PASSWORDS_KEY] = enabled }
     }
 
     override val autoIslands: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -451,6 +461,7 @@ class DataStoreSettingsRepository(
         val FORCE_DARK_KEY = booleanPreferencesKey("force_dark_websites")
         val HTTPS_ONLY_KEY = booleanPreferencesKey("https_only")
         val LOCK_INCOGNITO_KEY = booleanPreferencesKey("lock_incognito")
+        val LOCK_PASSWORDS_KEY = booleanPreferencesKey("lock_passwords")
         val AD_ALLOWED_SITES_KEY = stringSetPreferencesKey("ad_allowed_sites")
         val AD_BLOCK_LISTS_KEY = stringSetPreferencesKey("ad_block_lists")
         val AD_BLOCK_LAST_UPDATED_KEY = longPreferencesKey("ad_block_last_updated")

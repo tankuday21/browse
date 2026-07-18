@@ -183,6 +183,8 @@ class MainActivity : FragmentActivity() {
         if (viewModel.lockIncognito.value && viewModel.tabs.value.any { it.isIncognito }) {
             viewModel.onIncognitoLocked()
         }
+        // Re-lock the Passwords screen too (v5.1) — one auth lasts one foreground session.
+        viewModel.onPasswordsLocked()
         // Marks the opted-in tab keep-alive (and starts the media session) BEFORE pausing the
         // rest, so the tab we want to keep playing is already exempt when the pause sweep runs.
         maybeKeepBackgroundMediaAlive()
@@ -264,7 +266,23 @@ class MainActivity : FragmentActivity() {
         com.udaytank.browse.media.MediaHoldService.start(this, tabId, host, title)
     }
 
-    fun promptBiometricUnlock() {
+    fun promptBiometricUnlock() =
+        promptUnlock("Unlock incognito", "Verify it's you to view private tabs") {
+            viewModel.onIncognitoUnlocked()
+        }
+
+    /** v5.1 Passwords gate: same device auth, different copy + unlock target. */
+    fun promptPasswordsUnlock() =
+        promptUnlock("Unlock passwords", "Verify it's you to view saved passwords") {
+            viewModel.onPasswordsUnlocked()
+        }
+
+    /**
+     * Shared biometric/device-credential prompt (v5.1 — extracted from the incognito lock).
+     * Failure or cancel is deliberately a no-op: the gate simply stays up and the LockGate
+     * button is the retry path.
+     */
+    private fun promptUnlock(title: String, subtitle: String, onSuccess: () -> Unit) {
         val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
         val prompt = androidx.biometric.BiometricPrompt(
             this,
@@ -273,13 +291,17 @@ class MainActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(
                     result: androidx.biometric.BiometricPrompt.AuthenticationResult,
                 ) {
-                    viewModel.onIncognitoUnlocked()
+                    onSuccess()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    // Cancel/lockout/no-hardware: keep the gate up; the button retries.
                 }
             },
         )
         val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock incognito")
-            .setSubtitle("Verify it's you to view private tabs")
+            .setTitle(title)
+            .setSubtitle(subtitle)
             .setAllowedAuthenticators(
                 androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
                     androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -287,6 +309,16 @@ class MainActivity : FragmentActivity() {
             .build()
         prompt.authenticate(info)
     }
+
+    /**
+     * No-lockout rule (v5.1): a user with NO screen lock enrolled can't pass any auth — the
+     * passwords gate must not lock them out of their own passwords (Chrome behaves the same).
+     */
+    fun canAuthenticate(): Boolean =
+        androidx.biometric.BiometricManager.from(this).canAuthenticate(
+            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
 
     /**
      * Hands the active tab's page to the system print service (H5) — its dialog includes
@@ -684,10 +716,23 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                     composable("passwords") {
-                        PasswordsScreen(
-                            viewModel = viewModel,
-                            onBack = { navController.popBackStack() },
-                        )
+                        // v5.1: gated behind device auth (pref default ON). No-lockout rule:
+                        // without any enrolled screen lock the gate is skipped — auth can
+                        // never succeed, and users must not lose their own passwords.
+                        val lockPref by viewModel.lockPasswords.collectAsStateWithLifecycle()
+                        val pwLocked by viewModel.passwordsLocked.collectAsStateWithLifecycle()
+                        if (lockPref && pwLocked && canAuthenticate()) {
+                            com.udaytank.browse.ui.components.LockGate(
+                                title = "Passwords locked",
+                                subtitle = "Your saved logins are hidden. Verify to continue.",
+                                onUnlock = { promptPasswordsUnlock() },
+                            )
+                        } else {
+                            PasswordsScreen(
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
 
