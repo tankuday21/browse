@@ -129,6 +129,12 @@ fun PasswordsScreen(
         CredentialEditorSheet(
             existing = editorFor,
             reveal = { viewModel.revealCredential(it) },
+            hostPreview = viewModel::credentialHostPreview,
+            // Editing onto ANOTHER credential's (host, username) would REPLACE-destroy that
+            // credential's password — the sheet disables Save; the VM refuses too.
+            isDuplicate = { host, username ->
+                credentials.any { it.id != (editorFor?.id ?: -1L) && it.host == host && it.username == username }
+            },
             onSave = { host, username, password ->
                 val target = editorFor
                 if (target == null) {
@@ -151,6 +157,8 @@ fun PasswordsScreen(
 private fun CredentialEditorSheet(
     existing: CredentialEntity?,
     reveal: suspend (CredentialEntity) -> String?,
+    hostPreview: (String) -> String?,
+    isDuplicate: (host: String, username: String) -> Boolean,
     onSave: (host: String, username: String, password: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -162,6 +170,12 @@ private fun CredentialEditorSheet(
     LaunchedEffect(existing) {
         if (existing != null) password = reveal(existing) ?: ""
     }
+
+    // Inline validation mirrors exactly what the VM will accept, so Save can never be tapped
+    // on input the VM would silently refuse (the sheet would otherwise close looking saved).
+    val preview = hostPreview(host)
+    val hostInvalid = host.isNotBlank() && preview == null
+    val duplicate = preview != null && isDuplicate(preview, username.trim())
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaces.elevated) {
         Column(
@@ -179,6 +193,14 @@ private fun CredentialEditorSheet(
                 label = { Text("Site") },
                 placeholder = { Text("example.com") },
                 singleLine = true,
+                isError = hostInvalid || duplicate,
+                supportingText = {
+                    when {
+                        hostInvalid -> Text("Enter a site like example.com")
+                        duplicate -> Text("A login for this site and username already exists")
+                        else -> Text("Fills only on exactly this site")
+                    }
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -209,7 +231,7 @@ private fun CredentialEditorSheet(
             )
             Button(
                 onClick = { onSave(host, username, password); onDismiss() },
-                enabled = host.isNotBlank() && password.isNotEmpty(),
+                enabled = preview != null && password.isNotEmpty() && !duplicate,
                 shape = RoundedCornerShape(OrbitRadii.pill),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (existing == null) "Save" else "Update", style = orbitBody) }

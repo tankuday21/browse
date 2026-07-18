@@ -446,6 +446,58 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `edit with a failing cipher keeps the original credential (save-first ordering)`() = runTest {
+        val credDao = FakeCredentialDao()
+        // A cipher that can encrypt once (the initial add), then starts failing (Keystore hiccup).
+        var encryptsLeft = 1
+        val flakyCipher = object : com.udaytank.browse.data.CredentialCipher {
+            override fun encrypt(plain: String) =
+                if (encryptsLeft-- > 0) FakeCredentialCipher().encrypt(plain) else null
+            override fun decrypt(ciphertext: ByteArray, iv: ByteArray) =
+                FakeCredentialCipher().decrypt(ciphertext, iv)
+        }
+        val repo = com.udaytank.browse.data.CredentialRepository(credDao, flakyCipher, io = Dispatchers.Unconfined)
+        val vm = vm(credentialRepository = repo)
+        val sub = launch { vm.credentials.collect {} }
+        advanceUntilIdle()
+
+        vm.onAddCredential("bank.com", "alice", "only-copy"); advanceUntilIdle()
+        val id = credDao.items.value.single().id
+
+        // Key-changing edit while encryption is down: the save fails, so the delete must NOT
+        // run — delete-then-save here would have destroyed the only copy of the password.
+        vm.onEditCredential(id, "bank.com", "alice-renamed", "new-pw"); advanceUntilIdle()
+        val row = credDao.items.value.single()
+        assertEquals("alice", row.username)
+        assertEquals("only-copy", repo.reveal(row))
+        sub.cancel()
+    }
+
+    @Test
+    fun `garbage host is refused and an edit onto another credential's key is refused`() = runTest {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        val vm = vm(credentialRepository = repo)
+        val sub = launch { vm.credentials.collect {} }
+        advanceUntilIdle()
+
+        vm.onAddCredential("not a url", "x", "pw"); advanceUntilIdle()
+        assertTrue(credDao.items.value.isEmpty())
+
+        vm.onAddCredential("site.com", "alice", "pw-a"); advanceUntilIdle()
+        vm.onAddCredential("site.com", "bob", "pw-b"); advanceUntilIdle()
+        val aliceId = credDao.items.value.first { it.username == "alice" }.id
+
+        // Renaming alice → bob would REPLACE-destroy bob's password; the VM refuses.
+        vm.onEditCredential(aliceId, "site.com", "bob", "steal"); advanceUntilIdle()
+        assertEquals(2, credDao.items.value.size)
+        assertEquals("pw-b", repo.reveal(credDao.items.value.first { it.username == "bob" }))
+        sub.cancel()
+    }
+
+    @Test
     fun `passwords gate starts locked, unlock clears, re-lock sets`() = runTest {
         val vm = vm()
         advanceUntilIdle()

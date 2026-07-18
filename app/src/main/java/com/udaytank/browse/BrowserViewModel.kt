@@ -492,6 +492,13 @@ class BrowserViewModel(
         return UrlHosts.of(input) ?: UrlHosts.of("https://$input")
     }
 
+    /**
+     * Pure preview of how a typed site will be stored — null means it won't save. The editor
+     * sheet uses this to validate inline BEFORE enabling Save, so a refused host can never
+     * look saved (the sheet would otherwise close silently).
+     */
+    fun credentialHostPreview(raw: String): String? = normalizeCredentialHost(raw)
+
     /** Manually add a login into the active Orbit (v5.1). Blank host/password is refused. */
     fun onAddCredential(host: String, username: String, password: String) {
         val normHost = normalizeCredentialHost(host) ?: return
@@ -504,22 +511,27 @@ class BrowserViewModel(
     }
 
     /**
-     * Edit an existing login (v5.1). Same (host, username) upserts in place; a changed key
-     * deletes the old row first — the unique index includes username, so there is no in-place
-     * key mutation and delete-then-save keeps exactly one row.
+     * Edit an existing login (v5.1). Same (host, username) upserts in place. A changed key
+     * SAVES FIRST and deletes the old row only after the save succeeded — encryption can fail
+     * (Keystore hiccup), and delete-then-save would destroy the only copy of the credential.
+     * An edit landing on ANOTHER credential's key is refused outright: the REPLACE upsert
+     * would silently destroy that credential's password (the editor disables Save for this
+     * case too; this is the defense-in-depth layer).
      */
     fun onEditCredential(id: Long, host: String, username: String, password: String) {
         val original = credentials.value.find { it.id == id } ?: return
         val normHost = normalizeCredentialHost(host) ?: return
         if (password.isEmpty()) return
         val normUser = username.trim()
+        val keyChanged = original.host != normHost || original.username != normUser
+        if (keyChanged && credentials.value.any { it.id != id && it.host == normHost && it.username == normUser }) {
+            return
+        }
         viewModelScope.launch {
-            if (original.host != normHost || original.username != normUser) {
-                credentialRepository?.delete(id)
-            }
-            credentialRepository?.save(
+            val saved = credentialRepository?.save(
                 original.orbitId, normHost, normUser, password, System.currentTimeMillis()
-            )
+            ) == true
+            if (saved && keyChanged) credentialRepository?.delete(id)
         }
     }
 

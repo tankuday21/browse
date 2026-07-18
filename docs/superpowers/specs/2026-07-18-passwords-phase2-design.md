@@ -22,28 +22,40 @@ capture-only. Add both.
   `MainActivity.promptUnlock(title, subtitle, onSuccess)`; incognito keeps its copy semantics.
   Failure/cancel = gate stays (no state change) — and add the missing
   `onAuthenticationError` override as an explicit no-op with a comment (v4.7 gap).
-- **No-lockout rule:** if `BiometricManager.canAuthenticate(BIOMETRIC_WEAK or DEVICE_CREDENTIAL)`
-  is not SUCCESS (no screen lock enrolled at all), the gate is skipped — a user without a
-  screen lock must not lose access to their own passwords. (Chrome behaves the same.) The
-  Keystore encryption is unchanged — this is an app-level gate, not key-level auth.
+- **No-lockout rule, FAIL-CLOSED (review-hardened):** the gate is skipped only when
+  `KeyguardManager.isDeviceSecure` is false — the device provably has no screen lock, so auth
+  can never succeed and users must not lose their own passwords (Chrome parity). Deliberately
+  NOT `BiometricManager.canAuthenticate`: its non-SUCCESS codes (STATUS_UNKNOWN on API 28-29,
+  HW_UNAVAILABLE, …) occur on devices that DO have a PIN, where skipping would silently
+  disable the gate. The Keystore encryption is unchanged — app-level gate, not key-level auth.
+- **Recents protection:** `FLAG_SECURE` is set while the passwords route is on top (cleared on
+  leave) so a revealed password can't survive in the Recents thumbnail after re-lock.
+- **Known limitation:** multi-window focus loss doesn't fire `onStop`, so the unlocked screen
+  stays visible beside another app until the app truly backgrounds — same behavior as the
+  incognito lock.
 - **Fill stays ungated** (deliberate): filling never displays the password and is already
   user-tap-initiated per credential; Chrome's default is the same. Documented trade-off.
 
 ## Manual add / edit
 
-- **Add:** "+" action in the Passwords screen top bar → bottom sheet with Site (host),
-  Username, Password (with show/hide toggle per the app's form conventions) + Save. VM
-  `onAddCredential(host, username, password)`:
-  - host normalized: trimmed, lowercased; a pasted URL goes through `UrlHosts.of` first;
-  - rejected when host or password is blank (repo already fail-closes);
-  - saves into the ACTIVE Orbit via `credentialRepository.save(...)` (upsert semantics:
-    same (orbit, host, username) replaces — password change updates in place).
+- **Add:** an extended FAB ("Add login") → bottom sheet with Site (host), Username, Password
+  (show/hide toggle) + Save. VM `onAddCredential(host, username, password)`:
+  - host normalized via `UrlHosts` (same parser as capture/fill — a manual entry must fill on
+    the matching page); a pasted URL reduces to its host, a bare host gets an https:// probe;
+  - the sheet validates INLINE with `credentialHostPreview` — Save is disabled for a host the
+    VM would refuse (never a silent "looks saved but wasn't"), with supporting text; the hint
+    notes fills match exactly this host (no subdomain matching yet);
+  - a (host, username) that collides with an existing login disables Save too ("already
+    exists") — an accidental REPLACE must not silently destroy the other credential.
 - **Edit:** pencil action per row → same sheet prefilled (username/host; password prefilled
   via `reveal` — the screen is already behind the gate). VM
   `onEditCredential(id, host, username, password)`:
-  - if (host, username) unchanged → plain `save` (upsert replaces);
-  - if either changed → `delete(id)` then `save` (the unique index includes username, so
-    in-place mutation isn't possible; delete-then-save keeps one row).
+  - if (host, username) unchanged → plain `save` (upsert replaces in place);
+  - if the key changed → **save FIRST, delete the old row only after the save succeeded**
+    (review-hardened: encryption can fail on a Keystore hiccup, and delete-then-save would
+    destroy the only copy of the credential);
+  - an edit landing on ANOTHER credential's key is refused in the VM as defense-in-depth
+    (the sheet's duplicate check is the UX layer).
 - `updatedAt` = now on every write (existing repo behavior).
 
 ## Testing

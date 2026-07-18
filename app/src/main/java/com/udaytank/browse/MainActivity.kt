@@ -302,6 +302,9 @@ class MainActivity : FragmentActivity() {
         val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
+            // WEAK (not STRONG) + DEVICE_CREDENTIAL is deliberate: this is an app-level gate —
+            // the Keystore credential key is not auth-bound — and Chrome makes the same call.
+            // DEVICE_CREDENTIAL also forbids setNegativeButtonText (the PIN path replaces it).
             .setAllowedAuthenticators(
                 androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
                     androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -311,14 +314,15 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * No-lockout rule (v5.1): a user with NO screen lock enrolled can't pass any auth — the
-     * passwords gate must not lock them out of their own passwords (Chrome behaves the same).
+     * No-lockout rule (v5.1), FAIL-CLOSED: the gate is skipped only when the device provably
+     * has no screen lock enrolled (auth can never succeed, and users must not lose their own
+     * passwords — Chrome behaves the same). Deliberately NOT BiometricManager.canAuthenticate:
+     * that returns non-SUCCESS codes (STATUS_UNKNOWN on API 28-29, HW_UNAVAILABLE, …) on
+     * devices that DO have a PIN — where skipping would silently disable the gate even though
+     * the DEVICE_CREDENTIAL prompt would work fine via the keyguard.
      */
-    fun canAuthenticate(): Boolean =
-        androidx.biometric.BiometricManager.from(this).canAuthenticate(
-            androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        ) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+    fun hasDeviceLock(): Boolean =
+        getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure == true
 
     /**
      * Hands the active tab's page to the system print service (H5) — its dialog includes
@@ -716,12 +720,18 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                     composable("passwords") {
-                        // v5.1: gated behind device auth (pref default ON). No-lockout rule:
-                        // without any enrolled screen lock the gate is skipped — auth can
-                        // never succeed, and users must not lose their own passwords.
+                        // Keep this route out of Recents thumbnails and screenshots — a
+                        // revealed password must not survive in the Recents card after
+                        // re-lock (v5.1 review). Scoped to the route, cleared on leave.
+                        DisposableEffect(Unit) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+                        }
+                        // v5.1: gated behind device auth (pref default ON); hasDeviceLock is
+                        // the fail-closed no-lockout rule (see its KDoc).
                         val lockPref by viewModel.lockPasswords.collectAsStateWithLifecycle()
                         val pwLocked by viewModel.passwordsLocked.collectAsStateWithLifecycle()
-                        if (lockPref && pwLocked && canAuthenticate()) {
+                        if (lockPref && pwLocked && hasDeviceLock()) {
                             com.udaytank.browse.ui.components.LockGate(
                                 title = "Passwords locked",
                                 subtitle = "Your saved logins are hidden. Verify to continue.",
