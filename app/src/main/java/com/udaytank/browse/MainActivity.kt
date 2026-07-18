@@ -1,13 +1,19 @@
 package com.udaytank.browse
 
 import android.app.PictureInPictureParams
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Bundle
 import android.util.Rational
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -37,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import com.udaytank.browse.browser.FileUploads
 import com.udaytank.browse.browser.UrlHosts
 import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
@@ -77,6 +84,61 @@ class MainActivity : FragmentActivity() {
      *  Activity-scoped (not per-composition) state so the Compose tree, [onUserLeaveHint] and
      *  [onPictureInPictureModeChanged] all see the same value. */
     private var fullscreenVideoView by mutableStateOf<View?>(null)
+
+    /**
+     * The WebView's pending `<input type="file">` callback (v4.8). Exactly-once contract: every
+     * path (picked / cancelled / superseded / no picker app) resolves it with a value or null
+     * before it's cleared — never invoking it would leave the page's input stuck, invoking it
+     * twice throws.
+     */
+    private var pendingFileChooser: ValueCallback<Array<Uri>>? = null
+
+    /** System document picker for file uploads (v4.8). Field-registered — required pre-RESUMED. */
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        val clip = data?.clipData?.let { c -> List(c.itemCount) { c.getItemAt(it).uri } } ?: emptyList()
+        val uris = FileUploads.parseChooserResult(
+            ok = result.resultCode == RESULT_OK,
+            single = data?.data,
+            clip = clip,
+        )
+        pendingFileChooser?.onReceiveValue(uris?.toTypedArray())
+        pendingFileChooser = null
+    }
+
+    /**
+     * Opens the system picker for a page's file input. Always consumes [filePathCallback]
+     * (returns true): a stale pending chooser is resolved null first, and a launch failure
+     * (no picker app) resolves null immediately rather than leaving the input stuck.
+     */
+    private fun showFileChooser(
+        filePathCallback: ValueCallback<Array<Uri>>,
+        params: WebChromeClient.FileChooserParams,
+    ): Boolean {
+        pendingFileChooser?.onReceiveValue(null)
+        pendingFileChooser = filePathCallback
+        val mimeTypes = FileUploads.normalizeAcceptTypes(params.acceptTypes.orEmpty().toList()) { ext ->
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        }
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            // A single concrete type filters directly; several go via EXTRA_MIME_TYPES over */*.
+            type = mimeTypes.singleOrNull() ?: "*/*"
+            if (mimeTypes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+            if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            }
+        }
+        try {
+            fileChooserLauncher.launch(Intent.createChooser(intent, "Choose a file"))
+        } catch (_: ActivityNotFoundException) {
+            pendingFileChooser = null
+            filePathCallback.onReceiveValue(null)
+        }
+        return true
+    }
 
     /**
      * Video went fullscreen while the user is leaving the app (e.g. Home button, recents) -
@@ -417,6 +479,11 @@ class MainActivity : FragmentActivity() {
 
                         override fun onFaviconBitmap(host: String, bitmap: android.graphics.Bitmap) =
                             viewModel.onFaviconBitmap(host, bitmap)
+
+                        override fun onShowFileChooser(
+                            filePathCallback: ValueCallback<Array<Uri>>,
+                            params: WebChromeClient.FileChooserParams,
+                        ): Boolean = showFileChooser(filePathCallback, params)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }
