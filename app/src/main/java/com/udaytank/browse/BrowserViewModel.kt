@@ -1847,6 +1847,11 @@ class BrowserViewModel(
         }
     }
 
+    /** v5.2 QR: search scanned plain text with the user's engine, in a new tab. */
+    fun onSearchFromQr(text: String) {
+        onOpenInNewTab(UrlInput.toLoadableUrl(text, searchEngine.value.queryUrl))
+    }
+
     /** New tabs opened from a page inherit that page's incognito mode and, when auto-islands is on, its group. */
     fun onOpenInNewTab(url: String) {
         val parent = tabs.value.find { it.id == activeTabId.value }
