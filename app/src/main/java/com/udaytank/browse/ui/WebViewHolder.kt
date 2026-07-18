@@ -86,6 +86,12 @@ class WebViewHolder(
         fun onFaviconBitmap(host: String, bitmap: Bitmap)
 
         /**
+         * A gesture-backed popup (target="_blank" / window.open) captured its first URL (v5.0);
+         * open it as a new tab inheriting [parentTabId]'s context (incognito/Orbit/island).
+         */
+        fun onCreateWindow(parentTabId: Long, url: String)
+
+        /**
          * The page requested a file picker for an `<input type="file">` (v4.8). Implementations
          * MUST invoke [filePathCallback] exactly once — with the picked URIs or null on
          * cancel/failure — and return true; returning false without touching the callback lets
@@ -100,6 +106,17 @@ class WebViewHolder(
     private val webViews = mutableMapOf<Long, WebView>()
     private var jsEnabled = true
     private var safeBrowsingEnabled = true
+
+    /**
+     * Pending popup interceptors keyed by parent tab (v5.0) — throwaway WebViews handed to the
+     * engine's WebViewTransport whose only job is to capture the popup's first URL. Removed on
+     * capture; destroyed with the parent tab so an about:blank popup that never navigates
+     * can't leak a WebView. UI-thread only.
+     */
+    private val popupInterceptors = mutableMapOf<Long, WebView>()
+
+    /** For deferred destruction of unattached WebViews (View.post never runs pre-attach). */
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
      * Pending Safe Browsing decisions, keyed by tab (D1). Written/read on the UI thread only
@@ -548,6 +565,11 @@ class WebViewHolder(
             settings.displayZoomControls = false
             // Global text scale baseline; onPageStarted re-resolves per site (override wins).
             settings.textZoom = globalTextScale
+            // v5.0 Popups: route target="_blank" / gesture-backed window.open through
+            // onCreateWindow (→ a real new tab) instead of replacing this page.
+            // javaScriptCanOpenWindowsAutomatically stays false — the engine itself suppresses
+            // gesture-less scripted window.open, our first popup-blocker layer.
+            settings.setSupportMultipleWindows(true)
             if (forceDark) applyForceDark(this, true)
             if (incognito) {
                 // Leave no local traces: no DOM storage, no cache writes.
@@ -885,6 +907,87 @@ class WebViewHolder(
                     listener.onFullscreenVideo(view)
                 }
 
+                // v5.0 Popups: target="_blank" / gesture-backed window.open. The engine demands
+                // a WebView synchronously via the transport, but our tabs are created async —
+                // so a throwaway interceptor WebView captures the popup's first URL, then a
+                // real tab opens it through the normal pipeline (HTTPS-Only, ad-block, v4.9
+                // external schemes all apply). window.opener is severed — documented limit.
+                override fun onCreateWindow(
+                    view: WebView,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: android.os.Message,
+                ): Boolean {
+                    if (!isUserGesture) return false // popup blocked, Chrome-style
+                    val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                    // One pending interceptor per tab: a second popup supersedes the first
+                    // (safe to destroy synchronously — we're not inside ITS callback).
+                    popupInterceptors.remove(tabId)?.destroy()
+                    val interceptor = WebView(context)
+                    // The interceptor must never touch the network or disk: no JS (default),
+                    // no cache writes, and — decisive — shouldInterceptRequest below blanks
+                    // every request. An incognito/Orbit parent's popup must not leak a request
+                    // through the default profile's cookies before capture.
+                    interceptor.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    if (incognito && WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                        runCatching {
+                            val store = androidx.webkit.ProfileStore.getInstance()
+                            androidx.webkit.WebViewCompat.setProfile(
+                                interceptor, store.getOrCreateProfile("incognito").name
+                            )
+                        }
+                    }
+                    var captured = false
+                    val capture = capture@{ url: String? ->
+                        if (captured || url.isNullOrBlank() || url == "about:blank") return@capture
+                        captured = true
+                        // Superseded or parent-closed interceptors are already destroyed —
+                        // a late engine callback must not resurrect the dropped popup (or
+                        // double-destroy). Identity gates the WHOLE capture, not just removal.
+                        if (popupInterceptors[tabId] !== interceptor) return@capture
+                        popupInterceptors.remove(tabId)
+                        // Never destroy a WebView synchronously from inside its own engine
+                        // callback; an unattached View's post() never runs, so use the handler.
+                        mainHandler.post { interceptor.destroy() }
+                        listener.onCreateWindow(tabId, url)
+                    }
+                    interceptor.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                            capture(request.url.toString())
+                            return true // never actually load in the interceptor
+                        }
+
+                        // Belt-and-braces: some engine paths (e.g. POST navigations, which
+                        // shouldOverrideUrlLoading contractually skips) start the child load
+                        // directly. A start means a request may be in flight — stop it.
+                        override fun onPageStarted(v: WebView, url: String?, favicon: Bitmap?) {
+                            v.stopLoading()
+                            capture(url)
+                        }
+
+                        // The guarantee: whatever callback path the engine picks, no request
+                        // from the interceptor ever reaches the network.
+                        override fun shouldInterceptRequest(
+                            v: WebView,
+                            request: WebResourceRequest,
+                        ): WebResourceResponse =
+                            WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+                    }
+                    popupInterceptors[tabId] = interceptor
+                    transport.webView = interceptor
+                    resultMsg.sendToTarget()
+                    // A popup that never navigates (about:blank + document.write) would pin a
+                    // renderer-backed WebView for the tab's lifetime — reap it after a grace
+                    // period. Identity check keeps this a no-op once captured/superseded/closed.
+                    mainHandler.postDelayed({
+                        if (popupInterceptors[tabId] === interceptor) {
+                            popupInterceptors.remove(tabId)
+                            interceptor.destroy()
+                        }
+                    }, INTERCEPTOR_REAP_MS)
+                    return true
+                }
+
                 // v4.8 File uploads: route <input type="file"> to the Activity's system picker.
                 // Without this override no callback path exists and upload buttons on every
                 // site silently do nothing.
@@ -1051,15 +1154,21 @@ class WebViewHolder(
         // The WebView is about to be destroyed — its pending Safe Browsing callback (if any)
         // must never be invoked afterwards, so just drop it.
         safeBrowsingResponses.remove(tabId)
+        popupInterceptors.remove(tabId)?.destroy()
         webViews.remove(tabId)?.destroy()
     }
 
     fun destroyAll() {
+        popupInterceptors.values.forEach { it.destroy() }
+        popupInterceptors.clear()
         webViews.values.forEach { it.destroy() }
         webViews.clear()
     }
 
     private companion object {
+        /** Grace period before an un-navigated popup interceptor is reaped (v5.0). */
+        const val INTERCEPTOR_REAP_MS = 10_000L
+
         const val DESKTOP_UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 

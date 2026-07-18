@@ -486,6 +486,9 @@ class MainActivity : FragmentActivity() {
                             filePathCallback: ValueCallback<Array<Uri>>,
                             params: WebChromeClient.FileChooserParams,
                         ): Boolean = showFileChooser(filePathCallback, params)
+
+                        override fun onCreateWindow(parentTabId: Long, url: String) =
+                            viewModel.onPopupWindow(parentTabId, url)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }
