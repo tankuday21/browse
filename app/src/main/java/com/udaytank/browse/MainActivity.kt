@@ -183,6 +183,8 @@ class MainActivity : FragmentActivity() {
         if (viewModel.lockIncognito.value && viewModel.tabs.value.any { it.isIncognito }) {
             viewModel.onIncognitoLocked()
         }
+        // Re-lock the Passwords screen too (v5.1) — one auth lasts one foreground session.
+        viewModel.onPasswordsLocked()
         // Marks the opted-in tab keep-alive (and starts the media session) BEFORE pausing the
         // rest, so the tab we want to keep playing is already exempt when the pause sweep runs.
         maybeKeepBackgroundMediaAlive()
@@ -264,7 +266,23 @@ class MainActivity : FragmentActivity() {
         com.udaytank.browse.media.MediaHoldService.start(this, tabId, host, title)
     }
 
-    fun promptBiometricUnlock() {
+    fun promptBiometricUnlock() =
+        promptUnlock("Unlock incognito", "Verify it's you to view private tabs") {
+            viewModel.onIncognitoUnlocked()
+        }
+
+    /** v5.1 Passwords gate: same device auth, different copy + unlock target. */
+    fun promptPasswordsUnlock() =
+        promptUnlock("Unlock passwords", "Verify it's you to view saved passwords") {
+            viewModel.onPasswordsUnlocked()
+        }
+
+    /**
+     * Shared biometric/device-credential prompt (v5.1 — extracted from the incognito lock).
+     * Failure or cancel is deliberately a no-op: the gate simply stays up and the LockGate
+     * button is the retry path.
+     */
+    private fun promptUnlock(title: String, subtitle: String, onSuccess: () -> Unit) {
         val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
         val prompt = androidx.biometric.BiometricPrompt(
             this,
@@ -273,13 +291,20 @@ class MainActivity : FragmentActivity() {
                 override fun onAuthenticationSucceeded(
                     result: androidx.biometric.BiometricPrompt.AuthenticationResult,
                 ) {
-                    viewModel.onIncognitoUnlocked()
+                    onSuccess()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    // Cancel/lockout/no-hardware: keep the gate up; the button retries.
                 }
             },
         )
         val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Unlock incognito")
-            .setSubtitle("Verify it's you to view private tabs")
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            // WEAK (not STRONG) + DEVICE_CREDENTIAL is deliberate: this is an app-level gate —
+            // the Keystore credential key is not auth-bound — and Chrome makes the same call.
+            // DEVICE_CREDENTIAL also forbids setNegativeButtonText (the PIN path replaces it).
             .setAllowedAuthenticators(
                 androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
                     androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -287,6 +312,18 @@ class MainActivity : FragmentActivity() {
             .build()
         prompt.authenticate(info)
     }
+
+    /**
+     * No-lockout rule (v5.1), FAIL-CLOSED: the gate is skipped only when the device provably
+     * has no screen lock enrolled (auth can never succeed, and users must not lose their own
+     * passwords — Chrome behaves the same). Deliberately NOT BiometricManager.canAuthenticate:
+     * that returns non-SUCCESS codes (STATUS_UNKNOWN on API 28-29, HW_UNAVAILABLE, …) on
+     * devices that DO have a PIN — where skipping would silently disable the gate even though
+     * the DEVICE_CREDENTIAL prompt would work fine via the keyguard.
+     */
+    fun hasDeviceLock(): Boolean =
+        // != false: a null service lookup must GATE (fail closed), not skip.
+        getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure != false
 
     /**
      * Hands the active tab's page to the system print service (H5) — its dialog includes
@@ -684,10 +721,29 @@ class MainActivity : FragmentActivity() {
                         )
                     }
                     composable("passwords") {
-                        PasswordsScreen(
-                            viewModel = viewModel,
-                            onBack = { navController.popBackStack() },
-                        )
+                        // Keep this route out of Recents thumbnails and screenshots — a
+                        // revealed password must not survive in the Recents card after
+                        // re-lock (v5.1 review). Scoped to the route, cleared on leave.
+                        DisposableEffect(Unit) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                            onDispose { window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+                        }
+                        // v5.1: gated behind device auth (pref default ON); hasDeviceLock is
+                        // the fail-closed no-lockout rule (see its KDoc).
+                        val lockPref by viewModel.lockPasswords.collectAsStateWithLifecycle()
+                        val pwLocked by viewModel.passwordsLocked.collectAsStateWithLifecycle()
+                        if (lockPref && pwLocked && hasDeviceLock()) {
+                            com.udaytank.browse.ui.components.LockGate(
+                                title = "Passwords locked",
+                                subtitle = "Your saved logins are hidden. Verify to continue.",
+                                onUnlock = { promptPasswordsUnlock() },
+                            )
+                        } else {
+                            PasswordsScreen(
+                                viewModel = viewModel,
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
 

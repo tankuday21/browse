@@ -305,6 +305,24 @@ class BrowserViewModel(
     fun onIncognitoLocked() { _incognitoLocked.value = true }
     fun onIncognitoUnlocked() { _incognitoLocked.value = false }
 
+    /** "Require screen lock for passwords" pref (v5.1, default ON). */
+    val lockPasswords: StateFlow<Boolean> = settings.lockPasswords
+        .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    fun onLockPasswordsToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setLockPasswords(enabled) }
+    }
+
+    /**
+     * Whether the Passwords screen is currently behind the biometric gate (v5.1). Starts
+     * locked; one successful auth unlocks it for the foreground session — MainActivity.onStop
+     * re-locks, same lifecycle hook as the incognito lock.
+     */
+    private val _passwordsLocked = MutableStateFlow(true)
+    val passwordsLocked: StateFlow<Boolean> = _passwordsLocked.asStateFlow()
+    fun onPasswordsLocked() { _passwordsLocked.value = true }
+    fun onPasswordsUnlocked() { _passwordsLocked.value = false }
+
     /** The pending site-permission prompt, if any (camera/mic/location). */
     private val _permissionPrompt = MutableStateFlow<com.udaytank.browse.ui.PermissionRequestInfo?>(null)
     val permissionPrompt: StateFlow<com.udaytank.browse.ui.PermissionRequestInfo?> = _permissionPrompt.asStateFlow()
@@ -461,6 +479,60 @@ class BrowserViewModel(
 
     fun onDeleteCredential(id: Long) {
         viewModelScope.launch { credentialRepository?.delete(id) }
+    }
+
+    /**
+     * Normalizes a user-typed site into the same lowercase host the capture/fill paths use
+     * (UrlHosts) so a manual entry fills on the matching page. Accepts a full URL or a bare
+     * host; null when nothing host-like remains.
+     */
+    private fun normalizeCredentialHost(raw: String): String? {
+        val input = raw.trim()
+        if (input.isEmpty()) return null
+        return UrlHosts.of(input) ?: UrlHosts.of("https://$input")
+    }
+
+    /**
+     * Pure preview of how a typed site will be stored — null means it won't save. The editor
+     * sheet uses this to validate inline BEFORE enabling Save, so a refused host can never
+     * look saved (the sheet would otherwise close silently).
+     */
+    fun credentialHostPreview(raw: String): String? = normalizeCredentialHost(raw)
+
+    /** Manually add a login into the active Orbit (v5.1). Blank host/password is refused. */
+    fun onAddCredential(host: String, username: String, password: String) {
+        val normHost = normalizeCredentialHost(host) ?: return
+        if (password.isEmpty()) return
+        viewModelScope.launch {
+            credentialRepository?.save(
+                activeOrbitId.value, normHost, username.trim(), password, System.currentTimeMillis()
+            )
+        }
+    }
+
+    /**
+     * Edit an existing login (v5.1). Same (host, username) upserts in place. A changed key
+     * SAVES FIRST and deletes the old row only after the save succeeded — encryption can fail
+     * (Keystore hiccup), and delete-then-save would destroy the only copy of the credential.
+     * An edit landing on ANOTHER credential's key is refused outright: the REPLACE upsert
+     * would silently destroy that credential's password (the editor disables Save for this
+     * case too; this is the defense-in-depth layer).
+     */
+    fun onEditCredential(id: Long, host: String, username: String, password: String) {
+        val original = credentials.value.find { it.id == id } ?: return
+        val normHost = normalizeCredentialHost(host) ?: return
+        if (password.isEmpty()) return
+        val normUser = username.trim()
+        val keyChanged = original.host != normHost || original.username != normUser
+        if (keyChanged && credentials.value.any { it.id != id && it.host == normHost && it.username == normUser }) {
+            return
+        }
+        viewModelScope.launch {
+            val saved = credentialRepository?.save(
+                original.orbitId, normHost, normUser, password, System.currentTimeMillis()
+            ) == true
+            if (saved && keyChanged) credentialRepository?.delete(id)
+        }
     }
 
     /** Switches the active Orbit: resumes its most recently positioned tab, or opens a fresh home tab in it. */
@@ -1367,6 +1439,7 @@ class BrowserViewModel(
         "forceDarkWebsites" to settings.forceDarkWebsites.first().toString(),
         "httpsOnly" to settings.httpsOnly.first().toString(),
         "lockIncognito" to settings.lockIncognito.first().toString(),
+        "lockPasswords" to settings.lockPasswords.first().toString(),
         "autoIslands" to settings.autoIslands.first().toString(),
         "switcherListLayout" to settings.switcherListLayout.first().toString(),
         "backgroundMedia" to settings.backgroundMedia.first().toString(),
@@ -1468,6 +1541,7 @@ class BrowserViewModel(
         map["forceDarkWebsites"]?.toBooleanStrictOrNull()?.let { settings.setForceDarkWebsites(it) }
         map["httpsOnly"]?.toBooleanStrictOrNull()?.let { settings.setHttpsOnly(it) }
         map["lockIncognito"]?.toBooleanStrictOrNull()?.let { settings.setLockIncognito(it) }
+        map["lockPasswords"]?.toBooleanStrictOrNull()?.let { settings.setLockPasswords(it) }
         map["autoIslands"]?.toBooleanStrictOrNull()?.let { settings.setAutoIslands(it) }
         map["switcherListLayout"]?.toBooleanStrictOrNull()?.let { settings.setSwitcherListLayout(it) }
         map["backgroundMedia"]?.toBooleanStrictOrNull()?.let { settings.setBackgroundMedia(it) }

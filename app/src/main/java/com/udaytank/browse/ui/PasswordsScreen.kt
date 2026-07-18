@@ -8,26 +8,38 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +47,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,17 +62,20 @@ import com.udaytank.browse.ui.components.FaviconOrLetter
 import com.udaytank.browse.ui.components.OrbitAvatar
 import com.udaytank.browse.ui.components.OrbitScopeHeader
 import com.udaytank.browse.ui.components.OrbitTopBar
+import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
 import com.udaytank.browse.ui.theme.orbit
 import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
+import com.udaytank.browse.ui.theme.orbitTitle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
  * Saved logins for the active Orbit (v4.7). Each row shows the site + username with the password
- * masked behind a reveal toggle (decrypted on demand via the Keystore), plus copy + delete. Add is
- * capture-only in Phase 1 — logins arrive from the save prompt when you sign in on a page.
+ * masked behind a reveal toggle (decrypted on demand via the Keystore), plus edit + copy + delete.
+ * v5.1 adds manual add/edit (the FAB + pencil) — and the whole screen sits behind the biometric
+ * gate in MainActivity when "Require screen lock for passwords" is on.
  */
 @Composable
 fun PasswordsScreen(
@@ -69,12 +88,24 @@ fun PasswordsScreen(
     val activeOrbit = remember(orbits, activeOrbitId) { orbits.firstOrNull { it.id == activeOrbitId } }
     val scheme = orbit()
 
+    var editorOpen by remember { mutableStateOf(false) }
+    var editorFor by remember { mutableStateOf<CredentialEntity?>(null) } // null = add
+
     Scaffold(
         topBar = {
             Column {
                 OrbitTopBar(title = "Passwords", onBack = onBack)
                 if (activeOrbit != null) OrbitScopeHeader(activeOrbit, scope = "passwords")
             }
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { editorFor = null; editorOpen = true },
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text("Add login", style = orbitBody) },
+                containerColor = scheme.accent.solid,
+                contentColor = Color.White,
+            )
         },
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
@@ -86,10 +117,125 @@ fun PasswordsScreen(
                     CredentialRow(
                         entry = entry,
                         reveal = { viewModel.revealCredential(entry) },
+                        onEdit = { editorFor = entry; editorOpen = true },
                         onDelete = { viewModel.onDeleteCredential(entry.id) },
                     )
                 }
             }
+        }
+    }
+
+    if (editorOpen) {
+        CredentialEditorSheet(
+            existing = editorFor,
+            reveal = { viewModel.revealCredential(it) },
+            hostPreview = viewModel::credentialHostPreview,
+            // Editing onto ANOTHER credential's (host, username) would REPLACE-destroy that
+            // credential's password — the sheet disables Save; the VM refuses too.
+            isDuplicate = { host, username ->
+                credentials.any { it.id != (editorFor?.id ?: -1L) && it.host == host && it.username == username }
+            },
+            onSave = { host, username, password ->
+                val target = editorFor
+                if (target == null) {
+                    viewModel.onAddCredential(host, username, password)
+                } else {
+                    viewModel.onEditCredential(target.id, host, username, password)
+                }
+            },
+            onDismiss = { editorOpen = false },
+        )
+    }
+}
+
+/**
+ * Add/edit form (v5.1). Editing prefills site + username and decrypts the current password into
+ * the field — acceptable because the screen itself is already behind the biometric gate.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CredentialEditorSheet(
+    existing: CredentialEntity?,
+    reveal: suspend (CredentialEntity) -> String?,
+    hostPreview: (String) -> String?,
+    isDuplicate: (host: String, username: String) -> Boolean,
+    onSave: (host: String, username: String, password: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scheme = orbit()
+    var host by remember { mutableStateOf(existing?.host ?: "") }
+    var username by remember { mutableStateOf(existing?.username ?: "") }
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    LaunchedEffect(existing) {
+        if (existing != null) password = reveal(existing) ?: ""
+    }
+
+    // Inline validation mirrors exactly what the VM will accept, so Save can never be tapped
+    // on input the VM would silently refuse (the sheet would otherwise close looking saved).
+    val preview = hostPreview(host)
+    val hostInvalid = host.isNotBlank() && preview == null
+    val duplicate = preview != null && isDuplicate(preview, username.trim())
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = scheme.surfaces.elevated) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+        ) {
+            Text(
+                if (existing == null) "Add login" else "Edit login",
+                style = orbitTitle,
+                color = scheme.text.primary,
+            )
+            OutlinedTextField(
+                value = host,
+                onValueChange = { host = it },
+                label = { Text("Site") },
+                placeholder = { Text("example.com") },
+                singleLine = true,
+                isError = hostInvalid || duplicate,
+                supportingText = {
+                    when {
+                        hostInvalid -> Text("Enter a site like example.com")
+                        duplicate -> Text("A login for this site and username already exists")
+                        else -> Text("Fills only on exactly this site")
+                    }
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Username") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(
+                            if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = if (showPassword) "Hide password" else "Show password",
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { onSave(host, username, password); onDismiss() },
+                enabled = preview != null && password.isNotEmpty() && !duplicate,
+                shape = RoundedCornerShape(OrbitRadii.pill),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (existing == null) "Save" else "Update", style = orbitBody) }
+            Spacer(Modifier.height(OrbitSpacing.xl))
         }
     }
 }
@@ -98,6 +244,7 @@ fun PasswordsScreen(
 private fun CredentialRow(
     entry: CredentialEntity,
     reveal: suspend () -> String?,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val scheme = orbit()
@@ -140,6 +287,9 @@ private fun CredentialRow(
                 tint = scheme.text.secondary,
             )
         }
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Filled.Edit, contentDescription = "Edit login", tint = scheme.text.secondary)
+        }
         IconButton(onClick = {
             scope.launch {
                 val pw = reveal() ?: return@launch
@@ -176,7 +326,7 @@ private fun PasswordsEmptyState(activeOrbit: OrbitEntity?, modifier: Modifier = 
             }
         }
         Text(
-            if (activeOrbit != null) "No saved passwords in ${activeOrbit.name} yet — sign in on a site and Andromeda will offer to save it"
+            if (activeOrbit != null) "No saved passwords in ${activeOrbit.name} yet — sign in on a site, or add one with the button below"
             else "No saved passwords yet",
             style = orbitBody,
             color = scheme.text.muted,
