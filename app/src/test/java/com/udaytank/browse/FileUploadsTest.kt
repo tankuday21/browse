@@ -113,13 +113,19 @@ class FileUploadsTest {
     }
 
     @Test
-    fun `capture attribute with images opens the camera directly`() {
+    fun `capture attribute with an explicit image accept opens the camera directly`() {
         assertEquals(
             FileUploads.CaptureMode.Direct,
             FileUploads.captureMode(listOf("image/*"), captureEnabled = true, cameraAvailable = true),
         )
+    }
+
+    @Test
+    fun `capture without an explicit image accept only offers the camera`() {
+        // HTML Media Capture / Chrome parity: an accept-less `capture` means "any file" — the
+        // chooser must stay available (a PDF upload must not be locked into the camera).
         assertEquals(
-            FileUploads.CaptureMode.Direct,
+            FileUploads.CaptureMode.Offer,
             FileUploads.captureMode(emptyList(), captureEnabled = true, cameraAvailable = true),
         )
     }

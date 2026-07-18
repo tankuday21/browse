@@ -98,16 +98,23 @@ class MainActivity : FragmentActivity() {
     private val fileChooser = FileChooserCoordinator<Array<Uri>>()
 
     /**
-     * The camera-capture temp file for the in-flight chooser (v5.3): the physical file (so we
-     * can check it received bytes and delete it when unused) + its FileProvider URI (what the
-     * camera writes to and what the page receives). One chooser at a time, like the callback.
+     * The camera-capture temp file for the in-flight chooser (v5.3): the coordinator GENERATION
+     * it belongs to (a stale launch's result must never consume the new request's file), the
+     * physical file (byte-check + cleanup), and its FileProvider URI (what the camera writes
+     * and what the page receives). One chooser at a time, like the callback.
      */
-    private var pendingCapture: Pair<java.io.File, Uri>? = null
+    private var pendingCapture: Triple<Int, java.io.File, Uri>? = null
+
+    /** FIFO of launched chooser generations — pairs each launcher result with its launch. */
+    private val inFlightChoosers = ArrayDeque<Int>()
 
     /** System document picker for file uploads (v4.8). Field-registered — required pre-RESUMED. */
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        // Which launch produced this result? Results arrive in launch order; after process
+        // death the queue is empty and -1 never matches a live generation (safe no-op).
+        val generation = inFlightChoosers.removeFirstOrNull() ?: -1
         val data = result.data
         val clip = data?.clipData?.let { c -> List(c.itemCount) { c.getItemAt(it).uri } } ?: emptyList()
         val picked = FileUploads.parseChooserResult(
@@ -116,14 +123,17 @@ class MainActivity : FragmentActivity() {
             clip = clip,
         )
         // v5.3: camera apps return RESULT_OK with a null data intent — the capture file is the
-        // result, but only when the camera actually wrote bytes into it.
-        val capture = pendingCapture
-        pendingCapture = null
-        val captureHasData = result.resultCode == RESULT_OK && capture != null && capture.first.length() > 0L
-        val uris = FileUploads.resolveUploadResult(picked, capture?.second, captureHasData)
-        // A temp file the page didn't receive (picker chosen, or canceled) is deleted now.
-        if (capture != null && uris?.contains(capture.second) != true) capture.first.delete()
-        fileChooser.finish(uris?.toTypedArray())
+        // result, but only when the camera actually wrote bytes into it. Consumed strictly by
+        // generation: a stale result must not touch (or delete!) the NEW request's file.
+        val capture = pendingCapture?.takeIf { it.first == generation }
+        if (capture != null) pendingCapture = null
+        val captureHasData = result.resultCode == RESULT_OK && capture != null && capture.second.length() > 0L
+        val uris = FileUploads.resolveUploadResult(picked, capture?.third, captureHasData)
+        // A temp file the page didn't receive is deleted now. RESULT_CANCELED-after-write
+        // (OEM cameras that save, then let the user back out of a confirm screen) lands here
+        // too — deliberate: backing out expresses "don't upload", Chrome behaves the same.
+        if (capture != null && uris?.contains(capture.third) != true) capture.second.delete()
+        fileChooser.finish(generation, uris?.toTypedArray())
     }
 
     /**
@@ -131,18 +141,27 @@ class MainActivity : FragmentActivity() {
      * (v5.3), or null if the FileProvider URI can't be built. Also reaps stale capture files —
      * orphans from crashes or process death that the result callback never cleaned up.
      */
-    private fun makeCameraIntent(): Intent? {
+    private fun makeCameraIntent(generation: Int): Intent? {
         val dir = java.io.File(cacheDir, "captures").apply { mkdirs() }
         dir.listFiles()?.forEach {
             if (System.currentTimeMillis() - it.lastModified() > CAPTURE_TTL_MS) it.delete()
         }
-        val file = java.io.File(dir, "upload-${System.currentTimeMillis()}.jpg")
+        val file = runCatching { java.io.File.createTempFile("upload-", ".jpg", dir) }.getOrNull() ?: return null
         val uri = runCatching {
             androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
-        }.getOrNull() ?: return null
-        pendingCapture = file to uri
+        }.getOrNull()
+        if (uri == null) {
+            file.delete()
+            return null
+        }
+        pendingCapture = Triple(generation, file, uri)
         return Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
             .putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri)
+            // Grant flags only cover URIs in data/clipData — EXTRA_OUTPUT is just an extra.
+            // The platform's migrateExtraStreamToClipData covers direct launches, but NOT
+            // reliably an intent nested in a chooser's EXTRA_INITIAL_INTENTS (OEM choosers).
+            // Explicit ClipData makes the write grant unconditional.
+            .apply { clipData = android.content.ClipData.newRawUri(null, uri) }
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
     }
 
@@ -172,7 +191,7 @@ class MainActivity : FragmentActivity() {
         val title = params.title?.toString()?.takeIf { it.isNotBlank() } ?: "Choose a file"
 
         // v5.3: a superseded chooser's unused temp file is deleted before arming a new one.
-        pendingCapture?.first?.delete()
+        pendingCapture?.second?.delete()
         pendingCapture = null
         // cameraAvailable = the CAMERA permission is HELD: the manifest declares it (WebRTC/QR),
         // and Android forbids ACTION_IMAGE_CAPTURE from apps that declare-but-don't-hold it.
@@ -183,21 +202,38 @@ class MainActivity : FragmentActivity() {
                 this, android.Manifest.permission.CAMERA
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
         )
-        val cameraIntent = if (mode != FileUploads.CaptureMode.None) makeCameraIntent() else null
-        val launchIntent = when {
-            mode == FileUploads.CaptureMode.Direct && cameraIntent != null -> cameraIntent
-            cameraIntent != null -> Intent.createChooser(intent, title)
-                .putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
-            else -> Intent.createChooser(intent, title)
-        }
-        fileChooser.begin(callback = { filePathCallback.onReceiveValue(it) }) {
+        fileChooser.begin(callback = { filePathCallback.onReceiveValue(it) }) { generation ->
+            val cameraIntent = if (mode != FileUploads.CaptureMode.None) makeCameraIntent(generation) else null
+            val plainChooser = Intent.createChooser(intent, title)
+            val launchIntent = when {
+                mode == FileUploads.CaptureMode.Direct && cameraIntent != null -> cameraIntent
+                cameraIntent != null -> Intent.createChooser(intent, title)
+                    .putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+                else -> plainChooser
+            }
+            fun cleanupCapture() {
+                pendingCapture?.second?.delete()
+                pendingCapture = null
+            }
             try {
                 fileChooserLauncher.launch(launchIntent)
+                inFlightChoosers.addLast(generation)
                 true
             } catch (_: ActivityNotFoundException) {
-                pendingCapture?.first?.delete()
-                pendingCapture = null
-                false
+                // Direct camera unresolvable (API 30+ package visibility, no system camera):
+                // fall back to the plain picker so the input stays usable.
+                cleanupCapture()
+                if (launchIntent === cameraIntent) {
+                    try {
+                        fileChooserLauncher.launch(plainChooser)
+                        inFlightChoosers.addLast(generation)
+                        true
+                    } catch (_: ActivityNotFoundException) {
+                        false
+                    }
+                } else {
+                    false
+                }
             }
         }
         return true

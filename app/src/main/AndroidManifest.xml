@@ -76,7 +76,7 @@
 
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.udaytank.andromeda.files"
+            android:authorities="${applicationId}.files"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

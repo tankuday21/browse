@@ -66,10 +66,14 @@ object FileUploads {
      */
     fun captureMode(mimeTypes: List<String>, captureEnabled: Boolean, cameraAvailable: Boolean): CaptureMode {
         if (!cameraAvailable) return CaptureMode.None
-        val acceptsImages = mimeTypes.isEmpty() || mimeTypes.any { it.startsWith("image/") }
+        val explicitImages = mimeTypes.any { it.startsWith("image/") }
+        val acceptsImages = mimeTypes.isEmpty() || explicitImages
         return when {
             !acceptsImages -> CaptureMode.None
-            captureEnabled -> CaptureMode.Direct
+            // Direct only for an EXPLICIT image accept (HTML Media Capture / Chrome parity):
+            // an accept-less `capture` input means "any file" — jumping to the camera would
+            // lock the user out of picking a PDF. It rides along in the chooser instead.
+            captureEnabled && explicitImages -> CaptureMode.Direct
             else -> CaptureMode.Offer
         }
     }

@@ -9,10 +9,12 @@ picker — Chrome parity.
 `captureMode(mimeTypes, captureEnabled, cameraAvailable): CaptureMode` — enum:
 - **None** — camera can't or shouldn't appear: `cameraAvailable` false, or the accept list is
   non-empty and contains no `image/…` type (a PDF-only input gets no camera).
-- **Direct** — the page asked for capture (`FileChooserParams.isCaptureEnabled`) and images
-  are acceptable → the camera opens immediately, no chooser.
+- **Direct** — the page asked for capture (`FileChooserParams.isCaptureEnabled`) AND declared
+  an explicit `image/…` accept → the camera opens immediately, no chooser. (HTML Media
+  Capture / Chrome parity: `capture` without an accept means "any file" — jumping to the
+  camera would lock a PDF upload out of the picker, so that case only Offers.)
 - **Offer** — images are acceptable (empty accept list counts — it means "anything") but no
-  capture attribute → the camera appears as an option inside the system chooser
+  Direct conditions → the camera appears as an option inside the system chooser
   (`EXTRA_INITIAL_INTENTS`).
 
 `resolveUploadResult(picked, capture, captureHasData)` (generic, pure) — the result-parsing
@@ -27,14 +29,25 @@ our capture file, the capture URI is the result; else null (exactly-once contrac
   `ACTION_IMAGE_CAPTURE` without holding it throws `SecurityException` — apps that don't
   declare it may launch freely, we may not. Without the grant the camera option simply doesn't
   appear (the file picker still works); no permission prompt mid-upload in this phase.
-- **Capture target:** `cacheDir/captures/upload-<millis>.jpg` exposed via the existing
-  FileProvider (new `<cache-path name="captures" path="captures/">` entry). The camera intent
-  carries `EXTRA_OUTPUT` + `FLAG_GRANT_READ/WRITE_URI_PERMISSION`. Stale capture files (>1 day)
-  are deleted opportunistically on each new chooser.
+- **Capture target:** a `File.createTempFile` under `cacheDir/captures/` exposed via the
+  existing FileProvider (new `<cache-path name="captures">` entry; manifest authority now
+  `${applicationId}.files` so a future applicationIdSuffix can't silently break it). The
+  camera intent carries `EXTRA_OUTPUT` + grant flags AND explicit ClipData (review-hardened:
+  grant flags only cover data/clipData; the platform's EXTRA_OUTPUT→ClipData migration is not
+  guaranteed for intents nested in a chooser's `EXTRA_INITIAL_INTENTS` on OEM choosers).
+  Stale capture files (>1 day) are reaped opportunistically on each new chooser.
 - **Result:** camera apps return RESULT_OK with a null data intent — `parseChooserResult`
   yields null, then `resolveUploadResult` falls back to the pending capture URI when the file
-  has bytes. Cancel deletes the unused temp file. `pendingCaptureUri` is cleared with the
-  pending callback lifecycle (one chooser at a time, as before).
+  has bytes. Cancel deletes the unused temp file (including OEM save-then-back-out cancels —
+  deliberate, Chrome parity).
+- **Generation matching (review-hardened):** `FileChooserCoordinator.begin` now hands the
+  launch a generation and `finish(generation, result)` drops mismatches; the Activity keeps a
+  FIFO of launched generations to pair each launcher result with its launch. Without this, a
+  superseded chooser's late result consumed the NEW request's capture slot — deleting the
+  file and silently dropping the photo the user just took.
+- **Direct fallback:** if the direct camera launch throws `ActivityNotFoundException`
+  (API 30+ package visibility, no system camera), the plain picker launches instead — the
+  input stays usable.
 
 ## Out of scope
 
