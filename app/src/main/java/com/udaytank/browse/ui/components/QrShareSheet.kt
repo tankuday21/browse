@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -43,6 +44,9 @@ import com.udaytank.browse.ui.theme.orbitBody
 import com.udaytank.browse.ui.theme.orbitCaption
 import com.udaytank.browse.ui.theme.orbitTitle
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * "Share page as QR" (v5.4): renders the page URL as a QR another phone scans off the screen.
@@ -53,6 +57,7 @@ import java.io.File
 fun QrShareSheet(url: String, title: String?, onDismiss: () -> Unit) {
     val scheme = orbit()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     // size = 1 yields the MINIMAL matrix (one entry per module) — the Canvas scales it up, and
     // drawing ~33x33 module rects beats iterating a pre-scaled 512x512 matrix by ~250x.
     val matrix = remember(url) { QrGenerate.encode(url, size = 1) }
@@ -68,13 +73,17 @@ fun QrShareSheet(url: String, title: String?, onDismiss: () -> Unit) {
                 Surface(color = Color.White, shape = RoundedCornerShape(OrbitSpacing.lg)) {
                     Canvas(modifier = Modifier.padding(OrbitSpacing.lg).size(232.dp)) {
                         val cell = size.width / matrix.width
+                        // Cells are ceil-oversized: fractional cell edges anti-alias against
+                        // the white ground independently, leaving hairline seams through black
+                        // runs — overlap is safe (all modules the same color), gaps are not.
+                        val cellSize = Size(kotlin.math.ceil(cell), kotlin.math.ceil(cell))
                         for (y in 0 until matrix.height) {
                             for (x in 0 until matrix.width) {
                                 if (matrix.get(x, y)) {
                                     drawRect(
                                         Color.Black,
                                         topLeft = Offset(x * cell, y * cell),
-                                        size = Size(cell, cell),
+                                        size = cellSize,
                                     )
                                 }
                             }
@@ -102,7 +111,7 @@ fun QrShareSheet(url: String, title: String?, onDismiss: () -> Unit) {
                     Text("Copy link", modifier = Modifier.padding(start = OrbitSpacing.xs))
                 }
                 TextButton(
-                    onClick = { if (matrix != null) shareQrPng(context, matrix, url) },
+                    onClick = { scope.launch { shareQrPng(context, url) } },
                     enabled = matrix != null,
                 ) {
                     Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -130,25 +139,35 @@ private fun renderBitmap(matrix: BitMatrix, targetSize: Int = 512): android.grap
 
 /**
  * Writes the QR as a PNG into cacheDir/qr/ (one fixed name, overwritten per share — nothing
- * accumulates) and hands it to the system share sheet via the existing FileProvider.
+ * accumulates; Black Hole deletes the directory) and hands it to the system share sheet via
+ * the existing FileProvider. Render + compress run off the main thread; failures toast rather
+ * than silently doing nothing. The exported image is re-encoded with the spec's 4-module quiet
+ * zone — unlike the on-screen code, it has no white card around it.
  */
-private fun shareQrPng(context: Context, matrix: BitMatrix, url: String) {
-    val send = runCatching {
-        val dir = File(context.cacheDir, "qr").apply { mkdirs() }
-        val file = File(dir, "share-qr.png")
-        file.outputStream().use {
-            renderBitmap(matrix).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
-        }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        Intent(Intent.ACTION_SEND).apply {
-            type = "image/png"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_TEXT, url)
-            // Explicit ClipData, not just grant flags — the platform's EXTRA_STREAM migration
-            // is what usually saves ACTION_SEND, but being explicit costs nothing (v5.3 lesson).
-            clipData = ClipData.newRawUri(null, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-    }.getOrNull() ?: return
+private suspend fun shareQrPng(context: Context, url: String) {
+    val send = withContext(Dispatchers.Default) {
+        runCatching {
+            val matrix = QrGenerate.encode(url, size = 1, margin = 4) ?: error("encode failed")
+            val dir = File(context.cacheDir, "qr").apply { mkdirs() }
+            val file = File(dir, "share-qr.png")
+            file.outputStream().use {
+                renderBitmap(matrix).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+            Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, url)
+                // Explicit ClipData, not just grant flags — the platform's EXTRA_STREAM migration
+                // is what usually saves ACTION_SEND, but being explicit costs nothing (v5.3 lesson).
+                clipData = ClipData.newRawUri(null, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }.getOrNull()
+    }
+    if (send == null) {
+        android.widget.Toast.makeText(context, "Couldn't create the QR image", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
     runCatching { context.startActivity(Intent.createChooser(send, "Share QR code")) }
 }

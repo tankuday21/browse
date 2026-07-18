@@ -16,10 +16,13 @@ object QrGenerate {
 
     /**
      * [size] is the requested pixel edge; ZXing returns a matrix AT LEAST that big (it rounds
-     * up to whole modules). Null for blank input or encoder failure (e.g. over-capacity text)
-     * — the caller shows nothing rather than a broken code.
+     * up to whole modules). [margin] is the quiet zone in modules: 1 suffices on-screen where
+     * the sheet's white card supplies breathing room; EXPORTED images need the spec's 4 —
+     * recipients view them against dark chat backgrounds where a thin border fails scans.
+     * Null for blank input or encoder failure (e.g. over-capacity text) — the caller shows
+     * nothing rather than a broken code.
      */
-    fun encode(text: String, size: Int = 512): BitMatrix? {
+    fun encode(text: String, size: Int = 512, margin: Int = 1): BitMatrix? {
         if (text.isBlank()) return null
         return try {
             QRCodeWriter().encode(
@@ -28,10 +31,9 @@ object QrGenerate {
                 size,
                 size,
                 mapOf(
-                    // M survives a dirty/curved phone screen; 1-module quiet zone (the sheet's
-                    // white card supplies the rest of the breathing room).
+                    // M survives a dirty/curved phone screen.
                     EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-                    EncodeHintType.MARGIN to 1,
+                    EncodeHintType.MARGIN to margin,
                 ),
             )
         } catch (_: WriterException) {

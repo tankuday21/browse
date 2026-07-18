@@ -105,7 +105,10 @@ fun BrowserScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var siteSheetOpen by remember { mutableStateOf(false) }
-    var qrShareOpen by remember { mutableStateOf(false) } // v5.4: "Share page as QR" sheet
+    // v5.4 "Share page as QR": a SNAPSHOT of (url, title) taken when the menu row is tapped —
+    // live-binding to activeTab would swap the QR mid-scan on navigation, and a bare boolean
+    // could resurrect the sheet for a different tab after the original closed.
+    var qrShare by remember { mutableStateOf<Pair<String, String?>?>(null) }
     // v4.2 Orbits (Task 7): the quick-switch sheet, plus a state flag for the Orbit management
     // sheet a later task (Task 8) renders — declared here so this task can set it from "Manage
     // Orbits" without owning that sheet's UI.
@@ -713,7 +716,10 @@ fun BrowserScreen(
                 readerActive = readerActive,
                 onToggleReaderMode = { viewModel.onToggleReaderMode(); menuOpen = false },
                 onFindInPage = { viewModel.onFindOpen(); menuOpen = false },
-                onShareAsQr = { qrShareOpen = true; menuOpen = false },
+                onShareAsQr = {
+                    activeTab?.let { tab -> qrShare = tab.url to tab.title.takeIf { it != tab.url } }
+                    menuOpen = false
+                },
                 isDesktopSite = activeTabId in desktopTabs,
                 onToggleDesktopSite = {
                     val desktop = viewModel.onToggleDesktopSite()
@@ -741,11 +747,11 @@ fun BrowserScreen(
         }
 
         // ── Share page as QR (v5.4) ─────────────────────────
-        if (qrShareOpen && activeTab != null) {
+        qrShare?.let { (shareUrl, shareTitle) ->
             com.udaytank.browse.ui.components.QrShareSheet(
-                url = activeTab.url,
-                title = activeTab.title.takeIf { it != activeTab.url },
-                onDismiss = { qrShareOpen = false },
+                url = shareUrl,
+                title = shareTitle,
+                onDismiss = { qrShare = null },
             )
         }
 

@@ -66,4 +66,24 @@ class QrGenerateTest {
         // QR version 40 tops out around 3kB of bytes — 8kB cannot encode.
         assertNull(QrGenerate.encode("x".repeat(8000)))
     }
+
+    @Test
+    fun `the requested quiet zone is actually blank`() {
+        // The margin is load-bearing for scannability: the exported PNG relies on margin=4
+        // (no white card around it), so assert the border modules really are unset.
+        val matrix = QrGenerate.encode("https://example.com", size = 1, margin = 4)!!
+        for (i in 0 until matrix.width) {
+            for (m in 0 until 4) {
+                assertTrue(!matrix.get(i, m)) // top rows
+                assertTrue(!matrix.get(i, matrix.height - 1 - m)) // bottom rows
+                assertTrue(!matrix.get(m, i)) // left columns
+                assertTrue(!matrix.get(matrix.width - 1 - m, i)) // right columns
+            }
+        }
+        // And the margin-4 code still decodes — at a realistic pixel scale: a 1px-per-module
+        // image with a wide white border falls below HybridBinarizer's adaptive threshold
+        // minimum (40px blocks) and fails decode for reasons unrelated to the code itself.
+        val scaled = QrGenerate.encode("https://example.com", size = 200, margin = 4)!!
+        assertEquals("https://example.com", decode(scaled))
+    }
 }

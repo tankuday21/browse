@@ -689,6 +689,11 @@ class MainActivity : FragmentActivity() {
                         holder.destroyAll()
                         profileKeys.forEach { holder.deleteProfile(it) }
                         holder.clearThumbnails()
+                        // Cache-dir browsing traces the stores above don't own: the shared-QR
+                        // PNG (v5.4 — a decodable record of the last-shared URL) and camera-
+                        // capture temp files (v5.3) must not survive the panic wipe.
+                        java.io.File(cacheDir, "qr").deleteRecursively()
+                        java.io.File(cacheDir, "captures").deleteRecursively()
                         restartProcess()
                     }
                 }
