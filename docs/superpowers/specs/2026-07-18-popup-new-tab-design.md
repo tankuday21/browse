@@ -72,8 +72,10 @@ active-Orbit invariant the tab switcher's filter relies on. `TabManager.newTab` 
 
 ## Incognito
 
-The interceptor WebView never gets a profile, JS bridges, or storage — it exists only to read
-the first URL and dies. The real popup tab inherits the parent's incognito flag, so an
+The interceptor WebView gets no JS bridges or storage and is network-inert by construction
+(containment above); for incognito parents it additionally carries the incognito profile as a
+belt. It exists only to read the first URL and dies. The real popup tab inherits the parent's
+incognito flag, so an
 incognito page's popup is an incognito tab (profile `"incognito"`, no persistence) — the same
 guarantee as `onOpenInNewTab`.
 

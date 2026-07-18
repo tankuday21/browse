@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -327,14 +328,28 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `popup inherits its parent tab's Orbit`() = runTest {
+    fun `popup inherits its parent tab's Orbit, not the now-active one, and backgrounds`() = runTest {
         val vm = vm(); advanceUntilIdle()
-        vm.onNewTab(); advanceUntilIdle() // explicit tab — carries the active Orbit id
+        vm.onNewTab(); advanceUntilIdle() // parent carries the CURRENT active Orbit id
         val parent = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        vm.onSwitchOrbit(42L); advanceUntilIdle() // user moves to another Orbit before capture
+        val activeBefore = vm.activeTabId.value
         vm.onPopupWindow(parent.id, "https://orbit-popup.com"); advanceUntilIdle()
         val popup = vm.tabs.value.first { it.url == "https://orbit-popup.com" }
-        assertEquals(parent.orbitId, popup.orbitId)
-        assertEquals(popup.id, vm.activeTabId.value) // parent was active → popup foregrounds
+        assertEquals(parent.orbitId, popup.orbitId) // parent's Orbit, proven non-trivially...
+        assertNotEquals(42L, popup.orbitId) // ...because the active Orbit is a different one
+        assertEquals(activeBefore, vm.activeTabId.value) // cross-Orbit popup must NOT foreground
+        assertFalse(popup.isActive)
+    }
+
+    @Test
+    fun `popup foregrounds when its parent is still the active tab`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewTab(); advanceUntilIdle()
+        val parent = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        vm.onPopupWindow(parent.id, "https://fg-popup.com"); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.url == "https://fg-popup.com" }
+        assertEquals(popup.id, vm.activeTabId.value)
     }
 
     @Test
