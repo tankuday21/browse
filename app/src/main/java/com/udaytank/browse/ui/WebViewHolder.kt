@@ -3,6 +3,7 @@ package com.udaytank.browse.ui
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
@@ -24,7 +25,9 @@ import android.webkit.WebViewClient
 import android.view.View
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
+import com.udaytank.browse.browser.ExternalLinks
 import com.udaytank.browse.browser.HttpsUpgrade
+import com.udaytank.browse.browser.IntentHardening
 import com.udaytank.browse.browser.ReaderMode
 import com.udaytank.browse.browser.SiteSettingsResolver
 import com.udaytank.browse.browser.UrlHosts
@@ -678,10 +681,30 @@ class WebViewHolder(
                     request: WebResourceRequest,
                 ): Boolean {
                     val target = request.url.toString()
-                    if (HttpsUpgrade.shouldUpgrade(target, httpsOnly)) {
-                        HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it, gpcHeaders()); return true }
+                    // v4.9: non-http(s) schemes dispatch to other apps (mailto → mail, upi →
+                    // payment app, intent:// → declared app) instead of dying in the engine
+                    // with ERR_UNKNOWN_URL_SCHEME. Gesture-less or incognito navigations
+                    // confirm first — never auto-launch. See ExternalLinks / IntentHardening.
+                    val confirm = ExternalLinks.needsConfirm(request.hasGesture(), incognito)
+                    when (ExternalLinks.classify(target)) {
+                        ExternalLinks.LinkAction.LoadInPage -> {
+                            if (HttpsUpgrade.shouldUpgrade(target, httpsOnly)) {
+                                HttpsUpgrade.upgrade(target)?.let { view.loadUrl(it, gpcHeaders()); return true }
+                            }
+                            return false
+                        }
+                        ExternalLinks.LinkAction.Ignore -> return true
+                        is ExternalLinks.LinkAction.OpenApp -> {
+                            launchExternalApp(tabId, confirm, incognito, Intent(Intent.ACTION_VIEW, request.url)) {
+                                toastNoApp()
+                            }
+                            return true
+                        }
+                        is ExternalLinks.LinkAction.IntentUri -> {
+                            openIntentUri(tabId, confirm, incognito, target, view)
+                            return true
+                        }
                     }
-                    return false
                 }
 
                 override fun shouldInterceptRequest(
@@ -914,6 +937,75 @@ class WebViewHolder(
                 }
             }
         }
+    }
+
+    /**
+     * Launches an external app for a page link (v4.9). [confirm] routes the launch through the
+     * permission prompt first (gesture-less navigations and everything in incognito — see
+     * [ExternalLinks.needsConfirm]); a gesture-backed tap in a normal tab launches directly,
+     * Chrome-style. [onNotFound] runs when no installed app can handle the intent (intent://
+     * uses it for the page's fallback URL).
+     */
+    private fun launchExternalApp(
+        tabId: Long,
+        confirm: Boolean,
+        incognito: Boolean,
+        intent: Intent,
+        onNotFound: () -> Unit,
+    ) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val launch = {
+            try {
+                context.startActivity(intent)
+            } catch (_: RuntimeException) {
+                // ActivityNotFoundException, but also SecurityException / FileUriExposedException
+                // etc. — a page-controlled intent must degrade to the fallback, never crash us.
+                onNotFound()
+            }
+        }
+        if (confirm) {
+            listener.onPermissionRequest(
+                PermissionRequestInfo(
+                    host = pageHosts[tabId].orEmpty().ifBlank { "This page" },
+                    label = if (incognito) "open another app (this leaves incognito)" else "open another app",
+                    grant = launch,
+                    deny = {},
+                )
+            )
+        } else {
+            launch()
+        }
+    }
+
+    /**
+     * intent:// dispatch (v4.9): the page-supplied URI is parsed, then every field is
+     * constrained by [IntentHardening] (data scheme re-validated, action forced to VIEW,
+     * component nulled, BROWSABLE, flags replaced, extras cleared, self-package de-targeted).
+     * When no app matches, the page's declared browser_fallback_url loads in-page — validated
+     * http(s)-only AND still subject to HTTPS-Only mode (loadUrl bypasses
+     * shouldOverrideUrlLoading, so the upgrade must be applied here).
+     */
+    private fun openIntentUri(tabId: Long, confirm: Boolean, incognito: Boolean, url: String, view: WebView) {
+        val parsed = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull() ?: return
+        // Read before hardening — harden() clears all extras.
+        val fallback = ExternalLinks.safeFallbackUrl(parsed.getStringExtra("browser_fallback_url"))
+        val hardened = IntentHardening.harden(parsed, context.packageName) ?: return
+        launchExternalApp(tabId, confirm, incognito, hardened) {
+            if (fallback != null) {
+                val upgraded = if (HttpsUpgrade.shouldUpgrade(fallback, httpsOnly)) {
+                    HttpsUpgrade.upgrade(fallback) ?: fallback
+                } else {
+                    fallback
+                }
+                view.loadUrl(upgraded, gpcHeaders())
+            } else {
+                toastNoApp()
+            }
+        }
+    }
+
+    private fun toastNoApp() {
+        Toast.makeText(context, "No app can open this link", Toast.LENGTH_SHORT).show()
     }
 
     /** Hands a file to the system DownloadManager (notification + Downloads folder). */
