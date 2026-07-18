@@ -25,8 +25,8 @@ android {
         applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
-        versionCode = 19
-        versionName = "5.1"
+        versionCode = 20
+        versionName = "5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -100,6 +100,11 @@ dependencies {
     implementation(libs.work.runtime)
     // Async image loading (favicons + news thumbnails), fetched source-direct.
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // v5.2 QR scanner: on-device decode (ZXing, offline) + CameraX preview/analysis.
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)

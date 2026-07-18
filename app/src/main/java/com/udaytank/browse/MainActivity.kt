@@ -45,6 +45,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.udaytank.browse.browser.FileChooserCoordinator
 import com.udaytank.browse.browser.FileUploads
+import com.udaytank.browse.browser.IntentHardening
 import com.udaytank.browse.browser.UrlHosts
 import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
@@ -321,6 +322,29 @@ class MainActivity : FragmentActivity() {
      * devices that DO have a PIN — where skipping would silently disable the gate even though
      * the DEVICE_CREDENTIAL prompt would work fine via the keyguard.
      */
+    /**
+     * v5.2 QR: dispatch a scanned app URI. User-initiated by construction (they aimed the
+     * camera at it), so no confirm; intent:// still goes through the same v4.9 hardening as
+     * page links, and any launch failure degrades to a toast, never a crash.
+     */
+    private fun openQrAppLink(url: String) {
+        fun noApp() =
+            android.widget.Toast.makeText(this, "No app can open this code", android.widget.Toast.LENGTH_SHORT).show()
+        val intent = if (url.startsWith("intent:", ignoreCase = true)) {
+            val parsed = runCatching { Intent.parseUri(url, Intent.URI_INTENT_SCHEME) }.getOrNull()
+                ?: return noApp()
+            IntentHardening.harden(parsed, packageName) ?: return noApp()
+        } else {
+            Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            startActivity(intent)
+        } catch (_: RuntimeException) {
+            noApp()
+        }
+    }
+
     fun hasDeviceLock(): Boolean =
         // != false: a null service lookup must GATE (fail closed), not skip.
         getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure != false
@@ -665,6 +689,7 @@ class MainActivity : FragmentActivity() {
                             onOpenHistory = { navController.navigate("history") },
                             onOpenBookmarks = { navController.navigate("bookmarks") },
                             onOpenPasswords = { navController.navigate("passwords") },
+                            onScanQr = { navController.navigate("qrscan") },
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },
@@ -717,6 +742,23 @@ class MainActivity : FragmentActivity() {
                                 viewModel.onOpenUrl(url)
                                 navController.popBackStack()
                             },
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable("qrscan") { entry ->
+                        // A decode arrives via previewView.post and could land the same frame the
+                        // user taps Close — both pop. Only act while this entry is still resumed,
+                        // so a late decode after a manual back-out is dropped (no double-pop).
+                        fun ifResumed(action: () -> Unit) {
+                            if (entry.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                action()
+                                navController.popBackStack()
+                            }
+                        }
+                        com.udaytank.browse.ui.QrScanScreen(
+                            onOpenWeb = { url -> ifResumed { viewModel.onOpenInNewTab(url) } },
+                            onOpenApp = { url -> ifResumed { openQrAppLink(url) } },
+                            onSearch = { text -> ifResumed { viewModel.onSearchFromQr(text) } },
                             onBack = { navController.popBackStack() },
                         )
                     }
