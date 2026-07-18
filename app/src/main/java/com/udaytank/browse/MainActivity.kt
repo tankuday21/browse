@@ -322,7 +322,8 @@ class MainActivity : FragmentActivity() {
      * the DEVICE_CREDENTIAL prompt would work fine via the keyguard.
      */
     fun hasDeviceLock(): Boolean =
-        getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure == true
+        // != false: a null service lookup must GATE (fail closed), not skip.
+        getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure != false
 
     /**
      * Hands the active tab's page to the system print service (H5) — its dialog includes
