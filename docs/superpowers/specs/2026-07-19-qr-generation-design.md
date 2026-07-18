@@ -6,8 +6,9 @@ on-device (ZXing's encoder is already bundled and pure Java); zero new dependenc
 
 ## Encoder — `browser/QrGenerate.kt` (pure, JVM-tested)
 
-`encode(text, size = 512): BitMatrix?` — `QRCodeWriter` with error correction M and margin 1;
-null for blank input or encoder failure (over-long text). Pure ZXing types, no android.graphics
+`encode(text, size = 512, margin = 1): BitMatrix?` — `QRCodeWriter` with error correction M;
+margin 1 for display (the sheet's white card supplies the rest), 4 for the exported PNG; null
+for blank input or encoder failure (over-long text). Pure ZXing types, no android.graphics
 — the JVM test does a full round trip: encode a URL → wrap the matrix as a luminance source →
 decode with the same reader the scanner uses → assert the text survives.
 
@@ -44,4 +45,5 @@ QR for arbitrary text/WiFi; customized styling/logo; SVG export.
 - Unit (JVM): round trip encode→decode preserves the URL (long URL included); blank → null;
   requested size honored (matrix dimensions ≥ size); over-capacity input → null, no throw.
 - On-device: menu → sheet shows a scannable code (scan it with v5.2's scanner on the same
-  build for the full-circle demo); Copy link works; Share image attaches a PNG; hidden on home.
+  build for the full-circle demo); Copy link works; Share image attaches a PNG; disabled on
+  home.
