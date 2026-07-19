@@ -24,6 +24,7 @@ import com.udaytank.browse.browser.SuggestionKind
 import com.udaytank.browse.browser.TabGroupPolicy
 import com.udaytank.browse.browser.TabManager
 import com.udaytank.browse.browser.UrlInput
+import com.udaytank.browse.ui.PopupTabSpec
 import com.udaytank.browse.browser.googleSuggest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1895,6 +1896,8 @@ class BrowserViewModel(
 
     /** Popup context recorded at allocation (v5.6) so onPopupReady registers what the WebView was born as. */
     private data class PendingPopup(val incognito: Boolean, val orbitId: Long?, val groupId: Long?)
+
+    /** UI-thread only: onCreatePopup/onPopupReady are both WebChromeClient-callback-driven. */
     private val pendingPopups = mutableMapOf<Long, PendingPopup>()
 
     /**
@@ -1903,7 +1906,7 @@ class BrowserViewModel(
      * page's popup must stay incognito; a normal popup carries the parent Orbit's profile so
      * cookie isolation is preserved. Null (parent vanished) blocks the popup.
      */
-    fun onCreatePopup(parentTabId: Long): com.udaytank.browse.ui.PopupTabSpec? {
+    fun onCreatePopup(parentTabId: Long): PopupTabSpec? {
         val parent = tabs.value.find { it.id == parentTabId } ?: return null
         val incognito = parent.isIncognito
         val orbitId = if (incognito) null else (parent.orbitId ?: activeOrbitId.value)
@@ -1912,7 +1915,7 @@ class BrowserViewModel(
         pendingPopups[id] = PendingPopup(
             incognito, orbitId, TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
         )
-        return com.udaytank.browse.ui.PopupTabSpec(id, incognito, profileKey)
+        return PopupTabSpec(id, incognito, profileKey)
     }
 
     /**
@@ -1925,12 +1928,15 @@ class BrowserViewModel(
     fun onPopupReady(tabId: Long, parentTabId: Long) {
         val pending = pendingPopups.remove(tabId) ?: return
         val foreground = parentTabId == activeTabId.value
-        viewModelScope.launch {
-            tabManager.registerTab(
-                tabId, url = "", incognito = pending.incognito,
-                groupId = pending.groupId, orbitId = pending.orbitId, foreground = foreground,
-            )
-        }
+        // In-memory registration is SYNCHRONOUS (review): the engine starts the transport load
+        // the moment the WebView is handed over, and onPageStarted/onContentChanged must find
+        // the tab — else the first URL is dropped and history mis-attributes to the active
+        // Orbit. Only the row INSERT is async. (Also means a popup can itself open popups.)
+        tabManager.registerTabInMemory(
+            tabId, url = "", incognito = pending.incognito,
+            groupId = pending.groupId, orbitId = pending.orbitId, foreground = foreground,
+        )
+        viewModelScope.launch { tabManager.persistRegisteredTab(tabId) }
     }
 
     /** The page called window.close() on its popup (v5.6) — close through the normal path. */

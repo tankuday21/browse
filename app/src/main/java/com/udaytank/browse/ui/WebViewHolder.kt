@@ -117,6 +117,14 @@ class WebViewHolder(
     private var safeBrowsingEnabled = true
 
     /**
+     * Tabs born as ADOPTED POPUPS (v5.6) — the only ones a page may window.close(). Chromium
+     * also honors window.close() on any window whose session history is length 1, so without
+     * this gate a hostile first navigation could close a user's own hand-opened tab.
+     * UI-thread only; pruned in close()/destroyAll().
+     */
+    private val popupTabIds = mutableSetOf<Long>()
+
+    /**
      * Pending Safe Browsing decisions, keyed by tab (D1). Written/read on the UI thread only
      * (onSafeBrowsingHit and the interstitial's buttons both run there). An entry is removed
      * the moment it's resolved or superseded — never invoked twice (the engine would throw).
@@ -920,18 +928,19 @@ class WebViewHolder(
                     if (!isUserGesture) return false // popup blocked, Chrome-style
                     val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
                     val spec = listener.onCreatePopup(tabId) ?: return false
+                    popupTabIds += spec.tabId
                     transport.webView = obtain(spec.tabId, spec.incognito, spec.profileKey)
                     resultMsg.sendToTarget()
                     listener.onPopupReady(spec.tabId, tabId)
                     return true
                 }
 
-                // v5.6: the page called window.close() on a script-opened window — the engine
-                // only fires this for windows it opened, so no gating needed on our side.
+                // v5.6: window.close(). Delivered to the closing window's OWN chrome client,
+                // so the closure tabId identifies it. Gated to adopted popups: Chromium also
+                // honors close() on history-length-1 windows, and a page must never be able
+                // to close a tab the USER opened.
                 override fun onCloseWindow(window: WebView) {
-                    webViews.entries.firstOrNull { it.value === window }?.let { (closingId, _) ->
-                        listener.onCloseWindow(closingId)
-                    }
+                    if (tabId in popupTabIds) listener.onCloseWindow(tabId)
                 }
 
                 // v4.8 File uploads: route <input type="file"> to the Activity's system picker.
@@ -1100,10 +1109,12 @@ class WebViewHolder(
         // The WebView is about to be destroyed — its pending Safe Browsing callback (if any)
         // must never be invoked afterwards, so just drop it.
         safeBrowsingResponses.remove(tabId)
+        popupTabIds.remove(tabId)
         webViews.remove(tabId)?.destroy()
     }
 
     fun destroyAll() {
+        popupTabIds.clear()
         webViews.values.forEach { it.destroy() }
         webViews.clear()
     }

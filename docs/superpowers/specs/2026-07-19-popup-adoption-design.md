@@ -32,19 +32,25 @@ Fix: **TabManager allocates ids synchronously.**
    Null (no VM / parent vanished) → return false, popup blocked.
 3. Holder: `obtain(spec.tabId, spec.incognito, spec.profileKey)` — the NORMAL builder, full
    settings/clients/bridges — hand it to the transport, `sendToTarget()`.
-4. `Listener.onPopupReady(tabId, parentTabId)` — async side: VM inserts the tab row via
-   `TabManager.registerPopupTab(id, incognito, groupId, orbitId, foreground)` with `url = ""`
-   (the ENGINE drives the first load through the transport — nothing to load ourselves).
-   Foreground rule unchanged from v5.0: foreground only while the parent is still the active
-   tab. Island/Orbit inheritance unchanged.
+4. `Listener.onPopupReady(tabId, parentTabId)` — the VM registers the tab IN MEMORY
+   synchronously via `TabManager.registerTabInMemory(...)` with `url = ""` (review-hardened:
+   the engine starts the transport load immediately, and onPageStarted/onContentChanged must
+   FIND the tab or the first URL is dropped and history mis-attributes to the active Orbit);
+   only the row insert (`persistRegisteredTab`) is async. Foreground rule unchanged from v5.0:
+   foreground only while the parent is still the active tab. Island/Orbit inheritance unchanged.
+   **Cold-start gate (review Critical):** `newTab` awaits an `initialized` deferred completed
+   after `initialize()` seeds the allocator — an external VIEW intent can reach `newTab` before
+   the DB read finishes, and an unseeded allocation would insert id 1 over an existing row
+   (Room ABORT → crash on every link tap from another app).
 5. `TabWebView`'s create-on-first-show guard becomes `if (wv.url == null && tabUrl.isNotBlank())`
    — a blank-url popup row must NOT trigger a load that would clobber the engine's transport
    load. The row's real URL arrives via the normal `onPageStarted`/`onContentChanged` path, so
    process-death restore reloads the committed URL as usual.
-6. `onCloseWindow(window)` — new: the page called `window.close()`. Holder resolves the tabId
-   by WebView identity and fires `Listener.onCloseWindow(tabId)`; the VM closes the tab through
-   the normal close path (close-ring, next-active selection). Only popups can be engine-closed,
-   and only pages the engine allows (script-opened windows) — no gating needed on our side.
+6. `onCloseWindow(window)` — new: the page called `window.close()`. Delivered to the closing
+   window's own chrome client (closure tabId identifies it) and GATED to adopted popup ids
+   (review-hardened): Chromium also honors `close()` on any window whose session history is
+   length 1, and a page must never be able to close a tab the USER opened. The VM closes
+   through the normal path (close-ring, next-active selection).
 
 The v5.0 interceptor machinery (`popupInterceptors`, reap timer, capture identity gates) is
 DELETED — adoption makes it dead code. `ExternalLinks`/HTTPS-Only/ad-block still apply to the

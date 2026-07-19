@@ -34,9 +34,22 @@ class TabManager(
      */
     private val nextTabId = java.util.concurrent.atomic.AtomicLong(1L)
 
+    /**
+     * Completed once [initialize] has seeded [nextTabId] past every stored id. Tab creation
+     * awaits this: a cold-start external VIEW intent reaches [newTab] BEFORE initialize's DB
+     * read finishes, and allocating from the unseeded counter would insert id 1 over an
+     * existing row (Room ABORT → crash on every link tap from another app).
+     */
+    private val initialized = kotlinx.coroutines.CompletableDeferred<Unit>()
+
     private fun isIncognitoId(id: Long) = id < 0
 
-    /** Reserves a tab id without touching the DB — safe inside synchronous engine callbacks. */
+    /**
+     * Reserves a tab id without touching the DB — safe inside synchronous engine callbacks
+     * (popup adoption). Callable pre-initialize only for incognito; normal allocation is
+     * reached exclusively through [newTab]'s gate or popups (which require an initialized
+     * tabs list to have a parent at all).
+     */
     fun allocateTabId(incognito: Boolean): Long =
         if (incognito) nextIncognitoId-- else nextTabId.getAndIncrement()
 
@@ -58,8 +71,10 @@ class TabManager(
      */
     suspend fun initialize(homeUrl: String, orbitId: Long? = null) {
         val stored = tabDao.getAll()
-        // Seed the synchronous allocator past every persisted id (v5.6).
+        // Seed the synchronous allocator past every persisted id (v5.6), THEN open the gate —
+        // the empty-DB newTab below goes through the gate itself, so order matters.
         nextTabId.set((stored.maxOfOrNull { it.id } ?: 0L) + 1L)
+        initialized.complete(Unit)
         if (stored.isEmpty()) {
             newTab(homeUrl, orbitId = orbitId ?: defaultOrbitId)
         } else {
@@ -84,18 +99,21 @@ class TabManager(
         orbitId: Long? = null,
         foreground: Boolean = true,
     ): Long {
+        initialized.await() // cold-start gate — see [initialized]
         val id = allocateTabId(incognito)
-        registerTab(id, url, incognito, groupId, orbitId, foreground)
+        registerTabInMemory(id, url, incognito, groupId, orbitId, foreground)
+        persistRegisteredTab(id)
         return id
     }
 
     /**
-     * Registers a tab under a PRE-ALLOCATED id (v5.6) — the popup-adoption path, where the
-     * WebView already exists under [id] before the row lands. Also the shared tail of [newTab].
-     * Normal tabs insert with the explicit id (Room passes it through; SQLite advances its
-     * sequence); incognito ids stay in-memory as always.
+     * SYNCHRONOUS in-memory registration under a PRE-ALLOCATED id (v5.6 popup adoption). The
+     * engine starts the popup's transport load the instant the WebView is handed over, and
+     * onPageStarted/onContentChanged must FIND the tab — a suspend-then-register would drop
+     * the first URL and mis-attribute history to the active Orbit. Callers follow up with
+     * [persistRegisteredTab]; [newTab] composes both behind the init gate.
      */
-    suspend fun registerTab(
+    fun registerTabInMemory(
         id: Long,
         url: String,
         incognito: Boolean = false,
@@ -109,16 +127,24 @@ class TabManager(
             id = id, url = url, title = url, position = position, isActive = foreground,
             isIncognito = incognito, groupId = groupId, orbitId = effectiveOrbitId,
         )
-        if (!incognito) tabDao.insert(entity)
         _tabs.value = if (foreground) {
             _tabs.value.map { it.copy(isActive = false) } + entity
         } else {
             _tabs.value + entity
         }
-        if (foreground) {
-            _activeTabId.value = id
-            if (!incognito) tabDao.setActive(id)
-        }
+        if (foreground) _activeTabId.value = id
+    }
+
+    /**
+     * Persists a tab registered via [registerTabInMemory]: inserts the row with its EXPLICIT
+     * id (Room passes it through; SQLite advances its sequence past it). Incognito ids stay
+     * in-memory as always; a tab already closed again is a no-op.
+     */
+    suspend fun persistRegisteredTab(id: Long) {
+        if (isIncognitoId(id)) return
+        val entity = _tabs.value.find { it.id == id } ?: return
+        tabDao.insert(entity)
+        if (_activeTabId.value == id) tabDao.setActive(id)
     }
 
     suspend fun switchTo(id: Long) {
