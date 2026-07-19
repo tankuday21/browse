@@ -446,6 +446,64 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /**
+     * "Add to Home screen" (v5.7): pins [url] to the launcher via ShortcutManagerCompat. The
+     * icon is the cached favicon drawn centered at ~60% on a solid circle (small favicons
+     * scale poorly full-bleed), else a letter avatar on the Andromeda accent. Tapping the pin
+     * fires ACTION_VIEW at MainActivity — the existing handleWebIntent → onExternalUrl path
+     * opens it as a new tab in the active Orbit.
+     */
+    private fun pinToHomeScreen(url: String, title: String?) {
+        if (!androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
+            android.widget.Toast.makeText(this, "Your launcher doesn't support pinning", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val host = com.udaytank.browse.browser.UrlHosts.of(url) ?: return
+        val label = com.udaytank.browse.browser.LauncherPins.shortcutLabel(title, url, host)
+        lifecycleScope.launch {
+            val favicon = viewModel.faviconBytesFor(host)?.let { bytes ->
+                runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+            }
+            val icon = renderPinIcon(favicon, label)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setClass(this@MainActivity, MainActivity::class.java)
+            val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this@MainActivity, "pin_${url.hashCode()}")
+                .setShortLabel(label)
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(icon))
+                .setIntent(intent)
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.requestPinShortcut(this@MainActivity, shortcut, null)
+        }
+    }
+
+    /** 192px shortcut icon: favicon centered on a light circle, or a letter on the accent. */
+    private fun renderPinIcon(favicon: android.graphics.Bitmap?, label: String): android.graphics.Bitmap {
+        val size = 192
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val center = size / 2f
+        if (favicon != null) {
+            paint.color = 0xFFF3F4F8.toInt() // light ground: favicons are designed for light tabs
+            canvas.drawCircle(center, center, center, paint)
+            val inner = (size * 0.6f).toInt()
+            val scaled = android.graphics.Bitmap.createScaledBitmap(favicon, inner, inner, true)
+            canvas.drawBitmap(scaled, center - inner / 2f, center - inner / 2f, paint)
+        } else {
+            paint.color = com.udaytank.browse.data.BrowseDatabase.DEFAULT_ORBIT_COLOR
+            canvas.drawCircle(center, center, center, paint)
+            paint.color = android.graphics.Color.WHITE
+            paint.textSize = size * 0.45f
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+            val letter = label.firstOrNull()?.uppercaseChar()?.toString() ?: "•"
+            // Vertically center: offset by half the text's cap height via font metrics.
+            val metrics = paint.fontMetrics
+            val baseline = center - (metrics.ascent + metrics.descent) / 2f
+            canvas.drawText(letter, center, baseline, paint)
+        }
+        return bitmap
+    }
+
     fun hasDeviceLock(): Boolean =
         // != false: a null service lookup must GATE (fail closed), not skip.
         getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure != false
@@ -802,6 +860,7 @@ class MainActivity : FragmentActivity() {
                             onOpenBookmarks = { navController.navigate("bookmarks") },
                             onOpenPasswords = { navController.navigate("passwords") },
                             onScanQr = { navController.navigate("qrscan") },
+                            onAddToHomeScreen = { url, title -> pinToHomeScreen(url, title) },
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },

@@ -89,6 +89,7 @@ fun BrowserScreen(
     onOpenBookmarks: () -> Unit,
     onOpenPasswords: () -> Unit,
     onScanQr: () -> Unit,
+    onAddToHomeScreen: (url: String, title: String?) -> Unit,
     onOpenTabs: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
@@ -718,6 +719,10 @@ fun BrowserScreen(
                 onFindInPage = { viewModel.onFindOpen(); menuOpen = false },
                 onShareAsQr = {
                     activeTab?.let { tab -> qrShare = tab.url to tab.title.takeIf { it != tab.url } }
+                    menuOpen = false
+                },
+                onAddToHomeScreen = {
+                    activeTab?.let { tab -> onAddToHomeScreen(tab.url, tab.title) }
                     menuOpen = false
                 },
                 isDesktopSite = activeTabId in desktopTabs,

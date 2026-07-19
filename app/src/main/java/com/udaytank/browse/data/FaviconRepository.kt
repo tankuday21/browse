@@ -21,6 +21,9 @@ class FaviconRepository(
 ) {
     fun observeAll(): Flow<List<FaviconEntity>> = dao.observeAll()
 
+    /** One host's cached entry (v5.7 launcher pins use the bytes for the shortcut icon). */
+    suspend fun get(host: String): FaviconEntity? = withContext(io) { dao.get(host) }
+
     /** Drop the entire icon cache (Black Hole panic-wipe). */
     suspend fun clearAll() = withContext(io) { dao.clearAll() }
 

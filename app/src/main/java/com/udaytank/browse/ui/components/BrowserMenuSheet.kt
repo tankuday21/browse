@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Print
@@ -98,6 +99,7 @@ fun BrowserMenuSheet(
     onToggleReaderMode: () -> Unit,
     onFindInPage: () -> Unit,
     onShareAsQr: () -> Unit,
+    onAddToHomeScreen: () -> Unit,
     // ── Site controls ──
     isDesktopSite: Boolean,
     onToggleDesktopSite: () -> Unit,
@@ -212,6 +214,13 @@ fun BrowserMenuSheet(
             label = "Share page as QR",
             enabled = !isHome,
             onClick = onShareAsQr,
+        )
+        // Launcher pin (v5.7) — distinct from the top row's "Add to home" quick-dial action.
+        MenuRow(
+            icon = Icons.Filled.AddToHomeScreen,
+            label = "Add to Home screen",
+            enabled = !isHome,
+            onClick = onAddToHomeScreen,
         )
         HorizontalDivider()
 
