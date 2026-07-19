@@ -446,6 +446,119 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /**
+     * "Add to Home screen" (v5.7): pins [url] to the launcher via ShortcutManagerCompat. The
+     * icon is a full-bleed adaptive square — cached (or pin-time-fetched) favicon inside the
+     * safe zone on a light ground, else a letter avatar on the Andromeda accent. Tapping the
+     * pin fires ACTION_VIEW at MainActivity — the existing handleWebIntent → onExternalUrl
+     * path opens it as a new tab in the active Orbit.
+     */
+    private fun pinToHomeScreen(url: String, title: String?) {
+        if (!androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
+            android.widget.Toast.makeText(this, "Your launcher doesn't support pinning", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val host = com.udaytank.browse.browser.UrlHosts.of(url)
+        if (host == null) {
+            android.widget.Toast.makeText(this, "Only web pages can be pinned", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val label = com.udaytank.browse.browser.LauncherPins.shortcutLabel(title, url, host)
+        lifecycleScope.launch {
+            // Cached bytes first; hosts with a DECLARED touch icon store only its URL (higher
+            // res, never downgraded to bytes) — fetch it source-direct over HTTPS at pin time,
+            // per the project's icon rules. Letter avatar remains the failure fallback.
+            // Decode stays on IO with the fetch — a 1MB touch icon would jank the main thread.
+            val favicon = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val entry = viewModel.faviconFor(host)
+                val bytes = entry?.iconBytes
+                    ?: entry?.iconUrl?.let { fetchIconBytes(it) }
+                bytes?.let {
+                    runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull()
+                }
+            }
+            val icon = renderPinIcon(favicon, label)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setClass(this@MainActivity, MainActivity::class.java)
+            // SHA-256-derived id: a 32-bit hashCode collision would silently REPLACE an
+            // unrelated pin (same id updates in place).
+            val id = "pin_" + java.security.MessageDigest.getInstance("SHA-256")
+                .digest(url.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
+            val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this@MainActivity, id)
+                .setShortLabel(label)
+                // Adaptive full-bleed square: launchers apply their own mask. A pre-masked
+                // circle via createWithBitmap renders visibly smaller on adaptive launchers
+                // (they shrink legacy bitmaps onto a generated backdrop).
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithAdaptiveBitmap(icon))
+                .setIntent(intent)
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.requestPinShortcut(this@MainActivity, shortcut, null)
+        }
+    }
+
+    /**
+     * Source-direct HTTPS-only icon fetch (neutral UA), per project icon rules. The 1MB cap is
+     * enforced WHILE STREAMING (review): a page-controlled URL could point at a 100MB file or a
+     * drip-fed endless stream — the download must abort at the cap, not buffer first.
+     */
+    private suspend fun fetchIconBytes(url: String): ByteArray? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                if (!url.startsWith("https://", ignoreCase = true)) return@runCatching null
+                val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                try {
+                    conn.connectTimeout = 5_000
+                    conn.readTimeout = 5_000
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                    if (conn.responseCode != 200) return@runCatching null // 404 pages aren't icons
+                    conn.inputStream.use { stream ->
+                        val out = java.io.ByteArrayOutputStream()
+                        val chunk = ByteArray(8_192)
+                        while (true) {
+                            val n = stream.read(chunk)
+                            if (n < 0) break
+                            out.write(chunk, 0, n)
+                            if (out.size() > 1_000_000) return@runCatching null
+                        }
+                        out.toByteArray().takeIf { it.isNotEmpty() }
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            }.getOrNull()
+        }
+
+    /**
+     * Full-bleed 432px ADAPTIVE icon source: background fills the square edge-to-edge; the
+     * favicon/letter sits inside the ~66% safe zone so no launcher mask clips it.
+     */
+    private fun renderPinIcon(favicon: android.graphics.Bitmap?, label: String): android.graphics.Bitmap {
+        val size = 432
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val center = size / 2f
+        if (favicon != null) {
+            canvas.drawColor(0xFFF3F4F8.toInt()) // light ground: favicons are designed for light tabs
+            val inner = (size * 0.44f).toInt() // comfortably inside the adaptive safe zone
+            val scaled = android.graphics.Bitmap.createScaledBitmap(favicon, inner, inner, true)
+            canvas.drawBitmap(scaled, center - inner / 2f, center - inner / 2f, paint)
+        } else {
+            canvas.drawColor(com.udaytank.browse.data.BrowseDatabase.DEFAULT_ORBIT_COLOR)
+            paint.color = android.graphics.Color.WHITE
+            paint.textSize = size * 0.33f
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+            // codePointAt keeps surrogate pairs (emoji-leading titles) intact.
+            val letter = if (label.isNotEmpty()) {
+                String(Character.toChars(label.codePointAt(0))).uppercase()
+            } else "•"
+            val metrics = paint.fontMetrics
+            val baseline = center - (metrics.ascent + metrics.descent) / 2f
+            canvas.drawText(letter, center, baseline, paint)
+        }
+        return bitmap
+    }
+
     fun hasDeviceLock(): Boolean =
         // != false: a null service lookup must GATE (fail closed), not skip.
         getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure != false
@@ -802,6 +915,7 @@ class MainActivity : FragmentActivity() {
                             onOpenBookmarks = { navController.navigate("bookmarks") },
                             onOpenPasswords = { navController.navigate("passwords") },
                             onScanQr = { navController.navigate("qrscan") },
+                            onAddToHomeScreen = { url, title -> pinToHomeScreen(url, title) },
                             onOpenTabs = { navController.navigate("tabs") },
                             onOpenSettings = { navController.navigate("settings") },
                             onOpenDownloads = { navController.navigate("downloads") },

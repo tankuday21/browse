@@ -1942,6 +1942,10 @@ class BrowserViewModel(
     /** The page called window.close() on its popup (v5.6) — close through the normal path. */
     fun onCloseWindow(tabId: Long) = onCloseTab(tabId)
 
+    /** The cached favicon entry for [host], if any (v5.7 launcher-pin icons). */
+    suspend fun faviconFor(host: String): com.udaytank.browse.data.FaviconEntity? =
+        faviconRepository?.get(host)
+
     fun onTitleUpdated(tabId: Long, url: String, title: String) {
         viewModelScope.launch {
             tabManager.onContentChanged(tabId, url, title)
