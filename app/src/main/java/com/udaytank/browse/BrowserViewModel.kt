@@ -762,6 +762,8 @@ class BrowserViewModel(
 
     // Per-Orbit (v5.5): the Downloads screen and the menu's active-download badge both show
     // the ACTIVE Orbit's downloads — same flatMapLatest pattern as history/bookmarks/passwords.
+    // Cold start: activeOrbitId's initial 0L matches no rows, so the list is briefly empty
+    // (never another Orbit's rows) until DataStore's first emission resolves the real Orbit.
     val downloads: StateFlow<List<DownloadEntry>> = activeOrbitId
         .flatMapLatest { orbitId -> downloadDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

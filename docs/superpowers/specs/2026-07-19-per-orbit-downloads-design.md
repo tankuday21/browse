@@ -29,10 +29,18 @@ Orbit's downloads, and deleting an Orbit purges its download rows AND files.
   the regular list). The `onDownloadRequested` listener carries no tab identity, and inventing
   incognito-scoped download rows would be privacy theater while the file sits in Downloads/.
 - `onDeleteOrbit` purge order (files before rows — their paths live in the rows):
-  1. cancel any RUNNING/PENDING download whose row belongs to the Orbit (controller);
-  2. `getAllForOrbit(id)` → delete each `filePath` from disk (same as `onDeleteDownload`);
+  1. cancel any RUNNING/PENDING/SCHEDULED/PAUSED download in the Orbit (PAUSED included —
+     its notification must not outlive the Orbit);
+  2. `getAllForOrbit(id)` → delete each `filePath` from disk; legacy system-DM rows
+     (`filePath` null, `downloadId` > 0) go through `downloadManagerRemover` instead —
+     the file is DownloadManager's and removal-by-id is the only cleanup path (review);
   3. `downloadDao.deleteForOrbit(id)`.
 - Black Hole unchanged (already cancels all + deletes all files + `clearAll`).
+- **Known residual race (documented, deferred):** a cancel arriving between a download's row
+  insert and the service actually starting the transfer is a no-op in the engine; the transfer
+  can then complete into an orphan file with no row. Same shape pre-exists in
+  `onDeleteDownload`; the proper fix (re-check the row exists in `DownloadService`'s start
+  path) is a service-side change deferred to a housekeeping pass.
 
 ## UI
 
