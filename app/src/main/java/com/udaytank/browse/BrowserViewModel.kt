@@ -909,7 +909,10 @@ class BrowserViewModel(
     ) { builtIn, customs, selected -> SearchEngines.resolve(builtIn, customs, selected) }
         .stateIn(
             viewModelScope, SharingStarted.Eagerly,
-            ResolvedSearchEngine(SearchEngine.GOOGLE.label, SearchEngine.GOOGLE.queryUrl),
+            // suggestUrl deliberately null until DataStore emits: before the prefs load we
+            // don't yet know the user picked a custom engine, so suggestions fail CLOSED —
+            // do not "complete" this with GOOGLE.suggestUrl.
+            ResolvedSearchEngine(SearchEngine.GOOGLE.label, SearchEngine.GOOGLE.queryUrl, suggestUrl = null),
         )
 
     /**
@@ -1121,8 +1124,16 @@ class BrowserViewModel(
         }
         // A tab switch always brings the command bar back (auto-hide state is per-moment,
         // not per-tab; the freshly shown tab starts with a visible bar, like Chrome).
+        // It also invalidates any pending or visible suggestions: they belong to the tab
+        // they were typed in — a pending job must never fire after an incognito tab's
+        // text migrates under a newly active normal tab (v5.9 defense in depth; the
+        // type-time incognito capture in onAddressBarTextChanged is the first layer).
         viewModelScope.launch {
-            activeTabId.collect { onBarShouldShow() }
+            activeTabId.collect {
+                onBarShouldShow()
+                suggestionJob?.cancel()
+                _suggestions.value = emptyList()
+            }
         }
         // Keep the address bar in sync with whichever tab is active.
         viewModelScope.launch {
@@ -1327,13 +1338,18 @@ class BrowserViewModel(
             _suggestions.value = emptyList()
             return
         }
+        // Network suggestions follow the selected engine (v5.9); null suppresses the fetch
+        // entirely — for custom engines (unknown endpoint) and for incognito, where a
+        // keystroke must never leave the device. Locals stay on either way.
+        // Incognito is checked BOTH at type time and again after the debounce: text typed in
+        // an incognito tab must never fetch even if a normal tab becomes active during the
+        // 200 ms window (and vice versa) — the text belongs to the tab it was typed in.
+        val typedInIncognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
         suggestionJob = viewModelScope.launch {
             delay(200) // debounce typing
-            // Network suggestions follow the selected engine (v5.9); null suppresses the fetch
-            // entirely — for custom engines (unknown endpoint) and for incognito, where a
-            // keystroke must never leave the device. Locals stay on either way.
-            val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
-            val suggestUrl = if (incognito) null else resolvedSearchEngine.value.suggestUrl
+            val incognitoNow = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+            val suggestUrl =
+                if (typedInIncognito || incognitoNow) null else resolvedSearchEngine.value.suggestUrl
             _suggestions.value = suggestionEngine.suggest(text, activeOrbitId.value, suggestUrl)
         }
     }
@@ -1389,6 +1405,9 @@ class BrowserViewModel(
     private fun loadInActiveTab(url: String) {
         _readerActive.value = false
         onBarShouldShow()
+        // Navigation makes any pending suggest fetch pointless (the voice-search path calls
+        // onAddressBarTextChanged + onGoPressed back to back and would otherwise fire one).
+        suggestionJob?.cancel()
         val tab = tabs.value.find { it.id == activeTabId.value }
         if (tab != null && tab.url == HOME_URL) {
             viewModelScope.launch { tabManager.onContentChanged(tab.id, url, url) }

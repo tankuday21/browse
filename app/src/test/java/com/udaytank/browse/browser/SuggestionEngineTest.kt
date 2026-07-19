@@ -109,6 +109,20 @@ class SuggestionEngineTest {
     }
 
     @Test
+    fun `parses the real shapes of all three built-in endpoints`() {
+        // Google (client=firefox) appends extra metadata elements after the suggestions array.
+        val google = """["kot",["kotlin","kotor"],[],{"google:suggestsubtypes":[[512],[512]]}]"""
+        assertEquals(listOf("kotlin", "kotor"), parseOpenSearchSuggestions(google))
+        // DuckDuckGo (/ac/?type=list) and Bing (osjson.aspx) return the bare two-element form.
+        val ddg = """["kot",["kotlin","kotlin vs java"]]"""
+        assertEquals(listOf("kotlin", "kotlin vs java"), parseOpenSearchSuggestions(ddg))
+        val bing = """["kot",["kotlin download"]]"""
+        assertEquals(listOf("kotlin download"), parseOpenSearchSuggestions(bing))
+        // No results is a valid response, not an error.
+        assertEquals(emptyList<String>(), parseOpenSearchSuggestions("""["zxqj", []]"""))
+    }
+
+    @Test
     fun `malformed or unexpected bodies parse to empty, never throw`() {
         assertEquals(emptyList<String>(), parseOpenSearchSuggestions("not json"))
         assertEquals(emptyList<String>(), parseOpenSearchSuggestions("{}"))

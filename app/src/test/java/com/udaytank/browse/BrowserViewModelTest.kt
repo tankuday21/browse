@@ -1394,6 +1394,12 @@ class BrowserViewModelTest {
         var fetched = false
         val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
         advanceUntilIdle()
+        // Positive control first — proves this very setup DOES fetch for a built-in, so the
+        // negative half below can't pass vacuously (e.g. via a null cold-start suggestUrl).
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertTrue(fetched)
+        fetched = false
         vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s")
         vm.onSelectCustomEngine("Kagi")
         advanceUntilIdle()
@@ -1407,10 +1413,31 @@ class BrowserViewModelTest {
         var fetched = false
         val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
         advanceUntilIdle()
+        // Positive control: the same setup fetches from a normal tab.
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertTrue(fetched)
+        fetched = false
         vm.onNewIncognitoTab()
         advanceUntilIdle()
         vm.onAddressBarTextChanged("secret plans")
         advanceUntilIdle()
+        assertFalse(fetched)
+    }
+
+    @Test
+    fun `incognito text never fetches even when a normal tab activates before the debounce fires`() = runTest {
+        // The race: type in incognito, then within the 200 ms debounce a normal tab becomes
+        // active (here via an external link intent). The pending job must not wake up, see
+        // the normal tab, and ship the incognito keystrokes to the network.
+        var fetched = false
+        val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
+        advanceUntilIdle()
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        vm.onAddressBarTextChanged("secret plans")
+        vm.onExternalUrl("https://example.com") // activates a fresh NORMAL tab immediately
+        advanceUntilIdle() // debounce elapses with the normal tab active
         assertFalse(fetched)
     }
 }

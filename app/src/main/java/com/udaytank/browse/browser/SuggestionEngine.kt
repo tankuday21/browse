@@ -58,6 +58,9 @@ suspend fun openSearchSuggest(suggestUrl: String, query: String): List<String> =
         val connection = url.openConnection() as HttpURLConnection
         connection.connectTimeout = 1500
         connection.readTimeout = 1500
+        // Neutral UA (project constraint): the platform default leaks device model + OS
+        // version with every keystroke. Same convention as WeatherRepository/FeedRepository.
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) Andromeda/5.9")
         try {
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             parseOpenSearchSuggestions(body)
