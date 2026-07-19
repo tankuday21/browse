@@ -12,10 +12,24 @@ import com.udaytank.browse.browser.adblock.FilterLists
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-enum class SearchEngine(val label: String, val queryUrl: String) {
-    GOOGLE("Google", "https://www.google.com/search?q="),
-    DUCKDUCKGO("DuckDuckGo", "https://duckduckgo.com/?q="),
-    BING("Bing", "https://www.bing.com/search?q="),
+enum class SearchEngine(val label: String, val queryUrl: String, val suggestUrl: String) {
+    // suggestUrl (v5.9): each built-in's public OpenSearch suggest endpoint — all three
+    // return the same JSON shape (["query", ["s1", ...]]); %s = the URL-encoded query.
+    GOOGLE(
+        "Google",
+        "https://www.google.com/search?q=",
+        "https://suggestqueries.google.com/complete/search?client=firefox&q=%s",
+    ),
+    DUCKDUCKGO(
+        "DuckDuckGo",
+        "https://duckduckgo.com/?q=",
+        "https://duckduckgo.com/ac/?type=list&q=%s",
+    ),
+    BING(
+        "Bing",
+        "https://www.bing.com/search?q=",
+        "https://www.bing.com/osjson.aspx?query=%s",
+    ),
 }
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

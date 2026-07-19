@@ -38,10 +38,11 @@ class BrowserViewModelTest {
         homeShortcutDao: FakeHomeShortcutDao = FakeHomeShortcutDao(),
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
+        suggestionFetcher: suspend (String, String) -> List<String> = { _, _ -> emptyList() },
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
         readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
-        downloadManagerRemover, ioDispatcher = Dispatchers.Unconfined,
+        downloadManagerRemover, suggestionFetcher, ioDispatcher = Dispatchers.Unconfined,
     )
 
     @Test
@@ -1369,5 +1370,74 @@ class BrowserViewModelTest {
         assertEquals(120, settings.readerFontScale.value)
         assertTrue(settings.httpsOnly.value)
         assertFalse(settings.gpcEnabled.value) // unparseable -> untouched
+    }
+
+    // --- per-engine search suggestions + incognito suggest gate (v5.9) ---
+
+    @Test
+    fun `suggestions query the selected engine's suggest endpoint`() = runTest {
+        var received: String? = null
+        val vm = vm(suggestionFetcher = { url, _ -> received = url; listOf("pizza margherita") })
+        advanceUntilIdle()
+        vm.onSearchEngineSelected(SearchEngine.DUCKDUCKGO)
+        advanceUntilIdle()
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertEquals(SearchEngine.DUCKDUCKGO.suggestUrl, received)
+        assertTrue(vm.suggestions.value.any { it.title == "pizza margherita" })
+    }
+
+    @Test
+    fun `a selected custom engine suppresses network suggestions`() = runTest {
+        // Recording flag, not fail(): the engine wraps the fetcher in runCatching, which
+        // would swallow an AssertionError and let a vacuous test pass.
+        var fetched = false
+        val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
+        advanceUntilIdle()
+        // Positive control first — proves this very setup DOES fetch for a built-in, so the
+        // negative half below can't pass vacuously (e.g. via a null cold-start suggestUrl).
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertTrue(fetched)
+        fetched = false
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s")
+        vm.onSelectCustomEngine("Kagi")
+        advanceUntilIdle()
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertFalse(fetched)
+    }
+
+    @Test
+    fun `incognito typing never queries the suggest endpoint`() = runTest {
+        var fetched = false
+        val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
+        advanceUntilIdle()
+        // Positive control: the same setup fetches from a normal tab.
+        vm.onAddressBarTextChanged("pizza")
+        advanceUntilIdle()
+        assertTrue(fetched)
+        fetched = false
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        vm.onAddressBarTextChanged("secret plans")
+        advanceUntilIdle()
+        assertFalse(fetched)
+    }
+
+    @Test
+    fun `incognito text never fetches even when a normal tab activates before the debounce fires`() = runTest {
+        // The race: type in incognito, then within the 200 ms debounce a normal tab becomes
+        // active (here via an external link intent). The pending job must not wake up, see
+        // the normal tab, and ship the incognito keystrokes to the network.
+        var fetched = false
+        val vm = vm(suggestionFetcher = { _, _ -> fetched = true; emptyList() })
+        advanceUntilIdle()
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        vm.onAddressBarTextChanged("secret plans")
+        vm.onExternalUrl("https://example.com") // activates a fresh NORMAL tab immediately
+        advanceUntilIdle() // debounce elapses with the normal tab active
+        assertFalse(fetched)
     }
 }
