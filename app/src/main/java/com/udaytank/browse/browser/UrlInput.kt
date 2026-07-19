@@ -19,8 +19,13 @@ object UrlInput {
             // Case 2: no spaces AND has a dot → it's a domain, add https://
             !text.contains(' ') && text.contains('.') -> "https://$text"
 
-            // Case 3: everything else → search for it
-            else -> searchUrl + URLEncoder.encode(text, "UTF-8")
+            // Case 3: everything else → search for it. Custom engines (v5.8) use the %s
+            // template convention (substituted everywhere it appears); built-ins keep their
+            // append-style prefixes.
+            else -> {
+                val encoded = URLEncoder.encode(text, "UTF-8")
+                if (searchUrl.contains("%s")) searchUrl.replace("%s", encoded) else searchUrl + encoded
+            }
         }
     }
 

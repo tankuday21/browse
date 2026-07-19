@@ -27,7 +27,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
@@ -40,9 +42,10 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -72,6 +75,7 @@ import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.ui.components.OrbitListRow
+import androidx.compose.ui.text.input.KeyboardType
 import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitRadii
@@ -393,17 +397,110 @@ private fun GeneralSettings(
 
         Spacer(Modifier.height(OrbitSpacing.xl))
         SectionHeader("Search engine")
+        // v5.8: built-ins + user-defined customs share one radio group; the selected custom
+        // (if any) wins over the enum — mirroring the VM's resolvedSearchEngine.
+        val customs by viewModel.customSearchEngines.collectAsStateWithLifecycle()
+        val selectedCustom by viewModel.selectedCustomEngine.collectAsStateWithLifecycle()
+        val customActive = customs.any { it.name == selectedCustom }
+        var addEngineOpen by remember { mutableStateOf(false) }
         SettingsGroup {
-            SearchEngine.entries.forEachIndexed { index, option ->
+            SearchEngine.entries.forEach { option ->
                 RadioOptionRow(
                     label = option.label,
-                    selected = engine == option,
+                    selected = !customActive && engine == option,
                     onClick = { viewModel.onSearchEngineSelected(option) },
                 )
-                if (index != SearchEngine.entries.lastIndex) GroupDivider()
+                GroupDivider()
             }
+            customs.forEach { custom ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        RadioOptionRow(
+                            label = custom.name,
+                            selected = customActive && selectedCustom == custom.name,
+                            onClick = { viewModel.onSelectCustomEngine(custom.name) },
+                        )
+                    }
+                    IconButton(onClick = { viewModel.onRemoveCustomEngine(custom.name) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Remove ${custom.name}",
+                            tint = orbit().text.secondary,
+                        )
+                    }
+                }
+                GroupDivider()
+            }
+            OrbitListRow(
+                leadingIcon = Icons.Filled.Add,
+                title = "Add custom engine",
+                subtitle = "Kagi, Startpage, a SearXNG instance…",
+                onClick = { addEngineOpen = true },
+            )
+        }
+        if (addEngineOpen) {
+            AddSearchEngineDialog(
+                isNameTaken = { name ->
+                    SearchEngine.entries.any { it.label.equals(name.trim(), ignoreCase = true) } ||
+                        customs.any { it.name.equals(name.trim(), ignoreCase = true) }
+                },
+                onAdd = { name, template ->
+                    viewModel.onAddCustomEngine(name, template)
+                    viewModel.onSelectCustomEngine(name.trim())
+                },
+                onDismiss = { addEngineOpen = false },
+            )
         }
     }
+}
+
+/**
+ * Add-custom-engine form (v5.8). Save enables only when the input passes the same validation
+ * the VM enforces — a refused engine must never look saved.
+ */
+@Composable
+private fun AddSearchEngineDialog(
+    isNameTaken: (String) -> Boolean,
+    onAdd: (name: String, template: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scheme = orbit()
+    var name by remember { mutableStateOf("") }
+    var template by remember { mutableStateOf("") }
+    val nameTaken = name.isNotBlank() && isNameTaken(name)
+    val valid = com.udaytank.browse.browser.SearchEngines.validate(name, template) && !nameTaken
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaces.elevated,
+        title = { Text("Add search engine", color = scheme.text.primary) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(OrbitSpacing.md)) {
+                OrbitTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "Name",
+                    isError = nameTaken,
+                    errorText = if (nameTaken) "That name is already in use" else null,
+                )
+                OrbitTextField(
+                    value = template,
+                    onValueChange = { template = it },
+                    label = "Query URL",
+                    placeholder = "https://example.com/search?q=%s",
+                    keyboardType = KeyboardType.Uri,
+                )
+                Text(
+                    "https only; %s marks where the search terms go",
+                    style = orbitCaption,
+                    color = scheme.text.muted,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onAdd(name, template); onDismiss() }) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 // ────────────────────────────────── Appearance ──────────────────────────────────

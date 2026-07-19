@@ -96,6 +96,15 @@ class FakeSettingsRepository : SettingsRepository {
     override val lockPasswords = MutableStateFlow(true)
     override suspend fun setLockPasswords(enabled: Boolean) { lockPasswords.value = enabled }
 
+    override val customSearchEngines = MutableStateFlow("")
+    override suspend fun setCustomSearchEngines(json: String) { customSearchEngines.value = json }
+    override suspend fun updateCustomSearchEngines(transform: (String) -> String) {
+        customSearchEngines.value = transform(customSearchEngines.value)
+    }
+
+    override val selectedCustomEngine = MutableStateFlow("")
+    override suspend fun setSelectedCustomEngine(name: String) { selectedCustomEngine.value = name }
+
     override val autoIslands = MutableStateFlow(true)
     override suspend fun setAutoIslands(enabled: Boolean) {
         autoIslands.value = enabled

@@ -23,6 +23,9 @@ import com.udaytank.browse.browser.SuggestionEngine
 import com.udaytank.browse.browser.SuggestionKind
 import com.udaytank.browse.browser.TabGroupPolicy
 import com.udaytank.browse.browser.TabManager
+import com.udaytank.browse.browser.CustomSearchEngine
+import com.udaytank.browse.browser.ResolvedSearchEngine
+import com.udaytank.browse.browser.SearchEngines
 import com.udaytank.browse.browser.UrlInput
 import com.udaytank.browse.ui.PopupTabSpec
 import com.udaytank.browse.browser.googleSuggest
@@ -888,6 +891,62 @@ class BrowserViewModel(
     val searchEngine: StateFlow<SearchEngine> = settings.searchEngine
         .stateIn(viewModelScope, SharingStarted.Eagerly, SearchEngine.GOOGLE)
 
+    /** User-defined engines (v5.8), decoded from the JSON pref. */
+    val customSearchEngines: StateFlow<List<CustomSearchEngine>> = settings.customSearchEngines
+        .map { SearchEngines.decode(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The selected custom engine's name; blank = the built-in enum applies. */
+    val selectedCustomEngine: StateFlow<String> = settings.selectedCustomEngine
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    /**
+     * What searches ACTUALLY use (v5.8): the selected custom engine when it still exists,
+     * else the built-in. Eagerly for the same reason as [searchEngine].
+     */
+    val resolvedSearchEngine: StateFlow<ResolvedSearchEngine> = combine(
+        settings.searchEngine, customSearchEngines, selectedCustomEngine,
+    ) { builtIn, customs, selected -> SearchEngines.resolve(builtIn, customs, selected) }
+        .stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            ResolvedSearchEngine(SearchEngine.GOOGLE.label, SearchEngine.GOOGLE.queryUrl),
+        )
+
+    /**
+     * Adds (or same-name replaces — the UI blocks duplicates; replace serves restore and
+     * programmatic use) a custom engine; input must already pass validate(). The mutation is
+     * an ATOMIC transform inside DataStore — reading the StateFlow then writing would let two
+     * rapid adds clobber each other (the flow re-emits asynchronously).
+     */
+    fun onAddCustomEngine(name: String, template: String) {
+        if (!SearchEngines.validate(name, template)) return
+        val cleanName = name.trim()
+        val cleanTemplate = template.trim()
+        viewModelScope.launch {
+            settings.updateCustomSearchEngines { json ->
+                val updated = SearchEngines.decode(json).filterNot { it.name == cleanName } +
+                    CustomSearchEngine(cleanName, cleanTemplate)
+                SearchEngines.encode(updated)
+            }
+        }
+    }
+
+    /** Removes a custom engine (atomic, see [onAddCustomEngine]); removing the SELECTED one falls back. */
+    fun onRemoveCustomEngine(name: String) {
+        viewModelScope.launch {
+            settings.updateCustomSearchEngines { json ->
+                SearchEngines.encode(SearchEngines.decode(json).filterNot { it.name == name })
+            }
+            // first(), not StateFlow.value — same stale-read hazard the customs fix removed.
+            if (settings.selectedCustomEngine.first() == name) settings.setSelectedCustomEngine("")
+        }
+    }
+
+    /** Selects a custom engine by name; null/blank = a built-in radio was picked. */
+    fun onSelectCustomEngine(name: String?) {
+        viewModelScope.launch { settings.setSelectedCustomEngine(name.orEmpty()) }
+    }
+
     val themeMode: StateFlow<ThemeMode> = settings.themeMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, ThemeMode.SYSTEM)
 
@@ -1205,7 +1264,11 @@ class BrowserViewModel(
     // --- settings events ---
 
     fun onSearchEngineSelected(engine: SearchEngine) {
-        viewModelScope.launch { settings.setSearchEngine(engine) }
+        viewModelScope.launch {
+            settings.setSearchEngine(engine)
+            // Picking a built-in clears any custom selection (v5.8) — one active engine.
+            settings.setSelectedCustomEngine("")
+        }
     }
 
     fun onThemeSelected(mode: ThemeMode) {
@@ -1278,7 +1341,7 @@ class BrowserViewModel(
     fun onSuggestionPicked(suggestion: Suggestion) {
         when (suggestion.kind) {
             SuggestionKind.SEARCH ->
-                onOpenUrl(UrlInput.toLoadableUrl(suggestion.title, searchEngine.value.queryUrl))
+                onOpenUrl(UrlInput.toLoadableUrl(suggestion.title, resolvedSearchEngine.value.queryUrl))
             else -> onOpenUrl(suggestion.url)
         }
         onSuggestionsDismissed()
@@ -1330,7 +1393,7 @@ class BrowserViewModel(
     }
 
     fun onGoPressed() =
-        loadInActiveTab(UrlInput.toLoadableUrl(_uiState.value.addressBarText, searchEngine.value.queryUrl))
+        loadInActiveTab(UrlInput.toLoadableUrl(_uiState.value.addressBarText, resolvedSearchEngine.value.queryUrl))
 
     fun onOpenUrl(url: String) = loadInActiveTab(url)
 
@@ -1460,6 +1523,8 @@ class BrowserViewModel(
      */
     private suspend fun settingsSnapshot(): Map<String, String> = mapOf(
         "searchEngine" to settings.searchEngine.first().name,
+        "customSearchEngines" to settings.customSearchEngines.first(),
+        "selectedCustomEngine" to settings.selectedCustomEngine.first(),
         "themeMode" to settings.themeMode.first().name,
         "javaScriptEnabled" to settings.javaScriptEnabled.first().toString(),
         "cookiesEnabled" to settings.cookiesEnabled.first().toString(),
@@ -1561,6 +1626,17 @@ class BrowserViewModel(
     private suspend fun applyRestoredSettings(map: Map<String, String>) {
         map["searchEngine"]?.let { v -> SearchEngine.entries.find { it.name == v } }
             ?.let { settings.setSearchEngine(it) }
+        // v5.8: customs re-encoded through the codec (lenient — malformed JSON restores none).
+        // The selection is set UNCONDITIONALLY when the customs key is present: keeping a
+        // stale local selection would leave a ghost pref that silently activates the moment
+        // a same-named engine is ever added again.
+        map["customSearchEngines"]?.let { json ->
+            val customs = SearchEngines.decode(json)
+            settings.setCustomSearchEngines(SearchEngines.encode(customs))
+            settings.setSelectedCustomEngine(
+                map["selectedCustomEngine"]?.takeIf { sel -> customs.any { it.name == sel } }.orEmpty()
+            )
+        }
         map["themeMode"]?.let { v -> ThemeMode.entries.find { it.name == v } }
             ?.let { settings.setThemeMode(it) }
         map["javaScriptEnabled"]?.toBooleanStrictOrNull()?.let { settings.setJavaScriptEnabled(it) }
@@ -1882,7 +1958,7 @@ class BrowserViewModel(
 
     /** v5.2 QR: search scanned plain text with the user's engine, in a new tab. */
     fun onSearchFromQr(text: String) {
-        onOpenInNewTab(UrlInput.toLoadableUrl(text, searchEngine.value.queryUrl))
+        onOpenInNewTab(UrlInput.toLoadableUrl(text, resolvedSearchEngine.value.queryUrl))
     }
 
     /** New tabs opened from a page inherit that page's incognito mode and, when auto-islands is on, its group. */
