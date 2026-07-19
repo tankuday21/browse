@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
@@ -96,6 +97,7 @@ fun BrowserMenuSheet(
     readerActive: Boolean,
     onToggleReaderMode: () -> Unit,
     onFindInPage: () -> Unit,
+    onShareAsQr: () -> Unit,
     // ── Site controls ──
     isDesktopSite: Boolean,
     onToggleDesktopSite: () -> Unit,
@@ -204,6 +206,12 @@ fun BrowserMenuSheet(
             label = "Find in page",
             enabled = !isHome,
             onClick = onFindInPage,
+        )
+        MenuRow(
+            icon = Icons.Filled.QrCode2,
+            label = "Share page as QR",
+            enabled = !isHome,
+            onClick = onShareAsQr,
         )
         HorizontalDivider()
 
