@@ -912,23 +912,31 @@ class BrowserViewModel(
             ResolvedSearchEngine(SearchEngine.GOOGLE.label, SearchEngine.GOOGLE.queryUrl),
         )
 
-    /** Adds (or same-name replaces) a custom engine; input must already pass validate(). */
+    /**
+     * Adds (or same-name replaces — the UI blocks duplicates; replace serves restore and
+     * programmatic use) a custom engine; input must already pass validate(). The mutation is
+     * an ATOMIC transform inside DataStore — reading the StateFlow then writing would let two
+     * rapid adds clobber each other (the flow re-emits asynchronously).
+     */
     fun onAddCustomEngine(name: String, template: String) {
         if (!SearchEngines.validate(name, template)) return
         val cleanName = name.trim()
         val cleanTemplate = template.trim()
         viewModelScope.launch {
-            val updated = customSearchEngines.value.filterNot { it.name == cleanName } +
-                CustomSearchEngine(cleanName, cleanTemplate)
-            settings.setCustomSearchEngines(SearchEngines.encode(updated))
+            settings.updateCustomSearchEngines { json ->
+                val updated = SearchEngines.decode(json).filterNot { it.name == cleanName } +
+                    CustomSearchEngine(cleanName, cleanTemplate)
+                SearchEngines.encode(updated)
+            }
         }
     }
 
-    /** Removes a custom engine; removing the SELECTED one falls back to the built-in. */
+    /** Removes a custom engine (atomic, see [onAddCustomEngine]); removing the SELECTED one falls back. */
     fun onRemoveCustomEngine(name: String) {
         viewModelScope.launch {
-            val updated = customSearchEngines.value.filterNot { it.name == name }
-            settings.setCustomSearchEngines(SearchEngines.encode(updated))
+            settings.updateCustomSearchEngines { json ->
+                SearchEngines.encode(SearchEngines.decode(json).filterNot { it.name == name })
+            }
             if (selectedCustomEngine.value == name) settings.setSelectedCustomEngine("")
         }
     }
@@ -1617,13 +1625,16 @@ class BrowserViewModel(
     private suspend fun applyRestoredSettings(map: Map<String, String>) {
         map["searchEngine"]?.let { v -> SearchEngine.entries.find { it.name == v } }
             ?.let { settings.setSearchEngine(it) }
-        // v5.8: customs re-encoded through the codec (lenient — malformed JSON restores none);
-        // the selection is kept only if it names a restored custom.
+        // v5.8: customs re-encoded through the codec (lenient — malformed JSON restores none).
+        // The selection is set UNCONDITIONALLY when the customs key is present: keeping a
+        // stale local selection would leave a ghost pref that silently activates the moment
+        // a same-named engine is ever added again.
         map["customSearchEngines"]?.let { json ->
             val customs = SearchEngines.decode(json)
             settings.setCustomSearchEngines(SearchEngines.encode(customs))
-            map["selectedCustomEngine"]?.takeIf { sel -> customs.any { it.name == sel } }
-                ?.let { settings.setSelectedCustomEngine(it) }
+            settings.setSelectedCustomEngine(
+                map["selectedCustomEngine"]?.takeIf { sel -> customs.any { it.name == sel } }.orEmpty()
+            )
         }
         map["themeMode"]?.let { v -> ThemeMode.entries.find { it.name == v } }
             ?.let { settings.setThemeMode(it) }

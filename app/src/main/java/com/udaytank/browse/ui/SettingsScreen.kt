@@ -76,6 +76,7 @@ import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.ui.components.OrbitListRow
+import androidx.compose.ui.text.input.KeyboardType
 import com.udaytank.browse.ui.components.OrbitTextField
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitRadii
@@ -475,21 +476,24 @@ private fun AddSearchEngineDialog(
         title = { Text("Add search engine", color = scheme.text.primary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(OrbitSpacing.md)) {
-                OutlinedTextField(
+                OrbitTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
+                    label = "Name",
                     isError = nameTaken,
-                    supportingText = { if (nameTaken) Text("That name is already in use") },
+                    errorText = if (nameTaken) "That name is already in use" else null,
                 )
-                OutlinedTextField(
+                OrbitTextField(
                     value = template,
                     onValueChange = { template = it },
-                    label = { Text("Query URL") },
-                    placeholder = { Text("https://example.com/search?q=%s") },
-                    singleLine = true,
-                    supportingText = { Text("https only; %s marks where the search terms go") },
+                    label = "Query URL",
+                    placeholder = "https://example.com/search?q=%s",
+                    keyboardType = KeyboardType.Uri,
+                )
+                Text(
+                    "https only; %s marks where the search terms go",
+                    style = orbitCaption,
+                    color = scheme.text.muted,
                 )
             }
         },

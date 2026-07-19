@@ -49,8 +49,13 @@ object SearchEngines {
     fun validate(name: String, template: String): Boolean {
         val cleanName = name.trim()
         val cleanTemplate = template.trim()
+        // The marker must live in the PATH/QUERY, never the authority: "https://%s.example.com"
+        // would route every search to a term-derived host — a whole class of confusing failures.
+        val authority = cleanTemplate.removePrefix("https://").removePrefix("HTTPS://").substringBefore('/')
+        if (authority.contains("%s")) return false
         // The host must be dotted (or localhost, for self-hosted instances): a template like
         // "https://%s" parses to a bogus single-label host once the marker is substituted.
+        // (Known limitation: IPv6 literal hosts are rejected — bracketed form has no dot.)
         val host = UrlHosts.of(cleanTemplate.replace("%s", "q"))
         return cleanName.isNotEmpty() &&
             cleanTemplate.startsWith("https://", ignoreCase = true) &&

@@ -30,6 +30,12 @@ interface SettingsRepository {
     /** User-defined engines as SearchEngines-codec JSON (v5.8); blank = none. */
     val customSearchEngines: Flow<String>
     suspend fun setCustomSearchEngines(json: String)
+    /**
+     * Atomic read-modify-write of the customs JSON (v5.8): [transform] runs inside one
+     * DataStore edit, so two rapid mutations can never clobber each other the way a
+     * read-StateFlow-then-write would.
+     */
+    suspend fun updateCustomSearchEngines(transform: (String) -> String)
     /** The selected custom engine's name (v5.8); blank = the [searchEngine] enum applies. */
     val selectedCustomEngine: Flow<String>
     suspend fun setSelectedCustomEngine(name: String)
@@ -444,6 +450,12 @@ class DataStoreSettingsRepository(
     override suspend fun setCustomSearchEngines(json: String) {
         dataStore.edit {
             if (json.isBlank()) it.remove(CUSTOM_SEARCH_ENGINES_KEY) else it[CUSTOM_SEARCH_ENGINES_KEY] = json
+        }
+    }
+    override suspend fun updateCustomSearchEngines(transform: (String) -> String) {
+        dataStore.edit { prefs ->
+            val updated = transform(prefs[CUSTOM_SEARCH_ENGINES_KEY] ?: "")
+            if (updated.isBlank()) prefs.remove(CUSTOM_SEARCH_ENGINES_KEY) else prefs[CUSTOM_SEARCH_ENGINES_KEY] = updated
         }
     }
 

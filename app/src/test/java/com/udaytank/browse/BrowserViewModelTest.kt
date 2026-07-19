@@ -340,6 +340,44 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `two rapid adds both survive (atomic transform, no clobber)`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        // No advanceUntilIdle between them — a read-StateFlow-then-write implementation would
+        // lose the first engine because the flow hasn't re-emitted when the second add reads.
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s")
+        vm.onAddCustomEngine("Startpage", "https://www.startpage.com/sp/search?query=%s")
+        advanceUntilIdle()
+        assertEquals(
+            setOf("Kagi", "Startpage"),
+            vm.customSearchEngines.value.map { it.name }.toSet(),
+        )
+    }
+
+    @Test
+    fun `restore clears a stale local custom selection`() = runTest {
+        // Backup: one custom (Startpage), built-in selected (blank selection).
+        val vm = vm(); advanceUntilIdle()
+        vm.onAddCustomEngine("Startpage", "https://www.startpage.com/sp/search?query=%s")
+        advanceUntilIdle()
+        val backup = com.udaytank.browse.browser.BackupCodec.decode(vm.buildBackupJson())!!
+
+        // Device: has (and selected) a different custom, "Kagi".
+        val vm2 = vm(); advanceUntilIdle()
+        vm2.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s"); advanceUntilIdle()
+        vm2.onSelectCustomEngine("Kagi"); advanceUntilIdle()
+
+        vm2.onRestoreBackup(backup) {}
+        advanceUntilIdle()
+        // Ghost selection cleared: were "Kagi" kept, adding a same-named engine later would
+        // silently activate it.
+        assertEquals("", vm2.selectedCustomEngine.value)
+        assertEquals(
+            com.udaytank.browse.data.SearchEngine.GOOGLE.label,
+            vm2.resolvedSearchEngine.value.label,
+        )
+    }
+
+    @Test
     fun `backup round-trips custom engines and the selection`() = runTest {
         val vm = vm(); advanceUntilIdle()
         vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s"); advanceUntilIdle()

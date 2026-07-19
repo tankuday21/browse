@@ -98,6 +98,9 @@ class FakeSettingsRepository : SettingsRepository {
 
     override val customSearchEngines = MutableStateFlow("")
     override suspend fun setCustomSearchEngines(json: String) { customSearchEngines.value = json }
+    override suspend fun updateCustomSearchEngines(transform: (String) -> String) {
+        customSearchEngines.value = transform(customSearchEngines.value)
+    }
 
     override val selectedCustomEngine = MutableStateFlow("")
     override suspend fun setSelectedCustomEngine(name: String) { selectedCustomEngine.value = name }

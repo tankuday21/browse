@@ -42,10 +42,23 @@ class SearchEnginesTest {
     @Test
     fun `validation requires name, https, and the query marker`() {
         assertTrue(SearchEngines.validate("Kagi", "https://kagi.com/search?q=%s"))
+        assertTrue(SearchEngines.validate("Local", "https://localhost/search?q=%s")) // self-hosted
+        assertTrue(SearchEngines.validate("LAN", "https://192.168.1.10/search?q=%s")) // dotted IP
         assertFalse(SearchEngines.validate("  ", "https://kagi.com/search?q=%s")) // blank name
         assertFalse(SearchEngines.validate("Kagi", "http://kagi.com/search?q=%s")) // plaintext
         assertFalse(SearchEngines.validate("Kagi", "https://kagi.com/search?q=")) // no %s
         assertFalse(SearchEngines.validate("Kagi", "https://%s")) // no real host
+        // The marker must never sit in the authority — searches would route to a term-derived host.
+        assertFalse(SearchEngines.validate("Weird", "https://%s.example.com/search?q=%s"))
+    }
+
+    @Test
+    fun `searching for the literal marker cannot re-substitute`() {
+        // URLEncoder turns % into %25, so an encoded query can never contain "%s" itself.
+        assertEquals(
+            "https://kagi.com/search?q=%25s",
+            UrlInput.toLoadableUrl("%s", "https://kagi.com/search?q=%s"),
+        )
     }
 
     // --- resolve ---
