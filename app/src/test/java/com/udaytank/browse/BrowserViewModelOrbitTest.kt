@@ -500,6 +500,26 @@ class BrowserViewModelOrbitTest {
         sub.cancel()
     }
 
+    // --- v5.6 popup adoption ---
+
+    @Test
+    fun `popup spec carries the parent orbit's real profile key`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onCreateOrbit("Work", 0x1); advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id); advanceUntilIdle()
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+
+        // User switches back to Personal; a late popup from the Work tab must still get
+        // WORK's profile — cookie isolation follows the parent, not the active Orbit.
+        val personal = vm.orbits.value.first { it.name != "Work" }
+        vm.onSwitchOrbit(personal.id); advanceUntilIdle()
+        val spec = vm.onCreatePopup(workTab.id)!!
+        assertEquals(work.profileKey, spec.profileKey)
+        assertTrue(!spec.incognito)
+    }
+
     // --- v5.5 per-Orbit downloads ---
 
     @Test

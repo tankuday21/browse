@@ -1,5 +1,9 @@
 # Popups → New Tab — window.open / target="_blank" (v5.0)
 
+> **SUPERSEDED by v5.6** (`2026-07-19-popup-adoption-design.md`): the interceptor described
+> here was replaced by true WebView adoption — window.opener now works and target="_blank"
+> POSTs keep their body. Kept for the history of the design constraints.
+
 **Goal:** Links with `target="_blank"` and gesture-backed `window.open()` open a NEW tab. Today
 `setSupportMultipleWindows` is off and `onCreateWindow` is not overridden, so such links load in
 the SAME WebView (replacing the page) or are suppressed — there is no popup handling at all.

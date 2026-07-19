@@ -306,30 +306,35 @@ class BrowserViewModelTest {
         assertTrue(tab.url.contains("hello") && tab.url.startsWith("http"))
     }
 
-    // --- popups (v5.0: window.open / target="_blank" → new tab) ---
+    // --- popups (v5.6: adoption — onCreatePopup allocates synchronously, onPopupReady registers) ---
 
     @Test
-    fun `popup from incognito parent stays incognito with no orbit`() = runTest {
+    fun `popup spec from an incognito parent is incognito with a negative id and no profile`() = runTest {
         val vm = vm(); advanceUntilIdle()
         vm.onNewIncognitoTab(); advanceUntilIdle()
         val parentId = vm.activeTabId.value!!
-        vm.onPopupWindow(parentId, "https://popup.com"); advanceUntilIdle()
-        val popup = vm.tabs.value.first { it.url == "https://popup.com" }
+        val spec = vm.onCreatePopup(parentId)!!
+        assertTrue(spec.incognito)
+        assertTrue(spec.tabId < 0) // incognito id space: in-memory, never persisted
+        assertNull(spec.profileKey) // obtain() applies the fixed incognito profile itself
+        vm.onPopupReady(spec.tabId, parentId); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.id == spec.tabId }
         assertTrue(popup.isIncognito)
         assertNull(popup.orbitId)
-        assertEquals(popup.id, vm.activeTabId.value) // popups foreground, like open-in-new-tab
+        assertEquals(popup.id, vm.activeTabId.value) // parent was active → foregrounds
     }
 
     @Test
-    fun `popup is keyed on its parent tab even when another tab is active`() = runTest {
+    fun `popup backgrounds when the user switched away before it registered`() = runTest {
         val vm = vm(); advanceUntilIdle()
         vm.onNewIncognitoTab(); advanceUntilIdle()
         val incognitoParent = vm.activeTabId.value!!
+        val spec = vm.onCreatePopup(incognitoParent)!!
         vm.onNewTab(); advanceUntilIdle() // user switched away — a NORMAL tab is now active
         val activeBefore = vm.activeTabId.value
-        vm.onPopupWindow(incognitoParent, "https://late-popup.com"); advanceUntilIdle()
-        val popup = vm.tabs.value.first { it.url == "https://late-popup.com" }
-        assertTrue(popup.isIncognito) // inherits the PARENT's mode, not the active tab's
+        vm.onPopupReady(spec.tabId, incognitoParent); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.id == spec.tabId }
+        assertTrue(popup.isIncognito) // born with the PARENT's mode, not the active tab's
         // The parent is no longer what the user is looking at → the popup must NOT foreground
         // (activating a tab from another mode/Orbit breaks the switcher's invariant).
         assertEquals(activeBefore, vm.activeTabId.value)
@@ -337,16 +342,19 @@ class BrowserViewModelTest {
     }
 
     @Test
-    fun `popup inherits its parent tab's Orbit, not the now-active one, and backgrounds`() = runTest {
+    fun `popup inherits its parent tab's Orbit and profile, not the now-active one`() = runTest {
         val vm = vm(); advanceUntilIdle()
         vm.onNewTab(); advanceUntilIdle() // parent carries the CURRENT active Orbit id
         val parent = vm.tabs.value.first { it.id == vm.activeTabId.value }
-        vm.onSwitchOrbit(42L); advanceUntilIdle() // user moves to another Orbit before capture
+        vm.onSwitchOrbit(42L); advanceUntilIdle() // user moves to another Orbit
         val activeBefore = vm.activeTabId.value
-        vm.onPopupWindow(parent.id, "https://orbit-popup.com"); advanceUntilIdle()
-        val popup = vm.tabs.value.first { it.url == "https://orbit-popup.com" }
-        assertEquals(parent.orbitId, popup.orbitId) // parent's Orbit, proven non-trivially...
-        assertNotEquals(42L, popup.orbitId) // ...because the active Orbit is a different one
+        val spec = vm.onCreatePopup(parent.id)!!
+        // (Profile-key inheritance is asserted in BrowserViewModelOrbitTest, where real
+        // Orbit rows exist — this harness has none.)
+        vm.onPopupReady(spec.tabId, parent.id); advanceUntilIdle()
+        val popup = vm.tabs.value.first { it.id == spec.tabId }
+        assertEquals(parent.orbitId, popup.orbitId)
+        assertNotEquals(42L, popup.orbitId)
         assertEquals(activeBefore, vm.activeTabId.value) // cross-Orbit popup must NOT foreground
         assertFalse(popup.isActive)
     }
@@ -355,10 +363,10 @@ class BrowserViewModelTest {
     fun `popup foregrounds when its parent is still the active tab`() = runTest {
         val vm = vm(); advanceUntilIdle()
         vm.onNewTab(); advanceUntilIdle()
-        val parent = vm.tabs.value.first { it.id == vm.activeTabId.value }
-        vm.onPopupWindow(parent.id, "https://fg-popup.com"); advanceUntilIdle()
-        val popup = vm.tabs.value.first { it.url == "https://fg-popup.com" }
-        assertEquals(popup.id, vm.activeTabId.value)
+        val parentId = vm.activeTabId.value!!
+        val spec = vm.onCreatePopup(parentId)!!
+        vm.onPopupReady(spec.tabId, parentId); advanceUntilIdle()
+        assertEquals(spec.tabId, vm.activeTabId.value)
     }
 
     @Test
@@ -366,18 +374,31 @@ class BrowserViewModelTest {
         val vm = vm(); advanceUntilIdle()
         val parentId = vm.tabs.value.first().id
         vm.onCreateGroupWithTabs("Island", listOf(parentId)); advanceUntilIdle()
-        vm.onPopupWindow(parentId, "https://popup-child.com"); advanceUntilIdle()
+        val spec = vm.onCreatePopup(parentId)!!
+        vm.onPopupReady(spec.tabId, parentId); advanceUntilIdle()
         val group = vm.tabGroups.value.single()
-        val popup = vm.tabs.value.first { it.url == "https://popup-child.com" }
-        assertEquals(group.id, popup.groupId)
+        assertEquals(group.id, vm.tabs.value.first { it.id == spec.tabId }.groupId)
     }
 
     @Test
-    fun `popup with unknown parent falls back to the active tab's context`() = runTest {
+    fun `popup from an unknown parent is blocked and stray onPopupReady is a no-op`() = runTest {
         val vm = vm(); advanceUntilIdle()
-        vm.onPopupWindow(parentTabId = 9999L, "https://orphan-popup.com"); advanceUntilIdle()
-        val popup = vm.tabs.value.first { it.url == "https://orphan-popup.com" }
-        assertFalse(popup.isIncognito)
+        assertNull(vm.onCreatePopup(9999L)) // engine returns false → popup blocked
+        val tabsBefore = vm.tabs.value.size
+        vm.onPopupReady(tabId = 12345L, parentTabId = 9999L); advanceUntilIdle()
+        assertEquals(tabsBefore, vm.tabs.value.size) // nothing pending under that id
+    }
+
+    @Test
+    fun `onCloseWindow closes exactly the popup tab`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onNewTab(); advanceUntilIdle()
+        val parentId = vm.activeTabId.value!!
+        val spec = vm.onCreatePopup(parentId)!!
+        vm.onPopupReady(spec.tabId, parentId); advanceUntilIdle()
+        vm.onCloseWindow(spec.tabId); advanceUntilIdle()
+        assertTrue(vm.tabs.value.none { it.id == spec.tabId })
+        assertTrue(vm.tabs.value.any { it.id == parentId }) // parent untouched
     }
 
     @Test

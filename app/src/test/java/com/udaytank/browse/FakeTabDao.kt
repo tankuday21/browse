@@ -10,7 +10,12 @@ class FakeTabDao : TabDao {
     override suspend fun getAll(): List<TabEntity> = stored.sortedBy { it.position }
 
     override suspend fun insert(tab: TabEntity): Long {
-        val id = nextId++
+        // Mirror Room/SQLite: an explicit non-zero id is honored (v5.6 pre-allocated ids) and
+        // advances the sequence; id == 0 auto-assigns. Duplicates THROW like Room's default
+        // OnConflictStrategy.ABORT would — an allocator/seeding regression must fail tests.
+        val id = if (tab.id != 0L) tab.id else nextId++
+        require(stored.none { it.id == id }) { "duplicate tab id $id (Room ABORT would throw)" }
+        if (id >= nextId) nextId = id + 1
         stored += tab.copy(id = id)
         return id
     }

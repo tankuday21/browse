@@ -3,6 +3,8 @@ package com.udaytank.browse.browser
 import com.udaytank.browse.FakeClosedTabDao
 import com.udaytank.browse.FakeTabDao
 import com.udaytank.browse.data.TabEntity
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -38,6 +40,82 @@ class TabManagerTest {
         val newId = manager.newTab("https://b.com")
         assertEquals(2, manager.tabs.value.size)
         assertEquals(newId, manager.activeTabId.value)
+    }
+
+    // --- v5.6: synchronous id allocation + explicit-id registration (popup adoption) ---
+
+    @Test
+    fun `allocateTabId yields unique ids interleaved with newTab`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val ids = mutableSetOf<Long>()
+        ids += manager.tabs.value.first().id
+        ids += manager.allocateTabId(incognito = false) // reserved, not yet registered
+        ids += manager.newTab("https://a.com") // interleaved normal creation
+        ids += manager.allocateTabId(incognito = false)
+        ids += manager.newTab("https://b.com")
+        assertEquals(5, ids.size) // no collisions anywhere in the interleaving
+        assertTrue(ids.all { it > 0 })
+        // Incognito allocation stays in the negative id space.
+        assertTrue(manager.allocateTabId(incognito = true) < 0)
+    }
+
+    @Test
+    fun `registerTabInMemory is synchronous and persist carries the explicit id`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val activeBefore = manager.activeTabId.value
+        val id = manager.allocateTabId(incognito = false)
+        manager.registerTabInMemory(id, url = "", foreground = false)
+        assertEquals(id, manager.tabs.value.last().id) // visible IMMEDIATELY (engine callbacks)
+        manager.persistRegisteredTab(id)
+        assertEquals(id, dao.stored.last().id) // the DAO row carries the SAME explicit id
+        assertEquals(activeBefore, manager.activeTabId.value) // background: active unchanged
+        // A later normal newTab still gets a fresh id (sequence advanced past the explicit one).
+        assertTrue(manager.newTab("https://c.com") != id)
+    }
+
+    @Test
+    fun `registerTabInMemory incognito stays in-memory and can foreground`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val storedBefore = dao.stored.size
+        val id = manager.allocateTabId(incognito = true)
+        manager.registerTabInMemory(id, url = "", incognito = true, foreground = true)
+        manager.persistRegisteredTab(id) // no-op for incognito
+        assertEquals(id, manager.activeTabId.value)
+        assertEquals(storedBefore, dao.stored.size) // never persisted
+    }
+
+    @Test
+    fun `initialize re-seeds the allocator past stored ids`() = runTest {
+        val dao = FakeTabDao()
+        dao.insert(TabEntity(id = 7, url = "https://a.com", title = "A", position = 0, isActive = true))
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        // Without re-seeding this would allocate id 1..7 and Room's ABORT would throw.
+        assertEquals(8L, manager.newTab("https://b.com"))
+    }
+
+    @Test
+    fun `newTab arriving before initialize waits for the seed instead of colliding`() = runTest {
+        val dao = FakeTabDao()
+        dao.insert(TabEntity(id = 3, url = "https://a.com", title = "A", position = 0, isActive = true))
+        val manager = TabManager(dao, FakeClosedTabDao())
+        // Cold-start external VIEW intent: newTab fires BEFORE initialize finished seeding.
+        val early = async { manager.newTab("https://intent.com") }
+        // runCurrent forces the async body to actually RUN now (StandardTestDispatcher only
+        // schedules it) — it must park on the init gate; without the gate it would allocate
+        // id 1 here and FakeTabDao's duplicate-id require would throw.
+        runCurrent()
+        manager.initialize("https://home")
+        val earlyId = early.await()
+        // The gate held it until the seed: no duplicate-id throw, id is past the stored max.
+        assertTrue(earlyId > 3L)
+        assertEquals(manager.tabs.value.map { it.id }.toSet().size, manager.tabs.value.size)
     }
 
     @Test
