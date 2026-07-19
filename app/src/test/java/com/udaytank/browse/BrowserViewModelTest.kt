@@ -297,6 +297,62 @@ class BrowserViewModelTest {
         assertEquals(group.id, child.groupId)
     }
 
+    // --- custom search engines (v5.8) ---
+
+    @Test
+    fun `adding and selecting a custom engine drives searches, removal falls back`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s"); advanceUntilIdle()
+        vm.onSelectCustomEngine("Kagi"); advanceUntilIdle()
+        assertEquals("Kagi", vm.resolvedSearchEngine.value.label)
+
+        vm.onSearchFromQr("hello"); advanceUntilIdle()
+        val tab = vm.tabs.value.first { it.id == vm.activeTabId.value }
+        assertTrue(tab.url.startsWith("https://kagi.com/search?q=hello"))
+
+        // Same-name add replaces the template in place.
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/html?q=%s"); advanceUntilIdle()
+        assertEquals("https://kagi.com/html?q=%s", vm.resolvedSearchEngine.value.queryUrl)
+        assertEquals(1, vm.customSearchEngines.value.size)
+
+        // Removing the selected custom silently falls back to the built-in.
+        vm.onRemoveCustomEngine("Kagi"); advanceUntilIdle()
+        assertEquals(
+            com.udaytank.browse.data.SearchEngine.GOOGLE.label,
+            vm.resolvedSearchEngine.value.label,
+        )
+    }
+
+    @Test
+    fun `invalid custom engines are refused and built-in pick clears the custom selection`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onAddCustomEngine("Bad", "http://plain.text/?q=%s"); advanceUntilIdle() // not https
+        vm.onAddCustomEngine("AlsoBad", "https://x.com/?q="); advanceUntilIdle() // no %s
+        assertTrue(vm.customSearchEngines.value.isEmpty())
+
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s"); advanceUntilIdle()
+        vm.onSelectCustomEngine("Kagi"); advanceUntilIdle()
+        vm.onSearchEngineSelected(com.udaytank.browse.data.SearchEngine.DUCKDUCKGO); advanceUntilIdle()
+        assertEquals(
+            com.udaytank.browse.data.SearchEngine.DUCKDUCKGO.label,
+            vm.resolvedSearchEngine.value.label, // built-in pick cleared the custom selection
+        )
+    }
+
+    @Test
+    fun `backup round-trips custom engines and the selection`() = runTest {
+        val vm = vm(); advanceUntilIdle()
+        vm.onAddCustomEngine("Kagi", "https://kagi.com/search?q=%s"); advanceUntilIdle()
+        vm.onSelectCustomEngine("Kagi"); advanceUntilIdle()
+        val backup = com.udaytank.browse.browser.BackupCodec.decode(vm.buildBackupJson())!!
+
+        val vm2 = vm(); advanceUntilIdle()
+        vm2.onRestoreBackup(backup) {}
+        advanceUntilIdle()
+        assertEquals("Kagi", vm2.resolvedSearchEngine.value.label)
+        assertEquals("https://kagi.com/search?q=%s", vm2.resolvedSearchEngine.value.queryUrl)
+    }
+
     @Test
     fun `onSearchFromQr opens a search-url tab for plain text`() = runTest {
         val vm = vm(); advanceUntilIdle()

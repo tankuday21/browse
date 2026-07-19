@@ -27,6 +27,12 @@ enum class ShortcutDensity { FEW, MORE }
 
 interface SettingsRepository {
     val searchEngine: Flow<SearchEngine>
+    /** User-defined engines as SearchEngines-codec JSON (v5.8); blank = none. */
+    val customSearchEngines: Flow<String>
+    suspend fun setCustomSearchEngines(json: String)
+    /** The selected custom engine's name (v5.8); blank = the [searchEngine] enum applies. */
+    val selectedCustomEngine: Flow<String>
+    suspend fun setSelectedCustomEngine(name: String)
     val themeMode: Flow<ThemeMode>
     val javaScriptEnabled: Flow<Boolean>
     val cookiesEnabled: Flow<Boolean>
@@ -433,6 +439,22 @@ class DataStoreSettingsRepository(
         dataStore.edit { if (json.isBlank()) it.remove(WEATHER_CACHE_KEY) else it[WEATHER_CACHE_KEY] = json }
     }
 
+    override val customSearchEngines: Flow<String> =
+        dataStore.data.map { it[CUSTOM_SEARCH_ENGINES_KEY] ?: "" }
+    override suspend fun setCustomSearchEngines(json: String) {
+        dataStore.edit {
+            if (json.isBlank()) it.remove(CUSTOM_SEARCH_ENGINES_KEY) else it[CUSTOM_SEARCH_ENGINES_KEY] = json
+        }
+    }
+
+    override val selectedCustomEngine: Flow<String> =
+        dataStore.data.map { it[SELECTED_CUSTOM_ENGINE_KEY] ?: "" }
+    override suspend fun setSelectedCustomEngine(name: String) {
+        dataStore.edit {
+            if (name.isBlank()) it.remove(SELECTED_CUSTOM_ENGINE_KEY) else it[SELECTED_CUSTOM_ENGINE_KEY] = name
+        }
+    }
+
     override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
     override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
 
@@ -449,6 +471,8 @@ class DataStoreSettingsRepository(
         val WEATHER_CITY_KEY = stringPreferencesKey("weather_city")
         val WEATHER_USE_LOCATION_KEY = booleanPreferencesKey("weather_use_location")
         val WEATHER_CACHE_KEY = stringPreferencesKey("weather_cache")
+        val CUSTOM_SEARCH_ENGINES_KEY = stringPreferencesKey("custom_search_engines")
+        val SELECTED_CUSTOM_ENGINE_KEY = stringPreferencesKey("selected_custom_engine")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")
