@@ -27,7 +27,9 @@ fun TabWebView(
                 val webView = holder.obtain(tabId, incognito, profileKey).also { wv ->
                     (wv.parent as? ViewGroup)?.removeView(wv)
                     // Through the holder so app-issued loads carry the Sec-GPC header (D5).
-                    if (wv.url == null) holder.loadUrl(tabId, tabUrl)
+                    // Blank tabUrl (v5.6 popup rows — the ENGINE drives their first load via
+                    // the WebViewTransport) must not trigger a load that would clobber it.
+                    if (wv.url == null && tabUrl.isNotBlank()) holder.loadUrl(tabId, tabUrl)
                 }
                 SwipeRefreshLayout(context).apply {
                     addView(

@@ -25,7 +25,20 @@ class TabManager(
     // process death erases them by construction.
     private var nextIncognitoId = -1L
 
+    /**
+     * Synchronous id source for NORMAL tabs (v5.6): seeded at [initialize] to max(stored)+1;
+     * every persisted tab inserts with an EXPLICIT id from here (SQLite accepts explicit
+     * primary keys and advances its sequence past them). This is what lets a popup's WebView
+     * be created under its REAL tab id inside the synchronous onCreateWindow callback — no
+     * provisional ids, no rebinding, no closure mis-attribution.
+     */
+    private val nextTabId = java.util.concurrent.atomic.AtomicLong(1L)
+
     private fun isIncognitoId(id: Long) = id < 0
+
+    /** Reserves a tab id without touching the DB — safe inside synchronous engine callbacks. */
+    fun allocateTabId(incognito: Boolean): Long =
+        if (incognito) nextIncognitoId-- else nextTabId.getAndIncrement()
 
     /**
      * The caller's (BrowserViewModel's) current notion of the active Orbit. Every fallback/
@@ -45,6 +58,8 @@ class TabManager(
      */
     suspend fun initialize(homeUrl: String, orbitId: Long? = null) {
         val stored = tabDao.getAll()
+        // Seed the synchronous allocator past every persisted id (v5.6).
+        nextTabId.set((stored.maxOfOrNull { it.id } ?: 0L) + 1L)
         if (stored.isEmpty()) {
             newTab(homeUrl, orbitId = orbitId ?: defaultOrbitId)
         } else {
@@ -69,22 +84,32 @@ class TabManager(
         orbitId: Long? = null,
         foreground: Boolean = true,
     ): Long {
+        val id = allocateTabId(incognito)
+        registerTab(id, url, incognito, groupId, orbitId, foreground)
+        return id
+    }
+
+    /**
+     * Registers a tab under a PRE-ALLOCATED id (v5.6) — the popup-adoption path, where the
+     * WebView already exists under [id] before the row lands. Also the shared tail of [newTab].
+     * Normal tabs insert with the explicit id (Room passes it through; SQLite advances its
+     * sequence); incognito ids stay in-memory as always.
+     */
+    suspend fun registerTab(
+        id: Long,
+        url: String,
+        incognito: Boolean = false,
+        groupId: Long? = null,
+        orbitId: Long? = null,
+        foreground: Boolean = true,
+    ) {
         val position = (_tabs.value.maxOfOrNull { it.position } ?: -1) + 1
         val effectiveOrbitId = if (incognito) null else orbitId
-        val id = if (incognito) {
-            nextIncognitoId--
-        } else {
-            tabDao.insert(
-                TabEntity(
-                    url = url, title = url, position = position, isActive = foreground,
-                    groupId = groupId, orbitId = effectiveOrbitId,
-                )
-            )
-        }
         val entity = TabEntity(
             id = id, url = url, title = url, position = position, isActive = foreground,
             isIncognito = incognito, groupId = groupId, orbitId = effectiveOrbitId,
         )
+        if (!incognito) tabDao.insert(entity)
         _tabs.value = if (foreground) {
             _tabs.value.map { it.copy(isActive = false) } + entity
         } else {
@@ -94,7 +119,6 @@ class TabManager(
             _activeTabId.value = id
             if (!incognito) tabDao.setActive(id)
         }
-        return id
     }
 
     suspend fun switchTo(id: Long) {

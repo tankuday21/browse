@@ -1893,27 +1893,48 @@ class BrowserViewModel(
         onContextMenuDismissed()
     }
 
+    /** Popup context recorded at allocation (v5.6) so onPopupReady registers what the WebView was born as. */
+    private data class PendingPopup(val incognito: Boolean, val orbitId: Long?, val groupId: Long?)
+    private val pendingPopups = mutableMapOf<Long, PendingPopup>()
+
     /**
-     * A page opened a popup — target="_blank" or gesture-backed window.open — and the holder
-     * captured its first URL (v5.0). Open it as a real tab inheriting the PARENT tab's context:
-     * its incognito mode (an incognito page's popup must stay incognito), its Orbit, and its
-     * island. Keyed on [parentTabId], not the active tab — the capture is asynchronous and the
-     * user could have switched tabs; if the parent is already gone, fall back to the active tab.
+     * SYNCHRONOUS popup allocation (v5.6) — runs inside the engine's onCreateWindow, which
+     * demands a WebView before returning. Derives everything from the PARENT tab: an incognito
+     * page's popup must stay incognito; a normal popup carries the parent Orbit's profile so
+     * cookie isolation is preserved. Null (parent vanished) blocks the popup.
      */
-    fun onPopupWindow(parentTabId: Long, url: String) {
-        val parent = tabs.value.find { it.id == parentTabId }
-            ?: tabs.value.find { it.id == activeTabId.value }
-        val incognito = parent?.isIncognito == true
-        val groupId = TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
-        val orbitId = if (incognito) null else (parent?.orbitId ?: activeOrbitId.value)
-        // Foreground only while the popup's parent is still the tab the user is looking at.
-        // Activating a tab from another Orbit/mode would break the active-tab ↔ active-Orbit
-        // invariant (the switcher filters by activeOrbitId — the active tab would vanish).
-        val foreground = parent?.id == activeTabId.value
+    fun onCreatePopup(parentTabId: Long): com.udaytank.browse.ui.PopupTabSpec? {
+        val parent = tabs.value.find { it.id == parentTabId } ?: return null
+        val incognito = parent.isIncognito
+        val orbitId = if (incognito) null else (parent.orbitId ?: activeOrbitId.value)
+        val profileKey = if (incognito) null else orbits.value.find { it.id == orbitId }?.profileKey
+        val id = tabManager.allocateTabId(incognito)
+        pendingPopups[id] = PendingPopup(
+            incognito, orbitId, TabGroupPolicy.groupForNewTab(parent, autoIslands.value)
+        )
+        return com.udaytank.browse.ui.PopupTabSpec(id, incognito, profileKey)
+    }
+
+    /**
+     * Async side of [onCreatePopup] (v5.6): the WebView already exists under [tabId]; register
+     * the tab row with url = "" — the ENGINE drives the first load through the transport, and
+     * the real URL lands via the normal onPageStarted/onContentChanged path. Foreground rule
+     * unchanged from v5.0: only while the parent is still the active tab (cross-Orbit
+     * activation would break the switcher's active-tab ↔ active-Orbit invariant).
+     */
+    fun onPopupReady(tabId: Long, parentTabId: Long) {
+        val pending = pendingPopups.remove(tabId) ?: return
+        val foreground = parentTabId == activeTabId.value
         viewModelScope.launch {
-            tabManager.newTab(url, incognito, groupId, orbitId = orbitId, foreground = foreground)
+            tabManager.registerTab(
+                tabId, url = "", incognito = pending.incognito,
+                groupId = pending.groupId, orbitId = pending.orbitId, foreground = foreground,
+            )
         }
     }
+
+    /** The page called window.close() on its popup (v5.6) — close through the normal path. */
+    fun onCloseWindow(tabId: Long) = onCloseTab(tabId)
 
     fun onTitleUpdated(tabId: Long, url: String, title: String) {
         viewModelScope.launch {

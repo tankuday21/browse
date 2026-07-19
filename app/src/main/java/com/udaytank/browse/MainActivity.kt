@@ -649,8 +649,14 @@ class MainActivity : FragmentActivity() {
                             params: WebChromeClient.FileChooserParams,
                         ): Boolean = showFileChooser(filePathCallback, params)
 
-                        override fun onCreateWindow(parentTabId: Long, url: String) =
-                            viewModel.onPopupWindow(parentTabId, url)
+                        override fun onCreatePopup(parentTabId: Long) =
+                            viewModel.onCreatePopup(parentTabId)
+
+                        override fun onPopupReady(tabId: Long, parentTabId: Long) =
+                            viewModel.onPopupReady(tabId, parentTabId)
+
+                        override fun onCloseWindow(tabId: Long) =
+                            viewModel.onCloseWindow(tabId)
                     },
                     ).also { holderRef[0] = it; webViewHolder = it }
                 }

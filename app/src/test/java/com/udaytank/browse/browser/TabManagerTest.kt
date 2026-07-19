@@ -40,6 +40,52 @@ class TabManagerTest {
         assertEquals(newId, manager.activeTabId.value)
     }
 
+    // --- v5.6: synchronous id allocation + explicit-id registration (popup adoption) ---
+
+    @Test
+    fun `allocateTabId yields unique ids interleaved with newTab`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val ids = mutableSetOf<Long>()
+        ids += manager.tabs.value.first().id
+        ids += manager.allocateTabId(incognito = false) // reserved, not yet registered
+        ids += manager.newTab("https://a.com") // interleaved normal creation
+        ids += manager.allocateTabId(incognito = false)
+        ids += manager.newTab("https://b.com")
+        assertEquals(5, ids.size) // no collisions anywhere in the interleaving
+        assertTrue(ids.all { it > 0 })
+        // Incognito allocation stays in the negative id space.
+        assertTrue(manager.allocateTabId(incognito = true) < 0)
+    }
+
+    @Test
+    fun `registerTab persists the pre-allocated id and can stay in the background`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val activeBefore = manager.activeTabId.value
+        val id = manager.allocateTabId(incognito = false)
+        manager.registerTab(id, url = "", foreground = false)
+        assertEquals(id, manager.tabs.value.last().id)
+        assertEquals(id, dao.stored.last().id) // the DAO row carries the SAME explicit id
+        assertEquals(activeBefore, manager.activeTabId.value) // background: active unchanged
+        // A later normal newTab still gets a fresh id (sequence advanced past the explicit one).
+        assertTrue(manager.newTab("https://c.com") != id)
+    }
+
+    @Test
+    fun `registerTab incognito stays in-memory and can foreground`() = runTest {
+        val dao = FakeTabDao()
+        val manager = TabManager(dao, FakeClosedTabDao())
+        manager.initialize("https://home")
+        val storedBefore = dao.stored.size
+        val id = manager.allocateTabId(incognito = true)
+        manager.registerTab(id, url = "", incognito = true, foreground = true)
+        assertEquals(id, manager.activeTabId.value)
+        assertEquals(storedBefore, dao.stored.size) // never persisted
+    }
+
     @Test
     fun `switchTo changes the active tab`() = runTest {
         val manager = TabManager(FakeTabDao(), FakeClosedTabDao())

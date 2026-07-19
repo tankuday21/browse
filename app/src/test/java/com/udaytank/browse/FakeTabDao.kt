@@ -10,7 +10,10 @@ class FakeTabDao : TabDao {
     override suspend fun getAll(): List<TabEntity> = stored.sortedBy { it.position }
 
     override suspend fun insert(tab: TabEntity): Long {
-        val id = nextId++
+        // Mirror Room/SQLite: an explicit non-zero id is honored (v5.6 pre-allocated ids) and
+        // advances the sequence; id == 0 auto-assigns.
+        val id = if (tab.id != 0L) tab.id else nextId++
+        if (id >= nextId) nextId = id + 1
         stored += tab.copy(id = id)
         return id
     }
