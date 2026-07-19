@@ -61,14 +61,14 @@ popup's navigations because it runs the full standard WebViewClient.
 - Popup row persists with its committed URL (via onContentChanged) → survives restart like any
   tab; `url = ""` rows that never navigated restore as blank tabs and can be closed normally.
 - A popup from an incognito parent is a NEGATIVE-id in-memory tab (never persisted) — same as
-  every incognito tab; `registerPopupTab` routes accordingly.
+  every incognito tab; `registerTabInMemory`/`persistRegisteredTab` route accordingly.
 - If the row insert somehow never lands, the WebView sits unused in the holder map until
   `destroyAll` — bounded, no user-visible effect.
 
 ## Testing
 
 - Unit (JVM): TabManager — allocator yields unique ids interleaved with `newTab` inserts;
-  `registerPopupTab` inserts with the explicit id, background by default, foregrounds when
+  `registerTabInMemory` + `persistRegisteredTab` insert with the explicit id, background by default, foreground when
   asked; incognito allocation stays negative/in-memory. VM — `onCreatePopup` inherits the
   parent's incognito + Orbit profile and returns null for unknown parents; `onPopupReady`
   applies the v5.0 foreground rule + island inheritance (existing popup tests adapt);

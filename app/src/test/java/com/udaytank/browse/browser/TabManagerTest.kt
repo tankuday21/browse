@@ -4,6 +4,7 @@ import com.udaytank.browse.FakeClosedTabDao
 import com.udaytank.browse.FakeTabDao
 import com.udaytank.browse.data.TabEntity
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -106,6 +107,10 @@ class TabManagerTest {
         val manager = TabManager(dao, FakeClosedTabDao())
         // Cold-start external VIEW intent: newTab fires BEFORE initialize finished seeding.
         val early = async { manager.newTab("https://intent.com") }
+        // runCurrent forces the async body to actually RUN now (StandardTestDispatcher only
+        // schedules it) — it must park on the init gate; without the gate it would allocate
+        // id 1 here and FakeTabDao's duplicate-id require would throw.
+        runCurrent()
         manager.initialize("https://home")
         val earlyId = early.await()
         // The gate held it until the seed: no duplicate-id throw, id is past the stored max.

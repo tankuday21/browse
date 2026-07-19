@@ -138,7 +138,10 @@ class TabManager(
     /**
      * Persists a tab registered via [registerTabInMemory]: inserts the row with its EXPLICIT
      * id (Room passes it through; SQLite advances its sequence past it). Incognito ids stay
-     * in-memory as always; a tab already closed again is a no-op.
+     * in-memory as always; a tab already closed again is a no-op. Known micro-window: a
+     * foreground snapshot (isActive = true) racing a user tab-switch can briefly leave two
+     * active rows in the DB until the next setActive — self-correcting, worst case a wrong
+     * restore choice after a process death inside that millisecond.
      */
     suspend fun persistRegisteredTab(id: Long) {
         if (isIncognitoId(id)) return
