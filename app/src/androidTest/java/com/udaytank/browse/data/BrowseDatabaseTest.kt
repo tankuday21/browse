@@ -514,9 +514,14 @@ class BrowseDatabaseTest {
     @Test
     fun migrate18to19_addsDownloadOrbitIdAndBackfills() {
         helper.createDatabase(DB, 18).apply {
+            // Two orbits: backfill must pick the FIRST by position (tie-break by id).
             execSQL(
                 "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
                     "VALUES (30, 'Personal', 1, 0, 'orbit_30', 'person')"
+            )
+            execSQL(
+                "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
+                    "VALUES (31, 'Work', 2, 1, 'orbit_31', 'work')"
             )
             execSQL(
                 "INSERT INTO downloads (downloadId, fileName, url, createdAt, totalBytes, " +

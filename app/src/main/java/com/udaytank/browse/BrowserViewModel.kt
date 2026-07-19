@@ -616,14 +616,25 @@ class BrowserViewModel(
             bookmarkDao.deleteForOrbit(id)
             homeShortcutDao.deleteForOrbit(id)
             credentialRepository?.deleteForOrbit(id)
-            // Downloads (v5.5): cancel anything still transferring, delete the on-disk files
-            // (their paths live in the rows we're about to drop), THEN drop the rows.
+            // Downloads (v5.5): cancel anything still transferring (PAUSED included — its
+            // notification must not outlive the Orbit), delete the on-disk files (their paths
+            // live in the rows we're about to drop), THEN drop the rows. Known residual (same
+            // shape as onDeleteDownload, documented in the spec): a cancel racing a not-yet-
+            // started transfer can complete into an orphan file; fixing that belongs in
+            // DownloadService's start path, not here.
             val orbitDownloads = downloadDao.getAllForOrbit(id)
-            orbitDownloads.filter { it.state in setOf("RUNNING", "PENDING", "SCHEDULED") }
+            orbitDownloads.filter { it.state in setOf("RUNNING", "PENDING", "SCHEDULED", "PAUSED") }
                 .forEach { downloadController.cancel(it.id) }
             withContext(ioDispatcher) {
                 orbitDownloads.forEach { entry ->
-                    entry.filePath?.let { path -> runCatching { java.io.File(path).delete() } }
+                    if (entry.filePath != null) {
+                        runCatching { java.io.File(entry.filePath).delete() }
+                    } else if (entry.downloadId > 0) {
+                        // Legacy system-DM row: the file is DownloadManager's — removing by its
+                        // id is the only cleanup path (mirrors onDeleteDownload). Without this,
+                        // the file would outlive the Orbit unreachable from any UI.
+                        runCatching { downloadManagerRemover(entry.downloadId) }
+                    }
                 }
             }
             downloadDao.deleteForOrbit(id)

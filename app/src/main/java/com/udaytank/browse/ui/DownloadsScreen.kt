@@ -69,7 +69,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.data.DownloadEntry
+import com.udaytank.browse.data.OrbitEntity
 import com.udaytank.browse.ui.components.FaviconOrLetter
+import com.udaytank.browse.ui.components.OrbitAvatar
+import com.udaytank.browse.ui.components.OrbitScopeHeader
 import com.udaytank.browse.ui.components.OrbitTopBar
 import com.udaytank.browse.ui.theme.OrbitRadii
 import com.udaytank.browse.ui.theme.OrbitSpacing
@@ -108,18 +111,16 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            androidx.compose.foundation.layout.Column {
+            Column {
                 OrbitTopBar(title = "Downloads", onBack = onBack)
                 // Per-Orbit scope (v5.5) — same header History/Bookmarks/Passwords carry.
-                if (activeOrbit != null) {
-                    com.udaytank.browse.ui.components.OrbitScopeHeader(activeOrbit, scope = "downloads")
-                }
+                if (activeOrbit != null) OrbitScopeHeader(activeOrbit, scope = "downloads")
             }
         },
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
-            DownloadsEmptyState(modifier = Modifier.fillMaxSize().padding(innerPadding))
+            DownloadsEmptyState(activeOrbit, modifier = Modifier.fillMaxSize().padding(innerPadding))
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 items(entries, key = { it.id }) { entry ->
@@ -148,29 +149,35 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun DownloadsEmptyState(modifier: Modifier = Modifier) {
+private fun DownloadsEmptyState(activeOrbit: OrbitEntity?, modifier: Modifier = Modifier) {
     val scheme = orbit()
     Column(
         modifier = modifier.padding(OrbitSpacing.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Surface(
-            shape = CircleShape,
-            color = scheme.surfaces.elevated,
-            modifier = Modifier.size(88.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    Icons.Filled.Download,
-                    contentDescription = null,
-                    tint = scheme.text.secondary,
-                    modifier = Modifier.size(36.dp),
-                )
+        // Orbit-aware (v5.5): the avatar makes it obvious WHICH Orbit's list is empty.
+        if (activeOrbit != null) {
+            OrbitAvatar(colorArgb = activeOrbit.colorArgb, iconKey = activeOrbit.iconKey, size = 72.dp)
+        } else {
+            Surface(
+                shape = CircleShape,
+                color = scheme.surfaces.elevated,
+                modifier = Modifier.size(88.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        Icons.Filled.Download,
+                        contentDescription = null,
+                        tint = scheme.text.secondary,
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
             }
         }
         Text(
-            "No downloads yet",
+            if (activeOrbit != null) "No downloads in ${activeOrbit.name} yet"
+            else "No downloads yet",
             style = orbitBody,
             color = scheme.text.muted,
             modifier = Modifier.padding(top = OrbitSpacing.md),
