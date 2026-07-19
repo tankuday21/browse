@@ -50,8 +50,10 @@ object SearchEngines {
         val cleanName = name.trim()
         val cleanTemplate = template.trim()
         // The marker must live in the PATH/QUERY, never the authority: "https://%s.example.com"
-        // would route every search to a term-derived host — a whole class of confusing failures.
-        val authority = cleanTemplate.removePrefix("https://").removePrefix("HTTPS://").substringBefore('/')
+        // would route every search to a term-derived host — a whole class of confusing
+        // failures. Extracted case-insensitively (the scheme check below accepts any casing,
+        // so "Https://%s.example.com" must not slip past a case-sensitive prefix strip).
+        val authority = cleanTemplate.substringAfter("://", "").substringBefore('/')
         if (authority.contains("%s")) return false
         // The host must be dotted (or localhost, for self-hosted instances): a template like
         // "https://%s" parses to a bogus single-label host once the marker is substituted.

@@ -937,7 +937,8 @@ class BrowserViewModel(
             settings.updateCustomSearchEngines { json ->
                 SearchEngines.encode(SearchEngines.decode(json).filterNot { it.name == name })
             }
-            if (selectedCustomEngine.value == name) settings.setSelectedCustomEngine("")
+            // first(), not StateFlow.value — same stale-read hazard the customs fix removed.
+            if (settings.selectedCustomEngine.first() == name) settings.setSelectedCustomEngine("")
         }
     }
 

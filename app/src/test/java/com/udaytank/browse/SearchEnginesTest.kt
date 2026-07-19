@@ -50,6 +50,7 @@ class SearchEnginesTest {
         assertFalse(SearchEngines.validate("Kagi", "https://%s")) // no real host
         // The marker must never sit in the authority — searches would route to a term-derived host.
         assertFalse(SearchEngines.validate("Weird", "https://%s.example.com/search?q=%s"))
+        assertFalse(SearchEngines.validate("Weird", "Https://%s.example.com/search?q=%s")) // any casing
     }
 
     @Test
