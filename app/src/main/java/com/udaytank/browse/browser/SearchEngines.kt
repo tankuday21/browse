@@ -7,8 +7,12 @@ import org.json.JSONObject
 /** A user-defined engine (v5.8): display name + query template with `%s` for the terms. */
 data class CustomSearchEngine(val name: String, val template: String)
 
-/** What the address bar actually searches with — a built-in or a custom, resolved. */
-data class ResolvedSearchEngine(val label: String, val queryUrl: String)
+/**
+ * What the address bar actually searches with — a built-in or a custom, resolved.
+ * [suggestUrl] is null for custom engines: their suggest endpoint is unknown, and guessing
+ * (or falling back to Google) would send keystrokes to a party the user didn't pick.
+ */
+data class ResolvedSearchEngine(val label: String, val queryUrl: String, val suggestUrl: String? = null)
 
 /**
  * Pure logic for custom search engines (v5.8): JSON codec (persisted as one DataStore string,
@@ -77,9 +81,9 @@ object SearchEngines {
         val custom = selectedName?.takeIf { it.isNotBlank() }
             ?.let { name -> customs.find { it.name == name } }
         return if (custom != null) {
-            ResolvedSearchEngine(custom.name, custom.template)
+            ResolvedSearchEngine(custom.name, custom.template, suggestUrl = null)
         } else {
-            ResolvedSearchEngine(builtIn.label, builtIn.queryUrl)
+            ResolvedSearchEngine(builtIn.label, builtIn.queryUrl, builtIn.suggestUrl)
         }
     }
 }

@@ -438,6 +438,9 @@ private fun GeneralSettings(
                 onClick = { addEngineOpen = true },
             )
         }
+        // v5.9: honest suggestion story — the suggest endpoint follows the engine choice,
+        // and no keystroke leaves the device for custom engines or in incognito.
+        Caption("Typing suggestions come from the selected engine. Custom engines and incognito show only your bookmarks and history.")
         if (addEngineOpen) {
             AddSearchEngineDialog(
                 isNameTaken = { name ->

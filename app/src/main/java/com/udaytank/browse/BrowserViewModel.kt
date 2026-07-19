@@ -28,7 +28,7 @@ import com.udaytank.browse.browser.ResolvedSearchEngine
 import com.udaytank.browse.browser.SearchEngines
 import com.udaytank.browse.browser.UrlInput
 import com.udaytank.browse.ui.PopupTabSpec
-import com.udaytank.browse.browser.googleSuggest
+import com.udaytank.browse.browser.openSearchSuggest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.udaytank.browse.browser.VisitDecision
@@ -157,7 +157,7 @@ class BrowserViewModel(
      * own to delete. Defaults to a no-op so most call sites (and most tests) don't need to care.
      */
     private val downloadManagerRemover: (Long) -> Unit = {},
-    suggestionFetcher: suspend (String) -> List<String> = ::googleSuggest,
+    suggestionFetcher: suspend (String, String) -> List<String> = ::openSearchSuggest,
     /** File work (article HTML writes/deletes) runs here; tests swap in Unconfined. */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /**
@@ -1329,7 +1329,12 @@ class BrowserViewModel(
         }
         suggestionJob = viewModelScope.launch {
             delay(200) // debounce typing
-            _suggestions.value = suggestionEngine.suggest(text, activeOrbitId.value)
+            // Network suggestions follow the selected engine (v5.9); null suppresses the fetch
+            // entirely — for custom engines (unknown endpoint) and for incognito, where a
+            // keystroke must never leave the device. Locals stay on either way.
+            val incognito = tabs.value.find { it.id == activeTabId.value }?.isIncognito == true
+            val suggestUrl = if (incognito) null else resolvedSearchEngine.value.suggestUrl
+            _suggestions.value = suggestionEngine.suggest(text, activeOrbitId.value, suggestUrl)
         }
     }
 
