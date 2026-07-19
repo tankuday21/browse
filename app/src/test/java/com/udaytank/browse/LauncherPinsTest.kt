@@ -34,6 +34,22 @@ class LauncherPinsTest {
     }
 
     @Test
+    fun `exactly-24-char titles pass unclamped`() {
+        val exact = "x".repeat(24)
+        assertEquals(exact, LauncherPins.shortcutLabel(exact, "https://example.com", "example.com"))
+        val over = LauncherPins.shortcutLabel("x".repeat(25), "https://example.com", "example.com")
+        assertEquals(24, over.length)
+    }
+
+    @Test
+    fun `emoji-leading titles survive as labels`() {
+        assertEquals(
+            "🎮 Games",
+            LauncherPins.shortcutLabel("🎮 Games", "https://example.com", "example.com"),
+        )
+    }
+
+    @Test
     fun `blank title falls back to host without www`() {
         assertEquals(
             "example.com",

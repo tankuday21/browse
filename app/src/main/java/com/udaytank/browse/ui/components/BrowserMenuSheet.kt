@@ -99,6 +99,7 @@ fun BrowserMenuSheet(
     onToggleReaderMode: () -> Unit,
     onFindInPage: () -> Unit,
     onShareAsQr: () -> Unit,
+    isIncognito: Boolean,
     onAddToHomeScreen: () -> Unit,
     // ── Site controls ──
     isDesktopSite: Boolean,
@@ -216,10 +217,12 @@ fun BrowserMenuSheet(
             onClick = onShareAsQr,
         )
         // Launcher pin (v5.7) — distinct from the top row's "Add to home" quick-dial action.
+        // Disabled in incognito: a pinned URL/title is a persistent launcher-owned trace that
+        // even Black Hole can't wipe — a private page must never create one.
         MenuRow(
             icon = Icons.Filled.AddToHomeScreen,
             label = "Add to Home screen",
-            enabled = !isHome,
+            enabled = !isHome && !isIncognito,
             onClick = onAddToHomeScreen,
         )
         HorizontalDivider()

@@ -721,6 +721,7 @@ fun BrowserScreen(
                     activeTab?.let { tab -> qrShare = tab.url to tab.title.takeIf { it != tab.url } }
                     menuOpen = false
                 },
+                isIncognito = isIncognito,
                 onAddToHomeScreen = {
                     activeTab?.let { tab -> onAddToHomeScreen(tab.url, tab.title) }
                     menuOpen = false
