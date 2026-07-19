@@ -13,6 +13,18 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<DownloadEntry>>
 
+    /** The active Orbit's downloads (v5.5) — what the Downloads screen and menu badge show. */
+    @Query("SELECT * FROM downloads WHERE orbitId = :orbitId ORDER BY createdAt DESC")
+    fun observeForOrbit(orbitId: Long): Flow<List<DownloadEntry>>
+
+    /** One Orbit's rows (v5.5) — the orbit-delete purge reads these to delete files first. */
+    @Query("SELECT * FROM downloads WHERE orbitId = :orbitId")
+    suspend fun getAllForOrbit(orbitId: Long): List<DownloadEntry>
+
+    /** Orbit-delete purge (v5.5). Callers delete the on-disk files first (paths live in rows). */
+    @Query("DELETE FROM downloads WHERE orbitId = :orbitId")
+    suspend fun deleteForOrbit(orbitId: Long)
+
     @Query("DELETE FROM downloads WHERE id = :id")
     suspend fun deleteById(id: Long)
 

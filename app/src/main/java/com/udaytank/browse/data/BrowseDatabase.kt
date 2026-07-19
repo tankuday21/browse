@@ -26,7 +26,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         OrbitEntity::class,
         CredentialEntity::class,
     ],
-    version = 18,
+    version = 19,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -47,6 +47,19 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v5.5 Per-Orbit downloads: same recipe as history (15→16) and bookmarks
+                // (16→17) — additive nullable column, existing rows backfilled to the first
+                // (seeded "Personal") Orbit.
+                db.execSQL("ALTER TABLE downloads ADD COLUMN orbitId INTEGER")
+                db.execSQL(
+                    "UPDATE downloads SET orbitId = " +
+                        "(SELECT id FROM orbits ORDER BY position ASC, id ASC LIMIT 1)"
+                )
+            }
+        }
 
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {

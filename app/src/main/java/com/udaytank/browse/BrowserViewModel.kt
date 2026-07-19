@@ -616,6 +616,28 @@ class BrowserViewModel(
             bookmarkDao.deleteForOrbit(id)
             homeShortcutDao.deleteForOrbit(id)
             credentialRepository?.deleteForOrbit(id)
+            // Downloads (v5.5): cancel anything still transferring (PAUSED included — its
+            // notification must not outlive the Orbit), delete the on-disk files (their paths
+            // live in the rows we're about to drop), THEN drop the rows. Known residual (same
+            // shape as onDeleteDownload, documented in the spec): a cancel racing a not-yet-
+            // started transfer can complete into an orphan file; fixing that belongs in
+            // DownloadService's start path, not here.
+            val orbitDownloads = downloadDao.getAllForOrbit(id)
+            orbitDownloads.filter { it.state in setOf("RUNNING", "PENDING", "SCHEDULED", "PAUSED") }
+                .forEach { downloadController.cancel(it.id) }
+            withContext(ioDispatcher) {
+                orbitDownloads.forEach { entry ->
+                    if (entry.filePath != null) {
+                        runCatching { java.io.File(entry.filePath).delete() }
+                    } else if (entry.downloadId > 0) {
+                        // Legacy system-DM row: the file is DownloadManager's — removing by its
+                        // id is the only cleanup path (mirrors onDeleteDownload). Without this,
+                        // the file would outlive the Orbit unreachable from any UI.
+                        runCatching { downloadManagerRemover(entry.downloadId) }
+                    }
+                }
+            }
+            downloadDao.deleteForOrbit(id)
 
             _orbitProfileToDelete.emit(OrbitDeletion(orbit.profileKey, deletedOrbitTabIds))
         }
@@ -738,7 +760,12 @@ class BrowserViewModel(
         }
     }
 
-    val downloads: StateFlow<List<DownloadEntry>> = downloadDao.observeAll()
+    // Per-Orbit (v5.5): the Downloads screen and the menu's active-download badge both show
+    // the ACTIVE Orbit's downloads — same flatMapLatest pattern as history/bookmarks/passwords.
+    // Cold start: activeOrbitId's initial 0L matches no rows, so the list is briefly empty
+    // (never another Orbit's rows) until DataStore's first emission resolves the real Orbit.
+    val downloads: StateFlow<List<DownloadEntry>> = activeOrbitId
+        .flatMapLatest { orbitId -> downloadDao.observeForOrbit(orbitId) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Eagerly: the menu's unread badge must be right the first time the menu opens.
@@ -1774,6 +1801,7 @@ class BrowserViewModel(
                     url = url,
                     createdAt = System.currentTimeMillis(),
                     state = "RUNNING",
+                    orbitId = activeOrbitId.value,
                 )
             )
         }
@@ -1823,6 +1851,10 @@ class BrowserViewModel(
                     createdAt = System.currentTimeMillis(),
                     mimeType = mimeType,
                     state = state,
+                    // v5.5: downloads belong to the Orbit they were started in. Incognito tabs
+                    // tag the ACTIVE Orbit too (deliberate, spec'd): a download is an explicit
+                    // user action producing a durable file — Chrome incognito does the same.
+                    orbitId = activeOrbitId.value,
                 )
             )
             if (constraint == DownloadWhen.NOW) {

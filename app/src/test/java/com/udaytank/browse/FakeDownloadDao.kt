@@ -4,6 +4,7 @@ import com.udaytank.browse.data.DownloadDao
 import com.udaytank.browse.data.DownloadEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 
 class FakeDownloadDao : DownloadDao {
     val entries = MutableStateFlow<List<DownloadEntry>>(emptyList())
@@ -14,6 +15,18 @@ class FakeDownloadDao : DownloadDao {
     }
 
     override fun observeAll(): Flow<List<DownloadEntry>> = entries
+
+    override fun observeForOrbit(orbitId: Long): Flow<List<DownloadEntry>> =
+        entries.map { list ->
+            list.filter { it.orbitId == orbitId }.sortedByDescending { it.createdAt }
+        }
+
+    override suspend fun getAllForOrbit(orbitId: Long): List<DownloadEntry> =
+        entries.value.filter { it.orbitId == orbitId }
+
+    override suspend fun deleteForOrbit(orbitId: Long) {
+        entries.value = entries.value.filterNot { it.orbitId == orbitId }
+    }
 
     override suspend fun deleteById(id: Long) {
         entries.value = entries.value.filterNot { it.id == id }
