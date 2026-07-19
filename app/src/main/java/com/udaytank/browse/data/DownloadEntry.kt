@@ -21,4 +21,6 @@ data class DownloadEntry(
     val segmentState: String? = null,   // JSON: per-segment downloaded bytes
     val error: String? = null,
     val attempts: Int = 0,
+    /** The Orbit this download belongs to (v5.5); null only for pre-migration edge rows. */
+    val orbitId: Long? = null,
 )

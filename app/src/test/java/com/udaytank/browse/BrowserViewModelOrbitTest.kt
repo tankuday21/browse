@@ -497,6 +497,68 @@ class BrowserViewModelOrbitTest {
         sub.cancel()
     }
 
+    // --- v5.5 per-Orbit downloads ---
+
+    @Test
+    fun `downloads are tagged with and scoped to the active orbit`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val vm = vm(downloadDao = downloadDao)
+        val sub = launch { vm.downloads.collect {} } // keep the scoped flow hot
+        advanceUntilIdle()
+        val personal = vm.orbits.value.single()
+
+        // Engine path tags the active Orbit.
+        vm.onStartDownload("https://a.com/f.zip", "f.zip", "application/zip", null, DownloadWhen.NOW)
+        advanceUntilIdle()
+        assertEquals(personal.id, downloadDao.entries.value.single().orbitId)
+        assertEquals(1, vm.downloads.value.size)
+
+        // A second Orbit sees an empty scoped list; its own download stays its own.
+        vm.onCreateOrbit("Work", 0x1); advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id); advanceUntilIdle()
+        assertEquals(0, vm.downloads.value.size)
+        vm.onStartDownload("https://b.com/g.pdf", "g.pdf", "application/pdf", null, DownloadWhen.NOW)
+        advanceUntilIdle()
+        assertEquals(listOf("g.pdf"), vm.downloads.value.map { it.fileName })
+        assertEquals(2, downloadDao.entries.value.size)
+
+        // Legacy system-DM path tags too.
+        vm.onDownloadStarted(42L, "legacy.bin", "https://c.com/legacy.bin"); advanceUntilIdle()
+        assertEquals(work.id, downloadDao.entries.value.first { it.fileName == "legacy.bin" }.orbitId)
+        sub.cancel()
+    }
+
+    @Test
+    fun `deleting an orbit purges its download rows and files, leaving others intact`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val vm = vm(downloadDao = downloadDao)
+        advanceUntilIdle()
+        val personal = vm.orbits.value.single()
+        vm.onCreateOrbit("Work", 0x1); advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+
+        // One real temp file per Orbit so the on-disk deletion is actually observable.
+        val personalFile = java.io.File.createTempFile("personal-dl", ".bin").apply { writeText("a") }
+        val workFile = java.io.File.createTempFile("work-dl", ".bin").apply { writeText("b") }
+        downloadDao.entries.value = listOf(
+            com.udaytank.browse.data.DownloadEntry(
+                id = 101, fileName = "p.bin", url = "https://p", createdAt = 1,
+                state = "DONE", filePath = personalFile.absolutePath, orbitId = personal.id,
+            ),
+            com.udaytank.browse.data.DownloadEntry(
+                id = 102, fileName = "w.bin", url = "https://w", createdAt = 2,
+                state = "DONE", filePath = workFile.absolutePath, orbitId = work.id,
+            ),
+        )
+
+        vm.onDeleteOrbit(work.id); advanceUntilIdle()
+        assertEquals(listOf(101L), downloadDao.entries.value.map { it.id })
+        assertTrue(personalFile.exists())
+        assertTrue(!workFile.exists())
+        personalFile.delete()
+    }
+
     @Test
     fun `passwords gate starts locked, unlock clears, re-lock sets`() = runTest {
         val vm = vm()

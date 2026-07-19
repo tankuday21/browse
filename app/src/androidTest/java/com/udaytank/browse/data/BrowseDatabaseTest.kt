@@ -512,6 +512,27 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate18to19_addsDownloadOrbitIdAndBackfills() {
+        helper.createDatabase(DB, 18).apply {
+            execSQL(
+                "INSERT INTO orbits (id, name, colorArgb, position, profileKey, iconKey) " +
+                    "VALUES (30, 'Personal', 1, 0, 'orbit_30', 'person')"
+            )
+            execSQL(
+                "INSERT INTO downloads (downloadId, fileName, url, createdAt, totalBytes, " +
+                    "downloadedBytes, state, segments, attempts) " +
+                    "VALUES (-1, 'old.zip', 'https://x/old.zip', 1, -1, 0, 'DONE', 1, 0)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 19, true, BrowseDatabase.MIGRATION_18_19)
+        db.query("SELECT orbitId FROM downloads WHERE fileName = 'old.zip'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(30L, c.getLong(0)) // backfilled to the first orbit
+        }
+    }
+
+    @Test
     fun migrate17to18_createsCredentialsTable() {
         helper.createDatabase(DB, 17).close()
         val db = helper.runMigrationsAndValidate(DB, 18, true, BrowseDatabase.MIGRATION_17_18)

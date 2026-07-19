@@ -100,11 +100,22 @@ private fun bytesHuman(bytes: Long): String {
 @Composable
 fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
     val entries by viewModel.downloads.collectAsStateWithLifecycle()
+    val orbits by viewModel.orbits.collectAsStateWithLifecycle()
+    val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
+    val activeOrbit = remember(orbits, activeOrbitId) { orbits.firstOrNull { it.id == activeOrbitId } }
     val scheme = orbit()
     var previewEntry by remember { mutableStateOf<DownloadEntry?>(null) }
 
     Scaffold(
-        topBar = { OrbitTopBar(title = "Downloads", onBack = onBack) },
+        topBar = {
+            androidx.compose.foundation.layout.Column {
+                OrbitTopBar(title = "Downloads", onBack = onBack)
+                // Per-Orbit scope (v5.5) — same header History/Bookmarks/Passwords carry.
+                if (activeOrbit != null) {
+                    com.udaytank.browse.ui.components.OrbitScopeHeader(activeOrbit, scope = "downloads")
+                }
+            }
+        },
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
         if (entries.isEmpty()) {
