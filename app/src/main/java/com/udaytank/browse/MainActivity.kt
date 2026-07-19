@@ -448,10 +448,10 @@ class MainActivity : FragmentActivity() {
 
     /**
      * "Add to Home screen" (v5.7): pins [url] to the launcher via ShortcutManagerCompat. The
-     * icon is the cached favicon drawn centered at ~60% on a solid circle (small favicons
-     * scale poorly full-bleed), else a letter avatar on the Andromeda accent. Tapping the pin
-     * fires ACTION_VIEW at MainActivity — the existing handleWebIntent → onExternalUrl path
-     * opens it as a new tab in the active Orbit.
+     * icon is a full-bleed adaptive square — cached (or pin-time-fetched) favicon inside the
+     * safe zone on a light ground, else a letter avatar on the Andromeda accent. Tapping the
+     * pin fires ACTION_VIEW at MainActivity — the existing handleWebIntent → onExternalUrl
+     * path opens it as a new tab in the active Orbit.
      */
     private fun pinToHomeScreen(url: String, title: String?) {
         if (!androidx.core.content.pm.ShortcutManagerCompat.isRequestPinShortcutSupported(this)) {
@@ -468,11 +468,14 @@ class MainActivity : FragmentActivity() {
             // Cached bytes first; hosts with a DECLARED touch icon store only its URL (higher
             // res, never downgraded to bytes) — fetch it source-direct over HTTPS at pin time,
             // per the project's icon rules. Letter avatar remains the failure fallback.
-            val entry = viewModel.faviconFor(host)
-            val bytes = entry?.iconBytes
-                ?: entry?.iconUrl?.let { fetchIconBytes(it) }
-            val favicon = bytes?.let {
-                runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull()
+            // Decode stays on IO with the fetch — a 1MB touch icon would jank the main thread.
+            val favicon = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val entry = viewModel.faviconFor(host)
+                val bytes = entry?.iconBytes
+                    ?: entry?.iconUrl?.let { fetchIconBytes(it) }
+                bytes?.let {
+                    runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull()
+                }
             }
             val icon = renderPinIcon(favicon, label)
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setClass(this@MainActivity, MainActivity::class.java)
@@ -492,17 +495,34 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    /** Source-direct HTTPS-only icon fetch (neutral UA, bounded size), per project icon rules. */
+    /**
+     * Source-direct HTTPS-only icon fetch (neutral UA), per project icon rules. The 1MB cap is
+     * enforced WHILE STREAMING (review): a page-controlled URL could point at a 100MB file or a
+     * drip-fed endless stream — the download must abort at the cap, not buffer first.
+     */
     private suspend fun fetchIconBytes(url: String): ByteArray? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 if (!url.startsWith("https://", ignoreCase = true)) return@runCatching null
                 val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 5_000
-                conn.readTimeout = 5_000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                conn.inputStream.use { stream ->
-                    stream.readBytes().takeIf { it.isNotEmpty() && it.size <= 1_000_000 }
+                try {
+                    conn.connectTimeout = 5_000
+                    conn.readTimeout = 5_000
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                    if (conn.responseCode != 200) return@runCatching null // 404 pages aren't icons
+                    conn.inputStream.use { stream ->
+                        val out = java.io.ByteArrayOutputStream()
+                        val chunk = ByteArray(8_192)
+                        while (true) {
+                            val n = stream.read(chunk)
+                            if (n < 0) break
+                            out.write(chunk, 0, n)
+                            if (out.size() > 1_000_000) return@runCatching null
+                        }
+                        out.toByteArray().takeIf { it.isNotEmpty() }
+                    }
+                } finally {
+                    conn.disconnect()
                 }
             }.getOrNull()
         }
