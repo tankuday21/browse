@@ -1,13 +1,18 @@
 package com.udaytank.browse.ui
 
 import android.app.DownloadManager
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,9 +30,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -35,6 +42,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -101,20 +110,52 @@ private fun bytesHuman(bytes: Long): String {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
+fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit, onPlayMedia: (Long) -> Unit = {}) {
     val entries by viewModel.downloads.collectAsStateWithLifecycle()
     val orbits by viewModel.orbits.collectAsStateWithLifecycle()
     val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
     val activeOrbit = remember(orbits, activeOrbitId) { orbits.firstOrNull { it.id == activeOrbitId } }
     val scheme = orbit()
+    val context = LocalContext.current
     var previewEntry by remember { mutableStateOf<DownloadEntry?>(null) }
+
+    // Multi-select (v6.0): long-press enters selection mode; state is by download id and lives
+    // here in the composable. Ids that vanish from the list are pruned so a stale selection can't
+    // act on a deleted row.
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedIds = remember { mutableStateListOf<Long>() }
+    LaunchedEffect(entries) {
+        val present = entries.mapTo(HashSet()) { it.id }
+        selectedIds.retainAll(present)
+    }
+    fun exitSelection() {
+        selectionMode = false
+        selectedIds.clear()
+    }
+    // In selection mode, the system back gesture exits selection rather than leaving the screen.
+    BackHandler(enabled = selectionMode) { exitSelection() }
 
     Scaffold(
         topBar = {
             Column {
-                OrbitTopBar(title = "Downloads", onBack = onBack)
-                // Per-Orbit scope (v5.5) — same header History/Bookmarks/Passwords carry.
-                if (activeOrbit != null) OrbitScopeHeader(activeOrbit, scope = "downloads")
+                if (selectionMode) {
+                    DownloadsSelectionBar(
+                        count = selectedIds.size,
+                        onClose = { exitSelection() },
+                        onShare = {
+                            val selected = entries.filter { it.id in selectedIds }
+                            shareMultiple(context, selected)
+                        },
+                        onDelete = {
+                            viewModel.onDeleteDownloads(selectedIds.toList())
+                            exitSelection()
+                        },
+                    )
+                } else {
+                    OrbitTopBar(title = "Downloads", onBack = onBack)
+                    // Per-Orbit scope (v5.5) — same header History/Bookmarks/Passwords carry.
+                    if (activeOrbit != null) OrbitScopeHeader(activeOrbit, scope = "downloads")
+                }
             }
         },
         containerColor = scheme.surfaces.base,
@@ -126,6 +167,16 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
                 items(entries, key = { it.id }) { entry ->
                     DownloadRow(
                         entry = entry,
+                        selectionMode = selectionMode,
+                        selected = entry.id in selectedIds,
+                        onToggleSelect = {
+                            if (entry.id in selectedIds) selectedIds.remove(entry.id)
+                            else selectedIds.add(entry.id)
+                        },
+                        onEnterSelection = {
+                            selectionMode = true
+                            if (entry.id !in selectedIds) selectedIds.add(entry.id)
+                        },
                         onPause = { viewModel.onPauseDownload(entry.id) },
                         onResume = { viewModel.onResumeDownload(entry.id) },
                         onCancel = { viewModel.onCancelDownload(entry.id) },
@@ -141,10 +192,61 @@ fun DownloadsScreen(viewModel: BrowserViewModel, onBack: () -> Unit) {
     }
 
     previewEntry?.let { entry ->
-        DownloadPreviewSheet(entry = entry, onDismiss = { previewEntry = null }, onDelete = {
-            viewModel.onDeleteDownload(entry.id)
-            previewEntry = null
-        })
+        DownloadPreviewSheet(
+            entry = entry,
+            onDismiss = { previewEntry = null },
+            onDelete = {
+                viewModel.onDeleteDownload(entry.id)
+                previewEntry = null
+            },
+            onPlayMedia = {
+                previewEntry = null
+                onPlayMedia(entry.id)
+            },
+        )
+    }
+}
+
+/** Contextual top bar shown in multi-select mode (v6.0): count + Share + Delete + close. */
+@Composable
+private fun DownloadsSelectionBar(
+    count: Int,
+    onClose: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val scheme = orbit()
+    Surface(color = scheme.surfaces.elevated) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = OrbitSpacing.sm, vertical = OrbitSpacing.sm),
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.Close, contentDescription = "Exit selection", tint = scheme.text.primary)
+            }
+            Text(
+                "$count selected",
+                style = orbitBody,
+                color = scheme.text.primary,
+                modifier = Modifier.weight(1f).padding(start = OrbitSpacing.sm),
+            )
+            IconButton(onClick = onShare, enabled = count > 0) {
+                Icon(
+                    Icons.Filled.Share,
+                    contentDescription = "Share selected",
+                    tint = if (count > 0) scheme.text.primary else scheme.text.muted,
+                )
+            }
+            IconButton(onClick = onDelete, enabled = count > 0) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "Delete selected",
+                    tint = if (count > 0) scheme.text.primary else scheme.text.muted,
+                )
+            }
+        }
     }
 }
 
@@ -205,9 +307,14 @@ private fun stateChipColors(state: String) = when (state) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadRow(
     entry: DownloadEntry,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelect: () -> Unit,
+    onEnterSelection: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,
@@ -246,20 +353,41 @@ private fun DownloadRow(
     }
 
     val scheme = orbit()
+    // Outside selection mode a tap opens the preview (only meaningful for finished/legacy rows)
+    // and a long-press starts selection; inside selection mode a tap toggles this row.
+    val rowClick: () -> Unit = if (selectionMode) onToggleSelect else onOpenPreview
+    val rowTapEnabled = selectionMode || isLegacy || entry.state == "DONE"
     Row(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.lg),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = isLegacy || entry.state == "DONE") { onOpenPreview() }
+            .combinedClickable(
+                enabled = rowTapEnabled,
+                onLongClick = onEnterSelection,
+                onClick = rowClick,
+            )
+            .then(
+                if (selected) Modifier.background(scheme.accent.solid.copy(alpha = 0.14f))
+                else Modifier
+            )
             .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.md),
     ) {
-        FaviconOrLetter(
-            url = entry.url,
-            label = entry.fileName,
-            size = 36.dp,
-            modifier = Modifier.padding(top = 2.dp),
-        )
+        if (selectionMode) {
+            Checkbox(
+                checked = selected,
+                onCheckedChange = { onToggleSelect() },
+                colors = CheckboxDefaults.colors(checkedColor = scheme.accent.solid),
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        } else {
+            FaviconOrLetter(
+                url = entry.url,
+                label = entry.fileName,
+                size = 36.dp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -314,7 +442,9 @@ private fun DownloadRow(
                 }
             }
 
-            Row(
+            // The per-row action controls are hidden in selection mode — the contextual bar owns
+            // actions there, and a live pause/cancel button would fight the row's toggle tap.
+            if (!selectionMode) Row(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
@@ -487,6 +617,32 @@ private fun shareFile(context: android.content.Context, entry: DownloadEntry) {
     runCatching { context.startActivity(Intent.createChooser(intent, "Share")) }
 }
 
+/**
+ * Shares several downloads at once (v6.0). Rows that don't resolve to a real file (in-progress,
+ * failed, or missing) are silently skipped; if none resolve, a toast explains and no chooser opens.
+ *
+ * Every URI is attached to BOTH `EXTRA_STREAM` and the intent's [ClipData]: the read-permission
+ * grant only reliably reaches URIs present in ClipData on many OEM builds — a list in EXTRA_STREAM
+ * alone can arrive at the target with no read access on some devices (the v5.3 capture lesson).
+ */
+private fun shareMultiple(context: android.content.Context, entries: List<DownloadEntry>) {
+    val resolved = entries.mapNotNull { resolvedUriAndMime(context, it) }
+    if (resolved.isEmpty()) {
+        Toast.makeText(context, "Nothing to share", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val uris = ArrayList(resolved.map { it.first })
+    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+        type = com.udaytank.browse.browser.ShareBundle.commonMimeType(resolved.map { it.second })
+        putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = ClipData.newUri(context.contentResolver, "Shared files", uris.first()).apply {
+            uris.drop(1).forEach { addItem(ClipData.Item(it)) }
+        }
+    }
+    runCatching { context.startActivity(Intent.createChooser(intent, "Share")) }
+}
+
 private fun openWithChooser(context: android.content.Context, entry: DownloadEntry) {
     val (uri, mime) = resolvedUriAndMime(context, entry) ?: return
     val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -545,7 +701,12 @@ private fun rememberDownsampledBitmap(path: String): Result<Bitmap>? {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, onDelete: () -> Unit) {
+private fun DownloadPreviewSheet(
+    entry: DownloadEntry,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onPlayMedia: () -> Unit,
+) {
     val context = LocalContext.current
     val path = entry.filePath
     val mime = entry.mimeType ?: ""
@@ -626,6 +787,21 @@ private fun DownloadPreviewSheet(entry: DownloadEntry, onDismiss: () -> Unit, on
                     }
                     SelectionContainer {
                         Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = scheme.text.primary)
+                    }
+                }
+                mime.startsWith("audio/") || mime.startsWith("video/") -> {
+                    // v6.0: play in the in-app Andromeda Player, or hand off to another app.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onPlayMedia) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text("Play in Andromeda")
+                        }
+                        Button(onClick = { openWithChooser(context, entry) }) {
+                            Icon(Icons.Filled.OpenInNew, contentDescription = null)
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text("Open with…")
+                        }
                     }
                 }
                 mime == "application/vnd.android.package-archive" -> {

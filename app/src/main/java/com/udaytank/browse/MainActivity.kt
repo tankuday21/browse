@@ -90,6 +90,12 @@ class MainActivity : FragmentActivity() {
      *  [onPictureInPictureModeChanged] all see the same value. */
     private var fullscreenVideoView by mutableStateOf<View?>(null)
 
+    /** Non-null while the Andromeda Player (v6.0) is showing a playing video — its aspect ratio,
+     *  used to enter Picture-in-Picture when the user backgrounds the app. Null for audio, when
+     *  paused, or when the player screen isn't showing. */
+    private var andromedaPlayerVideoAspect by mutableStateOf<Rational?>(null)
+    fun updatePlayerPipAspect(aspect: Rational?) { andromedaPlayerVideoAspect = aspect }
+
     /**
      * Exactly-once lifecycle of the WebView's pending `<input type="file">` callback (v4.8) —
      * the state machine lives in [FileChooserCoordinator] (JVM unit-tested); this class only
@@ -250,12 +256,22 @@ class MainActivity : FragmentActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        val playerAspect = andromedaPlayerVideoAspect
         if (fullscreenVideoView != null) {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-            )
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build()
+                )
+            }
+        } else if (playerAspect != null) {
+            // Andromeda Player video keeps playing in a floating window on background.
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder().setAspectRatio(playerAspect).build()
+                )
+            }
         }
     }
 
@@ -927,6 +943,21 @@ class MainActivity : FragmentActivity() {
                         DownloadsScreen(
                             viewModel = viewModel,
                             onBack = { navController.popBackStack() },
+                            onPlayMedia = { id -> navController.navigate("player/$id") },
+                        )
+                    }
+                    composable(
+                        "player/{downloadId}",
+                        arguments = listOf(androidx.navigation.navArgument("downloadId") {
+                            type = androidx.navigation.NavType.LongType
+                        }),
+                    ) { entry ->
+                        val id = entry.arguments?.getLong("downloadId") ?: -1L
+                        com.udaytank.browse.ui.PlayerScreen(
+                            viewModel = viewModel,
+                            downloadId = id,
+                            onBack = { navController.popBackStack() },
+                            onPipAspect = { updatePlayerPipAspect(it) },
                         )
                     }
                     composable("reading") {

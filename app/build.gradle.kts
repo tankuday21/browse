@@ -105,6 +105,10 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    // v6.0 Andromeda Player: Media3/ExoPlayer decode engine + custom UI on top.
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.media3.session)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)

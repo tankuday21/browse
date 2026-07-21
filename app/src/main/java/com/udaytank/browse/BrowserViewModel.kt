@@ -176,6 +176,8 @@ class BrowserViewModel(
     private val orbitRepository: OrbitRepository? = null,
     /** v4.7 Passwords (per-Orbit encrypted vault); null in tests that don't exercise it. */
     private val credentialRepository: com.udaytank.browse.data.CredentialRepository? = null,
+    /** v6.0 Andromeda Player resume store; null in tests that don't exercise the player. */
+    private val playerProgressDao: com.udaytank.browse.data.PlayerProgressDao? = null,
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -1491,6 +1493,8 @@ class BrowserViewModel(
             bookmarkDao.clearAll()
             homeShortcutDao.clearAll()
             downloadDao.clearAll()
+            // v6.0: resume positions reference downloaded-media file paths — a browsing trace.
+            playerProgressDao?.clearAll()
             readingListDao.clearAll()
             closedTabDao.clear()
             tabGroupDao.clearAll()
@@ -1932,6 +1936,59 @@ class BrowserViewModel(
     }
 
     /**
+     * Resolves the Andromeda Player queue for a tapped download (v6.0): the Orbit's other finished
+     * media of the same top-level kind, ordered oldest→newest, with the tapped item as the start
+     * index and its saved resume position applied. Returns null if the file is gone or isn't
+     * playable media (no mime top-level). Runs off the main thread.
+     */
+    suspend fun resolvePlayerQueue(downloadId: Long): com.udaytank.browse.media.PlayerQueue? =
+        withContext(ioDispatcher) {
+            val current = downloadDao.getById(downloadId) ?: return@withContext null
+            val path = current.filePath ?: return@withContext null
+            if (!java.io.File(path).exists()) return@withContext null
+            val top = com.udaytank.browse.media.PlayerQueuePolicy.topLevelType(current.mimeType)
+                ?: return@withContext null
+            val orbit = current.orbitId ?: activeOrbitId.value
+            val all = downloadDao.getAllForOrbit(orbit)
+            val queue = com.udaytank.browse.media.PlayerQueuePolicy.buildQueue(all, downloadId, top)
+                .filter { java.io.File(it.filePath!!).exists() }
+                .ifEmpty { listOf(current) }
+            val startIndex = queue.indexOfFirst { it.id == downloadId }.coerceAtLeast(0)
+            val saved = playerProgressDao?.get(path)
+            val startPos = if (saved != null &&
+                com.udaytank.browse.media.PlayerProgressPolicy.shouldResume(saved.positionMs, saved.durationMs)
+            ) saved.positionMs else 0L
+            com.udaytank.browse.media.PlayerQueue(
+                items = queue.map {
+                    com.udaytank.browse.media.PlayerItem(it.filePath!!, it.fileName, it.mimeType)
+                },
+                startIndex = startIndex,
+                startPositionMs = startPos,
+            )
+        }
+
+    /**
+     * Deletes several downloads in one action (v6.0 multi-select). Each id runs the same
+     * cancel + file/legacy-DM cleanup + row delete as [onDeleteDownload]; a single failing id
+     * never aborts the rest.
+     */
+    fun onDeleteDownloads(ids: List<Long>) {
+        ids.forEach { downloadController.cancel(it) }
+        viewModelScope.launch {
+            ids.forEach { id ->
+                val entry = downloadDao.getById(id)
+                val path = entry?.filePath
+                if (path != null) {
+                    runCatching { java.io.File(path).delete() }
+                } else if (entry != null && entry.downloadId > 0) {
+                    runCatching { downloadManagerRemover(entry.downloadId) }
+                }
+                downloadDao.deleteById(id)
+            }
+        }
+    }
+
+    /**
      * Requests a new engine-backed download. [userAgent] isn't persisted yet — [DownloadEntry]
      * has no column for it — so a fresh service-driven start currently probes without one; wiring
      * it through is left for whenever that column lands.
@@ -2238,6 +2295,7 @@ class BrowserViewModel(
                     faviconRepository = app.faviconRepository,
                     orbitRepository = app.orbitRepository,
                     credentialRepository = app.credentialRepository,
+                    playerProgressDao = app.database.playerProgressDao(),
                 )
             }
         }

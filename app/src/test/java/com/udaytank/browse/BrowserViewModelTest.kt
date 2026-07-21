@@ -633,6 +633,31 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `onDeleteDownloads removes every selected row incl a mixed set`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val done = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "a.mp3", url = "https://a.com/a.mp3", createdAt = 1L, state = "DONE")
+        )
+        val failed = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "b.zip", url = "https://a.com/b.zip", createdAt = 2L, state = "FAILED")
+        )
+        val keep = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "c.pdf", url = "https://a.com/c.pdf", createdAt = 3L, state = "DONE")
+        )
+
+        vm.onDeleteDownloads(listOf(done, failed))
+        advanceUntilIdle()
+
+        assertTrue(downloadDao.entries.value.none { it.id == done || it.id == failed })
+        assertTrue(downloadDao.entries.value.any { it.id == keep }) // unselected row survives
+        assertTrue(controller.cancelled.containsAll(listOf(done, failed)))
+    }
+
+    @Test
     fun `onRetryDownload resets attempts before starting`() = runTest {
         val downloadDao = FakeDownloadDao()
         val controller = RecordingDownloadController()
