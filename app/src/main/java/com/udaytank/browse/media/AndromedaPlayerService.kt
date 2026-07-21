@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 /**
@@ -62,6 +63,12 @@ class AndromedaPlayerService : MediaSessionService() {
                     saveProgress(path, positionMs = 0, durationMs = 0, finished = true)
                 }
             }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                // Persist immediately on pause (the 5 s ticker only runs while playing, so
+                // without this a pause-then-kill loses up to 5 s of position — spec: save on pause).
+                if (!isPlaying) captureProgress(exo)
+            }
         })
         startProgressPersistence(exo)
     }
@@ -71,17 +78,20 @@ class AndromedaPlayerService : MediaSessionService() {
         persistJob = scope.launch {
             while (true) {
                 delay(PROGRESS_SAVE_INTERVAL_MS)
-                if (exo.isPlaying) {
-                    val path = exo.currentMediaItem?.mediaId ?: continue
-                    val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
-                    val position = exo.currentPosition
-                    if (PlayerProgressPolicy.isFinished(position, duration)) {
-                        saveProgress(path, 0, 0, finished = true)
-                    } else {
-                        saveProgress(path, position, duration, finished = false)
-                    }
-                }
+                if (exo.isPlaying) captureProgress(exo)
             }
+        }
+    }
+
+    /** Snapshot the current item's position (finished items are cleared) and persist it. */
+    private fun captureProgress(exo: ExoPlayer) {
+        val path = exo.currentMediaItem?.mediaId ?: return
+        val duration = exo.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+        val position = exo.currentPosition
+        if (PlayerProgressPolicy.isFinished(position, duration)) {
+            saveProgress(path, 0, 0, finished = true)
+        } else {
+            saveProgress(path, position, duration, finished = false)
         }
     }
 
@@ -110,6 +120,21 @@ class AndromedaPlayerService : MediaSessionService() {
 
     override fun onDestroy() {
         persistJob?.cancel()
+        // Final synchronous flush BEFORE cancelling the scope / releasing the player, so the
+        // notification "stop" and app-kill paths don't lose the last position (spec: save on stop).
+        player?.let { p ->
+            val path = p.currentMediaItem?.mediaId
+            if (path != null) {
+                val duration = p.duration.takeIf { it != C.TIME_UNSET } ?: 0L
+                val position = p.currentPosition
+                val finished = PlayerProgressPolicy.isFinished(position, duration)
+                val dao = (application as BrowseApplication).database.playerProgressDao()
+                runBlocking(Dispatchers.IO) {
+                    if (finished) dao.delete(path)
+                    else dao.upsert(PlayerProgressEntity(path, position, duration, System.currentTimeMillis()))
+                }
+            }
+        }
         scope.cancel()
         mediaSession?.run {
             player.release()

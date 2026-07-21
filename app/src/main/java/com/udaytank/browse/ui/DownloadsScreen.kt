@@ -597,7 +597,10 @@ private fun resolvedUriAndMime(context: android.content.Context, entry: Download
     val path = entry.filePath
     if (path != null) {
         if (!File(path).exists()) return null
-        return fileUriFor(context, path) to mimeOf(entry)
+        // getUriForFile throws for a path outside the FileProvider roots; skip such a row
+        // rather than aborting a whole multi-share (v6.0 review).
+        val uri = runCatching { fileUriFor(context, path) }.getOrNull() ?: return null
+        return uri to mimeOf(entry)
     }
     if (entry.downloadId > 0) {
         val uri = legacyUriFor(context, entry.downloadId) ?: return null

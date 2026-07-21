@@ -156,3 +156,6 @@ a malformed entry ("garbage") present.
 - Subtitle rendering uses ExoPlayer's built-in renderer (CEA-608/WebVTT/SRT sidecar if present);
   external sidecar-subtitle picking is a fast-follow.
 - Equalizer, sleep timer, and playback-queue reordering are deliberately out of v6.0 scope.
+- Horizontal-drag-to-scrub is deferred: the scrubber slider is the scrub control in v6.0. A
+  horizontal drag gesture would have to disambiguate against the vertical brightness/volume
+  drags, and that isn't worth shipping unverified — revisit as a fast-follow.

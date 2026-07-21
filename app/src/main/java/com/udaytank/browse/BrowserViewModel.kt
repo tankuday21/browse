@@ -1921,18 +1921,27 @@ class BrowserViewModel(
 
     fun onDeleteDownload(id: Long) {
         downloadController.cancel(id)
-        viewModelScope.launch {
-            val entry = downloadDao.getById(id)
-            val path = entry?.filePath
-            if (path != null) {
-                runCatching { java.io.File(path).delete() }
-            } else if (entry != null && entry.downloadId > 0) {
-                // Legacy system-downloader row: we never got a filePath, so the only way to
-                // clean up is to ask the system DownloadManager to remove it by its own id.
-                runCatching { downloadManagerRemover(entry.downloadId) }
-            }
-            downloadDao.deleteById(id)
+        viewModelScope.launch { purgeDownload(id) }
+    }
+
+    /**
+     * The shared delete body (single + multi): removes the file (or asks the system
+     * DownloadManager for legacy rows), the row, AND the resume-position row keyed by the same
+     * path — a deliberate "make it gone" must not leave a viewing-history trace behind (v6.0
+     * review). Caller is responsible for cancelling any in-flight transfer first.
+     */
+    private suspend fun purgeDownload(id: Long) {
+        val entry = downloadDao.getById(id)
+        val path = entry?.filePath
+        if (path != null) {
+            runCatching { java.io.File(path).delete() }
+            playerProgressDao?.delete(path)
+        } else if (entry != null && entry.downloadId > 0) {
+            // Legacy system-downloader row: we never got a filePath, so the only way to
+            // clean up is to ask the system DownloadManager to remove it by its own id.
+            runCatching { downloadManagerRemover(entry.downloadId) }
         }
+        downloadDao.deleteById(id)
     }
 
     /**
@@ -1945,7 +1954,11 @@ class BrowserViewModel(
         withContext(ioDispatcher) {
             val current = downloadDao.getById(downloadId) ?: return@withContext null
             val path = current.filePath ?: return@withContext null
-            if (!java.io.File(path).exists()) return@withContext null
+            if (!java.io.File(path).exists()) {
+                // Spec: a missing file on open clears its stale resume row.
+                playerProgressDao?.delete(path)
+                return@withContext null
+            }
             val top = com.udaytank.browse.media.PlayerQueuePolicy.topLevelType(current.mimeType)
                 ?: return@withContext null
             val orbit = current.orbitId ?: activeOrbitId.value
@@ -1953,8 +1966,11 @@ class BrowserViewModel(
             val queue = com.udaytank.browse.media.PlayerQueuePolicy.buildQueue(all, downloadId, top)
                 .filter { java.io.File(it.filePath!!).exists() }
                 .ifEmpty { listOf(current) }
-            val startIndex = queue.indexOfFirst { it.id == downloadId }.coerceAtLeast(0)
-            val saved = playerProgressDao?.get(path)
+            // If the tapped item isn't in the queue (e.g. not DONE), never apply ITS saved
+            // position to whatever ends up at index 0 — that would resume a different file.
+            val rawIndex = queue.indexOfFirst { it.id == downloadId }
+            val startIndex = rawIndex.coerceAtLeast(0)
+            val saved = if (rawIndex >= 0) playerProgressDao?.get(path) else null
             val startPos = if (saved != null &&
                 com.udaytank.browse.media.PlayerProgressPolicy.shouldResume(saved.positionMs, saved.durationMs)
             ) saved.positionMs else 0L
@@ -1974,18 +1990,7 @@ class BrowserViewModel(
      */
     fun onDeleteDownloads(ids: List<Long>) {
         ids.forEach { downloadController.cancel(it) }
-        viewModelScope.launch {
-            ids.forEach { id ->
-                val entry = downloadDao.getById(id)
-                val path = entry?.filePath
-                if (path != null) {
-                    runCatching { java.io.File(path).delete() }
-                } else if (entry != null && entry.downloadId > 0) {
-                    runCatching { downloadManagerRemover(entry.downloadId) }
-                }
-                downloadDao.deleteById(id)
-            }
-        }
+        viewModelScope.launch { ids.forEach { purgeDownload(it) } }
     }
 
     /**

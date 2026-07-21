@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -121,7 +122,9 @@ fun PlayerScreen(
         val token = SessionToken(context, ComponentName(context, AndromedaPlayerService::class.java))
         val future = MediaController.Builder(context, token).buildAsync()
         future.addListener({
-            controller = runCatching { future.get() }.getOrNull()
+            val c = runCatching { future.get() }.getOrNull()
+            controller = c
+            if (c == null) unavailable = true // service failed to bind — don't sit on a black screen
         }, ContextCompat.getMainExecutor(context))
         onDispose {
             MediaController.releaseFuture(future)
@@ -135,11 +138,23 @@ fun PlayerScreen(
         val q = queue ?: return@LaunchedEffect
         if (started) return@LaunchedEffect
         started = true
+        // Single audio focus: stop any web-media hold so the browser isn't playing two things.
+        com.udaytank.browse.media.MediaHoldService.stop(context)
         val items = q.items.map { it.toMediaItem() }
         c.setMediaItems(items, q.startIndex, q.startPositionMs)
         c.prepare()
         c.play()
     }
+
+    // Back pauses a VIDEO (leaving its audio playing invisibly is surprising); audio keeps
+    // playing in the background via the notification. Home→PiP is handled separately and must
+    // NOT pause, so this lives on the explicit back path only.
+    val handleBack: () -> Unit = {
+        val c = controller
+        if (c != null && c.currentTracks.groups.any { it.type == C.TRACK_TYPE_VIDEO }) c.pause()
+        onBack()
+    }
+    BackHandler { handleBack() }
 
     if (unavailable) {
         PlayerUnavailable(onBack)
@@ -149,7 +164,7 @@ fun PlayerScreen(
     PlayerContent(
         controller = controller,
         currentTitle = queue?.items?.getOrNull(controller?.currentMediaItemIndex ?: 0)?.title.orEmpty(),
-        onBack = onBack,
+        onBack = handleBack,
         onOpenExternal = {
             queue?.items?.getOrNull(controller?.currentMediaItemIndex ?: 0)
                 ?.let { openExternally(context, it) }
@@ -186,6 +201,21 @@ private fun PlayerContent(
     var scrubPos by remember { mutableStateOf(0L) }
     var showTracks by remember { mutableStateOf(false) }
     var hasVideo by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf(false) }
+
+    // Surface engine errors (e.g. a queued file deleted mid-playback) instead of freezing on a
+    // black frame with stale controls.
+    DisposableEffect(controller) {
+        val c = controller ?: return@DisposableEffect onDispose {}
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { playbackError = true }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) playbackError = false
+            }
+        }
+        c.addListener(listener)
+        onDispose { c.removeListener(listener) }
+    }
 
     // Poll the controller for the scrubber/state (cheap; only while the screen is composed).
     LaunchedEffect(controller) {
@@ -283,12 +313,19 @@ private fun PlayerContent(
             update = { it.player = controller },
             modifier = Modifier.fillMaxSize(),
         )
-        if (!hasVideo) {
+        if (!hasVideo && !playbackError) {
             Icon(
                 Icons.Filled.MusicNote,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.35f),
                 modifier = Modifier.align(Alignment.Center).size(96.dp),
+            )
+        }
+        if (playbackError) {
+            Text(
+                "Can't play this file",
+                color = Color.White,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
 
@@ -308,9 +345,8 @@ private fun PlayerContent(
                 onNext = { controller?.seekToNextMediaItem() },
                 onSeekBack = { controller?.let { it.seekTo((it.currentPosition - 10_000).coerceAtLeast(0)) } },
                 onSeekForward = { controller?.let { it.seekTo(it.currentPosition + 10_000) } },
-                onScrubStart = { scrubbing = true; scrubPos = positionMs },
-                onScrub = { scrubPos = it },
-                onScrubEnd = { controller?.seekTo(it); scrubbing = false },
+                onScrub = { scrubbing = true; scrubPos = it },
+                onScrubEnd = { controller?.seekTo(scrubPos); scrubbing = false },
                 onCycleSpeed = {
                     val next = SPEED_PRESETS[(SPEED_PRESETS.indexOf(speed) + 1) % SPEED_PRESETS.size]
                     speed = next
@@ -345,9 +381,8 @@ private fun PlayerControls(
     onNext: () -> Unit,
     onSeekBack: () -> Unit,
     onSeekForward: () -> Unit,
-    onScrubStart: () -> Unit,
     onScrub: (Long) -> Unit,
-    onScrubEnd: (Long) -> Unit,
+    onScrubEnd: () -> Unit,
     onCycleSpeed: () -> Unit,
     onToggleMute: () -> Unit,
 ) {
@@ -409,8 +444,8 @@ private fun PlayerControls(
             val max = durationMs.coerceAtLeast(1L).toFloat()
             Slider(
                 value = positionMs.coerceIn(0, durationMs).toFloat(),
-                onValueChange = { onScrubStart(); onScrub(it.toLong()) },
-                onValueChangeFinished = { onScrubEnd(positionMs) },
+                onValueChange = { onScrub(it.toLong()) },
+                onValueChangeFinished = { onScrubEnd() },
                 valueRange = 0f..max,
                 colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White),
             )
