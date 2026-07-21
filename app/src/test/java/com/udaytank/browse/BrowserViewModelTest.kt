@@ -39,10 +39,12 @@ class BrowserViewModelTest {
         downloadController: RecordingDownloadController = RecordingDownloadController(),
         downloadManagerRemover: (Long) -> Unit = {},
         suggestionFetcher: suspend (String, String) -> List<String> = { _, _ -> emptyList() },
+        playerProgressDao: FakePlayerProgressDao = FakePlayerProgressDao(),
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
         readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
         downloadManagerRemover, suggestionFetcher, ioDispatcher = Dispatchers.Unconfined,
+        playerProgressDao = playerProgressDao,
     )
 
     @Test
@@ -630,6 +632,55 @@ class BrowserViewModelTest {
 
         assertEquals(listOf(id), controller.cancelled)
         assertTrue(downloadDao.entries.value.none { it.id == id })
+    }
+
+    @Test
+    fun `onDeleteDownloads removes every selected row incl a mixed set`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val controller = RecordingDownloadController()
+        val vm = vm(downloadDao = downloadDao, downloadController = controller)
+        advanceUntilIdle()
+
+        val done = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "a.mp3", url = "https://a.com/a.mp3", createdAt = 1L, state = "DONE")
+        )
+        val failed = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "b.zip", url = "https://a.com/b.zip", createdAt = 2L, state = "FAILED")
+        )
+        val keep = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(fileName = "c.pdf", url = "https://a.com/c.pdf", createdAt = 3L, state = "DONE")
+        )
+
+        vm.onDeleteDownloads(listOf(done, failed))
+        advanceUntilIdle()
+
+        assertTrue(downloadDao.entries.value.none { it.id == done || it.id == failed })
+        assertTrue(downloadDao.entries.value.any { it.id == keep }) // unselected row survives
+        assertTrue(controller.cancelled.containsAll(listOf(done, failed)))
+    }
+
+    @Test
+    fun `deleting a download also purges its resume-position row`() = runTest {
+        val downloadDao = FakeDownloadDao()
+        val progress = FakePlayerProgressDao()
+        val vm = vm(downloadDao = downloadDao, playerProgressDao = progress)
+        advanceUntilIdle()
+
+        val id = downloadDao.insertReturning(
+            com.udaytank.browse.data.DownloadEntry(
+                fileName = "clip.mp4", url = "https://a.com/clip.mp4", createdAt = 1L,
+                state = "DONE", filePath = "/media/clip.mp4", mimeType = "video/mp4",
+            )
+        )
+        progress.upsert(com.udaytank.browse.data.PlayerProgressEntity("/media/clip.mp4", 30_000, 120_000, 1L))
+        assertNotNull(progress.get("/media/clip.mp4"))
+
+        vm.onDeleteDownload(id)
+        advanceUntilIdle()
+
+        // The download row AND its viewing-history trace are both gone (v6.0 review).
+        assertTrue(downloadDao.entries.value.none { it.id == id })
+        assertNull(progress.get("/media/clip.mp4"))
     }
 
     @Test

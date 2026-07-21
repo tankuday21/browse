@@ -74,6 +74,17 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+        <!-- v6.0 Andromeda Player engine host. The MediaSessionService action lets the player
+             screen's MediaController discover and bind to the session. -->
+        <service
+            android:name=".media.AndromedaPlayerService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

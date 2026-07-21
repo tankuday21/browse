@@ -25,8 +25,9 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         FaviconEntity::class,
         OrbitEntity::class,
         CredentialEntity::class,
+        PlayerProgressEntity::class,
     ],
-    version = 19,
+    version = 20,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -43,10 +44,25 @@ abstract class BrowseDatabase : RoomDatabase() {
     abstract fun faviconDao(): FaviconDao
     abstract fun orbitDao(): OrbitDao
     abstract fun credentialDao(): CredentialDao
+    abstract fun playerProgressDao(): PlayerProgressDao
 
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v6.0 Andromeda Player: resume-position store, keyed by file path.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `player_progress` (" +
+                        "`filePath` TEXT NOT NULL, " +
+                        "`positionMs` INTEGER NOT NULL, " +
+                        "`durationMs` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`filePath`))"
+                )
+            }
+        }
 
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
