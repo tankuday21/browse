@@ -67,7 +67,7 @@ fun TranslateBar(
                 )
                 Text(
                     text = when (state) {
-                        is TranslateState.Downloading -> "Downloading ${state.language} — one time"
+                        is TranslateState.Downloading -> "Downloading ${state.language} — one time (~30 MB)"
                         is TranslateState.Translating -> "Translating…"
                         else -> "Detecting language…"
                     },
@@ -77,6 +77,8 @@ fun TranslateBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                // A dismiss is always reachable — even a wedged download/collect can be cancelled.
+                DismissButton(onDismiss)
             }
 
             is TranslateState.Shown -> {

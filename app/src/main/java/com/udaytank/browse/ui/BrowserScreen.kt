@@ -638,8 +638,14 @@ fun BrowserScreen(
                     },
                     onChangeTarget = { code ->
                         viewModel.onSelectTranslateTarget(code)
-                        activeTabId?.let {
-                            viewModel.onTranslatePage(it, holder::collectTranslatableText, holder::applyTranslations)
+                        activeTabId?.let { id ->
+                            // Revert to the source text first so re-collection reads the original,
+                            // not the already-translated DOM; then translate to the new target
+                            // (passed directly, avoiding a stale DataStore read).
+                            viewModel.onShowOriginal(id, holder::restoreOriginalText)
+                            viewModel.onTranslatePage(
+                                id, holder::collectTranslatableText, holder::applyTranslations, targetOverride = code,
+                            )
                         }
                     },
                     onDismiss = viewModel::onDismissTranslate,

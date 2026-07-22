@@ -1531,6 +1531,47 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `an unsupported source language reports it cannot be translated`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "xx"))
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("""["???"]"""), { _, _ -> })
+        advanceUntilIdle()
+        // Not "Already in English" — a distinct, honest error.
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Error)
+    }
+
+    @Test
+    fun `target override wins over the saved target with no stale-read race`() = runTest {
+        // Saved target is English, but the override says German — the override must apply directly
+        // (the bug was reading the just-written DataStore value and racing to the old one).
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> }, targetOverride = "de")
+        advanceUntilIdle()
+        val state = vm.translateState.value
+        assertTrue(state is com.udaytank.browse.translate.TranslateState.Shown)
+        assertEquals("de", (state as com.udaytank.browse.translate.TranslateState.Shown).target)
+    }
+
+    @Test
+    fun `navigating the active page clears the translate bar`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))
+        advanceUntilIdle()
+        val active = vm.activeTabId.value!!
+        vm.onTranslatePage(active, collectReturning("""["Hola"]"""), { _, _ -> })
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Shown)
+
+        // A fresh page in the active tab invalidates the "Translated to X" bar.
+        vm.onPageStarted(active, "https://fresh.example.com")
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Idle)
+    }
+
+    @Test
     fun `show original restores the page and returns to idle`() = runTest {
         val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
         val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))

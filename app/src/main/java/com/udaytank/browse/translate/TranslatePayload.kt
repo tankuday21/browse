@@ -13,6 +13,11 @@ import org.json.JSONArray
  */
 object TranslatePayload {
 
+    // JS line terminators (invalid raw inside a JS string on stricter engines). Built from code
+    // points so the source stays readable ASCII rather than embedding the literal characters.
+    private val LINE_SEP = Char(0x2028).toString() // U+2028 LINE SEPARATOR
+    private val PARA_SEP = Char(0x2029).toString() // U+2029 PARAGRAPH SEPARATOR
+
     /** Lenient parse of the collector's output; malformed input yields an empty list, never throws. */
     fun parseCollected(json: String?): List<String> = runCatching {
         val array = JSONArray(json.orEmpty())
@@ -21,13 +26,19 @@ object TranslatePayload {
 
     /**
      * The JSON array literal the apply script receives. `JSONArray.toString` handles quote/
-     * backslash/newline escaping; we additionally neutralize `<` so a translated
-     * `</script>` fragment can't terminate an inline script context on the page side.
+     * backslash/newline escaping; we additionally neutralize the chars that stay dangerous inside
+     * a JS string literal on the shipped runtime. Escaping must NOT depend on which `org.json` is
+     * on the classpath: Android's platform `JSONStringer` only `\u`-escapes chars `<= 0x1F`, so we
+     * explicitly handle `<` (a `</script>` breakout) and U+2028/U+2029 (raw JS line terminators
+     * that would close the literal on a stricter engine) ourselves.
      */
     fun buildApplyPayload(translations: List<String>): String {
         val array = JSONArray()
         translations.forEach { array.put(it) }
-        return array.toString().replace("<", "\\u003C")
+        return array.toString()
+            .replace("<", "\\u003C")
+            .replace(LINE_SEP, "\\u2028")
+            .replace(PARA_SEP, "\\u2029")
     }
 
     /**

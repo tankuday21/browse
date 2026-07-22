@@ -42,6 +42,19 @@ class TranslatePayloadTest {
     }
 
     @Test
+    fun `apply payload never emits raw JS line separators`() {
+        val ls = Char(0x2028).toString()
+        val ps = Char(0x2029).toString()
+        val payload = TranslatePayload.buildApplyPayload(listOf("a${ls}b", "c${ps}d"))
+        assertFalse("raw U+2028 must not appear", payload.contains(Char(0x2028)))
+        assertFalse("raw U+2029 must not appear", payload.contains(Char(0x2029)))
+        // Still round-trips back to the originals once the page parses the JSON.
+        val parsed = JSONArray(payload)
+        assertEquals("a${ls}b", parsed.getString(0))
+        assertEquals("c${ps}d", parsed.getString(1))
+    }
+
+    @Test
     fun `detection sample joins non-blank text and caps length`() {
         val sample = TranslatePayload.detectionSample(listOf("  ", "Bonjour", "le", "monde"), maxChars = 12)
         assertTrue(sample.length <= 12)
