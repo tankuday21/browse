@@ -25,10 +25,17 @@ android {
         applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "6.0"
+        versionCode = 29
+        versionName = "6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ML Kit's libtranslate_jni.so ships per-ABI (~64 MB across all four in a universal APK).
+        // Keep only the two ARM ABIs — every real Android phone is arm — dropping x86/x86_64,
+        // which exist essentially only for emulators. Cuts the APK from ~74 MB to ~40 MB (v6.1).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -109,6 +116,8 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
+    implementation(libs.mlkit.translate)
+    implementation(libs.mlkit.language.id)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)

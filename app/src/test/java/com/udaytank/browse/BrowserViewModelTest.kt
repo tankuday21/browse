@@ -40,11 +40,13 @@ class BrowserViewModelTest {
         downloadManagerRemover: (Long) -> Unit = {},
         suggestionFetcher: suspend (String, String) -> List<String> = { _, _ -> emptyList() },
         playerProgressDao: FakePlayerProgressDao = FakePlayerProgressDao(),
+        translateEngine: FakeTranslateEngine = FakeTranslateEngine(),
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
         readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
         downloadManagerRemover, suggestionFetcher, ioDispatcher = Dispatchers.Unconfined,
         playerProgressDao = playerProgressDao,
+        translateEngine = translateEngine,
     )
 
     @Test
@@ -1457,6 +1459,131 @@ class BrowserViewModelTest {
         vm.onAddressBarTextChanged("pizza")
         advanceUntilIdle()
         assertFalse(fetched)
+    }
+
+    // --- full-page translate (v6.1) ---
+
+    private fun collectReturning(json: String): (Long, (String) -> Unit) -> Unit =
+        { _, cb -> cb(json) }
+
+    @Test
+    fun `translate flow detects, translates, and applies to the page`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val engine = FakeTranslateEngine(detected = "es")
+        val vm = vm(settings = settings, translateEngine = engine)
+        advanceUntilIdle()
+        var applied: String? = null
+        vm.onTranslatePage(
+            tabId = 1L,
+            collect = collectReturning("""["Hola","mundo"]"""),
+            apply = { _, payload -> applied = payload },
+        )
+        advanceUntilIdle()
+
+        val state = vm.translateState.value
+        assertTrue(state is com.udaytank.browse.translate.TranslateState.Shown)
+        state as com.udaytank.browse.translate.TranslateState.Shown
+        assertEquals("es", state.source)
+        assertEquals("en", state.target)
+        assertEquals(1, engine.ensureCalls)
+        // Applied payload carries the "translated" strings in order.
+        val parsed = org.json.JSONArray(applied)
+        assertEquals("[en]Hola", parsed.getString(0))
+        assertEquals("[en]mundo", parsed.getString(1))
+    }
+
+    @Test
+    fun `a page already in the target language does not download or translate`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val engine = FakeTranslateEngine(detected = "en")
+        val vm = vm(settings = settings, translateEngine = engine)
+        advanceUntilIdle()
+        var applied = false
+        vm.onTranslatePage(1L, collectReturning("""["Hello"]"""), { _, _ -> applied = true })
+        advanceUntilIdle()
+
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.AlreadyTarget)
+        assertEquals(0, engine.ensureCalls)
+        assertFalse(applied)
+    }
+
+    @Test
+    fun `a failed model download surfaces an error and never applies`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val engine = FakeTranslateEngine(detected = "es", modelResult = Result.failure(java.io.IOException("offline")))
+        val vm = vm(settings = settings, translateEngine = engine)
+        advanceUntilIdle()
+        var applied = false
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> applied = true })
+        advanceUntilIdle()
+
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Error)
+        assertFalse(applied)
+    }
+
+    @Test
+    fun `an empty page reports nothing to translate`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("[]"), { _, _ -> })
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Error)
+    }
+
+    @Test
+    fun `an unsupported source language reports it cannot be translated`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "xx"))
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("""["???"]"""), { _, _ -> })
+        advanceUntilIdle()
+        // Not "Already in English" — a distinct, honest error.
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Error)
+    }
+
+    @Test
+    fun `target override wins over the saved target with no stale-read race`() = runTest {
+        // Saved target is English, but the override says German — the override must apply directly
+        // (the bug was reading the just-written DataStore value and racing to the old one).
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> }, targetOverride = "de")
+        advanceUntilIdle()
+        val state = vm.translateState.value
+        assertTrue(state is com.udaytank.browse.translate.TranslateState.Shown)
+        assertEquals("de", (state as com.udaytank.browse.translate.TranslateState.Shown).target)
+    }
+
+    @Test
+    fun `navigating the active page clears the translate bar`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))
+        advanceUntilIdle()
+        val active = vm.activeTabId.value!!
+        vm.onTranslatePage(active, collectReturning("""["Hola"]"""), { _, _ -> })
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Shown)
+
+        // A fresh page in the active tab invalidates the "Translated to X" bar.
+        vm.onPageStarted(active, "https://fresh.example.com")
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Idle)
+    }
+
+    @Test
+    fun `show original restores the page and returns to idle`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "es"))
+        advanceUntilIdle()
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> })
+        advanceUntilIdle()
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Shown)
+
+        var restored = false
+        vm.onShowOriginal(1L) { restored = true }
+        assertTrue(restored)
+        assertTrue(vm.translateState.value is com.udaytank.browse.translate.TranslateState.Idle)
     }
 
     @Test

@@ -379,6 +379,28 @@ class WebViewHolder(
         webView.evaluateJavascript(ReaderMode.EXTRACT_SCRIPT) { json -> onResult(json) }
     }
 
+    // --- full-page translate (v6.1): JS round-trips, no persistent bridge ---
+
+    /** Collects the page's translatable text as a JSON array (or "[]" if the tab is gone). */
+    fun collectTranslatableText(tabId: Long, onResult: (String) -> Unit) {
+        val webView = webViews[tabId] ?: run { onResult("[]"); return }
+        webView.evaluateJavascript(com.udaytank.browse.translate.TranslateScripts.COLLECT) { json ->
+            onResult(json ?: "[]")
+        }
+    }
+
+    /** Writes translations (a JSON array literal payload) back into the collected nodes by index. */
+    fun applyTranslations(tabId: Long, payloadJsonArray: String) {
+        webViews[tabId]?.evaluateJavascript(
+            com.udaytank.browse.translate.TranslateScripts.applyScript(payloadJsonArray), null,
+        )
+    }
+
+    /** Restores every translated node to its original text ("Show original"). */
+    fun restoreOriginalText(tabId: Long) {
+        webViews[tabId]?.evaluateJavascript(com.udaytank.browse.translate.TranslateScripts.RESTORE, null)
+    }
+
     fun captureThumbnail(tabId: Long) {
         webViews[tabId]?.let { thumbnails.capture(tabId, it) }
     }

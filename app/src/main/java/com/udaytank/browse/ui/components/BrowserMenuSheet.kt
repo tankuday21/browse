@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -107,6 +108,7 @@ fun BrowserMenuSheet(
     currentHost: String?,
     onOpenSiteSettings: () -> Unit,
     onPrint: () -> Unit,
+    onTranslate: () -> Unit,
     // ── Element Zapper (v4.0) ──
     onZapElement: () -> Unit,
     onOpenHiddenElements: () -> Unit,
@@ -245,6 +247,12 @@ fun BrowserMenuSheet(
             label = "Print / Save as PDF",
             enabled = hasPage,
             onClick = onPrint,
+        )
+        MenuRow(
+            icon = Icons.Filled.Translate,
+            label = "Translate page",
+            enabled = !isHome,
+            onClick = onTranslate,
         )
         MenuRow(
             icon = Icons.Filled.Bolt,

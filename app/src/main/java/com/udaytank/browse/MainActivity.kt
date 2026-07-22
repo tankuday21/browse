@@ -937,6 +937,15 @@ class MainActivity : FragmentActivity() {
                             onOpenDownloads = { navController.navigate("downloads") },
                             onOpenReadingList = { navController.navigate("reading") },
                             onPrint = { printCurrentPage(holder) },
+                            onTranslate = {
+                                viewModel.activeTabId.value?.let { tabId ->
+                                    viewModel.onTranslatePage(
+                                        tabId,
+                                        holder::collectTranslatableText,
+                                        holder::applyTranslations,
+                                    )
+                                }
+                            },
                         )
                     }
                     composable("downloads") {
