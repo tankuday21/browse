@@ -29,6 +29,13 @@ android {
         versionName = "6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ML Kit's libtranslate_jni.so ships per-ABI (~64 MB across all four in a universal APK).
+        // Keep only the two ARM ABIs — every real Android phone is arm — dropping x86/x86_64,
+        // which exist essentially only for emulators. Cuts the APK from ~74 MB to ~40 MB (v6.1).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
