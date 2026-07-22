@@ -63,6 +63,7 @@ import com.udaytank.browse.browser.BarState
 import com.udaytank.browse.data.WeatherLocation
 import com.udaytank.browse.ui.components.BrowserMenuSheet
 import com.udaytank.browse.ui.components.FindBar
+import com.udaytank.browse.ui.components.TranslateBar
 import com.udaytank.browse.ui.components.FillPasswordBar
 import com.udaytank.browse.ui.components.HomeSearchOverlay
 import com.udaytank.browse.ui.components.SavePasswordBar
@@ -95,6 +96,7 @@ fun BrowserScreen(
     onOpenDownloads: () -> Unit,
     onOpenReadingList: () -> Unit,
     onPrint: () -> Unit,
+    onTranslate: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
@@ -626,6 +628,23 @@ fun BrowserScreen(
                     onDismiss = viewModel::onDismissFillPrompt,
                 )
             }
+            // v6.1 full-page translate status bar (above the command bar, like the password bars).
+            val translateState by viewModel.translateState.collectAsStateWithLifecycle()
+            if (translateState !is com.udaytank.browse.translate.TranslateState.Idle) {
+                TranslateBar(
+                    state = translateState,
+                    onShowOriginal = {
+                        activeTabId?.let { viewModel.onShowOriginal(it, holder::restoreOriginalText) }
+                    },
+                    onChangeTarget = { code ->
+                        viewModel.onSelectTranslateTarget(code)
+                        activeTabId?.let {
+                            viewModel.onTranslatePage(it, holder::collectTranslatableText, holder::applyTranslations)
+                        }
+                    },
+                    onDismiss = viewModel::onDismissTranslate,
+                )
+            }
             if (state.findQuery != null) {
                 FindBar(
                     query = state.findQuery ?: "",
@@ -735,6 +754,7 @@ fun BrowserScreen(
                 currentHost = currentHost,
                 onOpenSiteSettings = { siteSheetOpen = true; menuOpen = false },
                 onPrint = { onPrint(); menuOpen = false },
+                onTranslate = { onTranslate(); menuOpen = false },
                 onZapElement = {
                     menuOpen = false
                     activeTabId?.let { holder.enterZapMode(it) }

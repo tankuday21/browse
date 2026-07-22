@@ -105,6 +105,9 @@ class FakeSettingsRepository : SettingsRepository {
     override val selectedCustomEngine = MutableStateFlow("")
     override suspend fun setSelectedCustomEngine(name: String) { selectedCustomEngine.value = name }
 
+    override val translateTarget = MutableStateFlow("")
+    override suspend fun setTranslateTarget(code: String) { translateTarget.value = code }
+
     override val autoIslands = MutableStateFlow(true)
     override suspend fun setAutoIslands(enabled: Boolean) {
         autoIslands.value = enabled

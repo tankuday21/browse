@@ -53,6 +53,9 @@ interface SettingsRepository {
     /** The selected custom engine's name (v5.8); blank = the [searchEngine] enum applies. */
     val selectedCustomEngine: Flow<String>
     suspend fun setSelectedCustomEngine(name: String)
+    /** Target language code for full-page translate (v6.1); blank = the device default. */
+    val translateTarget: Flow<String>
+    suspend fun setTranslateTarget(code: String)
     val themeMode: Flow<ThemeMode>
     val javaScriptEnabled: Flow<Boolean>
     val cookiesEnabled: Flow<Boolean>
@@ -481,6 +484,14 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override val translateTarget: Flow<String> =
+        dataStore.data.map { it[TRANSLATE_TARGET_KEY] ?: "" }
+    override suspend fun setTranslateTarget(code: String) {
+        dataStore.edit {
+            if (code.isBlank()) it.remove(TRANSLATE_TARGET_KEY) else it[TRANSLATE_TARGET_KEY] = code
+        }
+    }
+
     override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
     override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
 
@@ -499,6 +510,7 @@ class DataStoreSettingsRepository(
         val WEATHER_CACHE_KEY = stringPreferencesKey("weather_cache")
         val CUSTOM_SEARCH_ENGINES_KEY = stringPreferencesKey("custom_search_engines")
         val SELECTED_CUSTOM_ENGINE_KEY = stringPreferencesKey("selected_custom_engine")
+        val TRANSLATE_TARGET_KEY = stringPreferencesKey("translate_target")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")

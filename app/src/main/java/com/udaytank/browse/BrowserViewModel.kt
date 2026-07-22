@@ -81,6 +81,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -178,6 +179,9 @@ class BrowserViewModel(
     private val credentialRepository: com.udaytank.browse.data.CredentialRepository? = null,
     /** v6.0 Andromeda Player resume store; null in tests that don't exercise the player. */
     private val playerProgressDao: com.udaytank.browse.data.PlayerProgressDao? = null,
+    /** v6.1 on-device translate engine (ML Kit); tests pass a fake. */
+    private val translateEngine: com.udaytank.browse.translate.TranslateEngine =
+        com.udaytank.browse.translate.TranslateManager(),
 ) : ViewModel() {
 
     private val tabManager = TabManager(tabDao, closedTabDao)
@@ -1368,6 +1372,97 @@ class BrowserViewModel(
             else -> onOpenUrl(suggestion.url)
         }
         onSuggestionsDismissed()
+    }
+
+    // --- full-page translate (v6.1) ---
+
+    private val _translateState =
+        MutableStateFlow<com.udaytank.browse.translate.TranslateState>(
+            com.udaytank.browse.translate.TranslateState.Idle,
+        )
+    val translateState: StateFlow<com.udaytank.browse.translate.TranslateState> =
+        _translateState.asStateFlow()
+
+    /**
+     * Translates the active page in place (v6.1). [collect]/[apply] are the WebView JS round-trips
+     * (holder::collectTranslatableText / ::applyTranslations); tests inject fakes. Everything
+     * except the one-time model download stays on-device — nothing about the page is transmitted.
+     */
+    fun onTranslatePage(
+        tabId: Long,
+        collect: (Long, (String) -> Unit) -> Unit,
+        apply: (Long, String) -> Unit,
+    ) {
+        // Don't stack runs: a second tap while detecting/downloading/translating is a no-op.
+        when (_translateState.value) {
+            is com.udaytank.browse.translate.TranslateState.Detecting,
+            is com.udaytank.browse.translate.TranslateState.Downloading,
+            is com.udaytank.browse.translate.TranslateState.Translating,
+            -> return
+            else -> Unit
+        }
+        viewModelScope.launch {
+            _translateState.value = com.udaytank.browse.translate.TranslateState.Detecting
+            val json = kotlinx.coroutines.suspendCancellableCoroutine<String> { cont ->
+                collect(tabId) { result -> if (cont.isActive) cont.resume(result) }
+            }
+            val texts = com.udaytank.browse.translate.TranslatePayload.parseCollected(json)
+            if (texts.isEmpty()) {
+                _translateState.value =
+                    com.udaytank.browse.translate.TranslateState.Error("Nothing to translate on this page")
+                return@launch
+            }
+            val source = translateEngine.detect(
+                com.udaytank.browse.translate.TranslatePayload.detectionSample(texts)
+            )
+            val target = resolveTranslateTarget()
+            if (!com.udaytank.browse.translate.TranslateLang.needsTranslation(source, target)) {
+                _translateState.value = com.udaytank.browse.translate.TranslateState.AlreadyTarget(
+                    com.udaytank.browse.translate.TranslateLang.displayName(source ?: target)
+                )
+                return@launch
+            }
+            val src = source!! // needsTranslation guaranteed non-null/supported
+            _translateState.value = com.udaytank.browse.translate.TranslateState.Downloading(
+                com.udaytank.browse.translate.TranslateLang.displayName(src)
+            )
+            val model = translateEngine.ensureModel(src, target, requireWifi = false)
+            if (model.isFailure) {
+                _translateState.value = com.udaytank.browse.translate.TranslateState.Error(
+                    "Couldn't download the ${com.udaytank.browse.translate.TranslateLang.displayName(src)} language pack"
+                )
+                return@launch
+            }
+            _translateState.value = com.udaytank.browse.translate.TranslateState.Translating
+            val translated = translateEngine.translateAll(src, target, texts)
+            apply(tabId, com.udaytank.browse.translate.TranslatePayload.buildApplyPayload(translated))
+            _translateState.value = com.udaytank.browse.translate.TranslateState.Shown(
+                src, target, com.udaytank.browse.translate.TranslateLang.displayName(target),
+            )
+        }
+    }
+
+    /** Reverts the page to its original text and hides the translate bar. */
+    fun onShowOriginal(tabId: Long, restore: (Long) -> Unit) {
+        restore(tabId)
+        _translateState.value = com.udaytank.browse.translate.TranslateState.Idle
+    }
+
+    /** Dismiss the translate bar (e.g. after an error or an already-in-target notice). */
+    fun onDismissTranslate() {
+        _translateState.value = com.udaytank.browse.translate.TranslateState.Idle
+    }
+
+    /** Persists a new target language; the caller re-invokes [onTranslatePage] to apply it. */
+    fun onSelectTranslateTarget(code: String) {
+        viewModelScope.launch { settings.setTranslateTarget(code) }
+    }
+
+    private suspend fun resolveTranslateTarget(): String {
+        val saved = settings.translateTarget.first()
+        return saved.ifBlank {
+            com.udaytank.browse.translate.TranslateLang.defaultTarget(java.util.Locale.getDefault().language)
+        }
     }
 
     /** A link arriving from another app always opens in a fresh normal tab. */
