@@ -9,4 +9,5 @@ data class SiteSettingsEntity(
     val textZoom: Int = -1,     // -1 unset, else 50..200 (percent)
     val forceDark: Int = -1,    // -1 default, 0 off, 1 on
     val desktopMode: Int = -1,  // -1 default, 0 off, 1 on
+    val blockImages: Int = -1,  // -1 default, 0 show, 1 block (v6.7 data saver)
 )

@@ -462,11 +462,13 @@ class WebViewHolder(
             globalForceDark = forceDark,
             globalDesktop = tabId in desktopTabs,
             globalTextZoom = globalTextScale,
+            globalBlockImages = globalBlockImages,
             override = siteSettingsProvider?.invoke(host),
         )
         webView.settings.textZoom = effective.textZoom
         applyForceDark(webView, effective.forceDark)
         applyDesktopUa(tabId, effective.desktopMode)
+        webView.settings.blockNetworkImage = effective.blockImages
     }
 
     /**
@@ -475,6 +477,13 @@ class WebViewHolder(
      */
     @Volatile
     private var globalTextScale: Int = 100
+
+    /**
+     * The user's global data-saver flag (v6.7): block network images. @Volatile like the other
+     * globals; read in obtain()/onPageStarted, written from the UI via [applyGlobalBlockImages].
+     */
+    @Volatile
+    private var globalBlockImages: Boolean = false
 
     /**
      * Live re-apply of a changed global text scale (I3) to every open tab, re-resolving each
@@ -489,8 +498,29 @@ class WebViewHolder(
                 globalForceDark = forceDark,
                 globalDesktop = tabId in desktopTabs,
                 globalTextZoom = scale,
+                globalBlockImages = globalBlockImages,
                 override = override,
             ).textZoom
+        }
+    }
+
+    /**
+     * Live re-apply of the global data-saver flag (v6.7) to every open tab, re-resolving each
+     * against its site override (a per-site block/show still wins). Already-rendered images
+     * won't retroactively appear on unblock until that page's next load — new navigations honor
+     * it immediately.
+     */
+    fun applyGlobalBlockImages(block: Boolean) {
+        globalBlockImages = block
+        webViews.forEach { (tabId, webView) ->
+            val override = UrlHosts.of(webView.url)?.let { siteSettingsProvider?.invoke(it) }
+            webView.settings.blockNetworkImage = SiteSettingsResolver.resolve(
+                globalForceDark = forceDark,
+                globalDesktop = tabId in desktopTabs,
+                globalTextZoom = globalTextScale,
+                globalBlockImages = block,
+                override = override,
+            ).blockImages
         }
     }
 
@@ -510,6 +540,11 @@ class WebViewHolder(
 
     fun applyForceDark(tabId: Long, enabled: Boolean) {
         webViews[tabId]?.let { applyForceDark(it, enabled) }
+    }
+
+    /** Sheet-driven per-site block-images change: takes effect on the visible tab immediately. */
+    fun applyBlockImages(tabId: Long, block: Boolean) {
+        webViews[tabId]?.settings?.blockNetworkImage = block
     }
 
     /** Sheet-driven desktop change: reloads only when the UA actually changed. */
@@ -593,6 +628,8 @@ class WebViewHolder(
             settings.displayZoomControls = false
             // Global text scale baseline; onPageStarted re-resolves per site (override wins).
             settings.textZoom = globalTextScale
+            // Data-saver baseline (v6.7); onPageStarted re-resolves per site (override wins).
+            settings.blockNetworkImage = globalBlockImages
             // v5.0 Popups: route target="_blank" / gesture-backed window.open through
             // onCreateWindow (→ a real new tab) instead of replacing this page.
             // javaScriptCanOpenWindowsAutomatically stays false — the engine itself suppresses

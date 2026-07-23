@@ -87,6 +87,9 @@ class FakeSettingsRepository : SettingsRepository {
         forceDarkWebsites.value = enabled
     }
 
+    override val dataSaver = MutableStateFlow(false)
+    override suspend fun setDataSaver(enabled: Boolean) { dataSaver.value = enabled }
+
     override val httpsOnly = MutableStateFlow(false)
     override suspend fun setHttpsOnly(enabled: Boolean) { httpsOnly.value = enabled }
 

@@ -12,18 +12,25 @@ import com.udaytank.browse.data.SiteSettingsEntity
  * WebView default when that setting is untouched).
  */
 object SiteSettingsResolver {
-    data class Effective(val textZoom: Int, val forceDark: Boolean, val desktopMode: Boolean)
+    data class Effective(
+        val textZoom: Int,
+        val forceDark: Boolean,
+        val desktopMode: Boolean,
+        val blockImages: Boolean,
+    )
 
     fun resolve(
         globalForceDark: Boolean,
         globalDesktop: Boolean,
         globalTextZoom: Int,
+        globalBlockImages: Boolean,
         override: SiteSettingsEntity?,
     ): Effective =
         Effective(
             textZoom = override?.textZoom?.takeIf { it > 0 } ?: globalTextZoom,
             forceDark = resolveTriState(override?.forceDark, globalForceDark),
             desktopMode = resolveTriState(override?.desktopMode, globalDesktop),
+            blockImages = resolveTriState(override?.blockImages, globalBlockImages),
         )
 
     private fun resolveTriState(override: Int?, global: Boolean): Boolean = when (override) {

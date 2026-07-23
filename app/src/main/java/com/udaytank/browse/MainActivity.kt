@@ -928,6 +928,11 @@ class MainActivity : FragmentActivity() {
                 val textScale by viewModel.textScale.collectAsStateWithLifecycle()
                 LaunchedEffect(textScale) { holder.applyGlobalTextScale(textScale) }
 
+                // Data saver (v6.7): live re-apply block-images to every open tab; site overrides
+                // win inside the holder's re-resolve. Also seeds fresh WebViews via obtain().
+                val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
+                LaunchedEffect(dataSaver) { holder.applyGlobalBlockImages(dataSaver) }
+
                 // Page-start site-settings lookup: a plain read of the VM's in-memory host map,
                 // so the WebView client callback never blocks on the database.
                 LaunchedEffect(Unit) {

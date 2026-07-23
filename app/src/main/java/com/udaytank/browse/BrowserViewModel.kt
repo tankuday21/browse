@@ -258,6 +258,14 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setForceDarkWebsites(enabled) }
     }
 
+    /** v6.7 data saver: block network images globally (a per-site override still wins). */
+    val dataSaver: StateFlow<Boolean> = settings.dataSaver
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onDataSaverToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setDataSaver(enabled) }
+    }
+
     val httpsOnly: StateFlow<Boolean> = settings.httpsOnly
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -902,7 +910,12 @@ class BrowserViewModel(
      * Incognito guard (critical): a persisted row would leak which sites were visited privately,
      * so incognito tabs never write — the sheet applies changes to the live WebView only.
      */
-    fun onSetSiteOverride(textZoom: Int? = null, forceDark: Int? = null, desktopMode: Int? = null) {
+    fun onSetSiteOverride(
+        textZoom: Int? = null,
+        forceDark: Int? = null,
+        desktopMode: Int? = null,
+        blockImages: Int? = null,
+    ) {
         if (isActiveTabIncognito()) return
         val host = currentHost() ?: return
         viewModelScope.launch {
@@ -911,8 +924,11 @@ class BrowserViewModel(
                 textZoom = textZoom ?: existing.textZoom,
                 forceDark = forceDark ?: existing.forceDark,
                 desktopMode = desktopMode ?: existing.desktopMode,
+                blockImages = blockImages ?: existing.blockImages,
             )
-            if (merged.textZoom == -1 && merged.forceDark == -1 && merged.desktopMode == -1) {
+            if (merged.textZoom == -1 && merged.forceDark == -1 &&
+                merged.desktopMode == -1 && merged.blockImages == -1
+            ) {
                 siteSettingsDao.deleteByHost(host)
             } else {
                 siteSettingsDao.upsert(merged)

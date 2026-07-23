@@ -528,6 +528,7 @@ private fun AppearanceSettings(
 ) {
     val theme by viewModel.themeMode.collectAsStateWithLifecycle()
     val forceDark by viewModel.forceDark.collectAsStateWithLifecycle()
+    val dataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
 
     CategoryScaffold(title = "Appearance", onBack = onBack) {
         SectionHeader("Theme")
@@ -551,6 +552,13 @@ private fun AppearanceSettings(
                 subtitle = "Render light pages with a dark background where supported",
                 checked = forceDark,
                 onCheckedChange = viewModel::onForceDarkToggled,
+            )
+            GroupDivider()
+            PrefSwitchRow(
+                title = "Data saver",
+                subtitle = "Block images to save data — override per site from the page menu",
+                checked = dataSaver,
+                onCheckedChange = viewModel::onDataSaverToggled,
             )
         }
     }
