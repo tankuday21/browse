@@ -1011,6 +1011,14 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setBlackHoleGesture(enabled) }
     }
 
+    /** v6.4: download translate language models over Wi-Fi only. */
+    val translateWifiOnly: StateFlow<Boolean> = settings.translateWifiOnly
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onTranslateWifiOnlyToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setTranslateWifiOnly(enabled) }
+    }
+
     val dismissCookieBanners: StateFlow<Boolean> = settings.dismissCookieBanners
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
@@ -1459,11 +1467,15 @@ class BrowserViewModel(
             _translateState.value = com.udaytank.browse.translate.TranslateState.Downloading(
                 com.udaytank.browse.translate.TranslateLang.displayName(source)
             )
-            val model = translateEngine.ensureModel(source, target, requireWifi = false)
+            val wifiOnly = settings.translateWifiOnly.first()
+            val model = translateEngine.ensureModel(source, target, requireWifi = wifiOnly)
             if (model.isFailure) {
-                _translateState.value = com.udaytank.browse.translate.TranslateState.Error(
-                    "Couldn't download the ${com.udaytank.browse.translate.TranslateLang.displayName(source)} language pack"
-                )
+                val lang = com.udaytank.browse.translate.TranslateLang.displayName(source)
+                // Name the likely cause when Wi-Fi-only is on, so an offline-Wi-Fi failure isn't
+                // a mystery ("it worked yesterday on mobile data").
+                val msg = if (wifiOnly) "Couldn't download the $lang language pack (Wi-Fi only is on)"
+                    else "Couldn't download the $lang language pack"
+                _translateState.value = com.udaytank.browse.translate.TranslateState.Error(msg)
                 return@launch
             }
             _translateState.value = com.udaytank.browse.translate.TranslateState.Translating
