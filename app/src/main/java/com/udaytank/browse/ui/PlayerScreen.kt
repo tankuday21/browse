@@ -32,10 +32,13 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +46,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.udaytank.browse.media.SleepPreset
+import com.udaytank.browse.media.SleepState
+import com.udaytank.browse.media.SleepTimer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -202,6 +209,8 @@ private fun PlayerContent(
     var showTracks by remember { mutableStateOf(false) }
     var hasVideo by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf(false) }
+    val sleepState by com.udaytank.browse.media.AndromedaPlayerService.sleepStateFlow
+        .collectAsStateWithLifecycle()
 
     // Surface engine errors (e.g. a queued file deleted mid-playback) instead of freezing on a
     // black frame with stale controls.
@@ -356,6 +365,10 @@ private fun PlayerContent(
                     muted = !muted
                     controller?.volume = if (muted) 0f else 1f
                 },
+                sleep = sleepState,
+                onSetSleep = { preset ->
+                    com.udaytank.browse.media.AndromedaPlayerService.setSleep(context, preset)
+                },
             )
         }
     }
@@ -385,6 +398,8 @@ private fun PlayerControls(
     onScrubEnd: () -> Unit,
     onCycleSpeed: () -> Unit,
     onToggleMute: () -> Unit,
+    sleep: SleepState,
+    onSetSleep: (SleepPreset) -> Unit,
 ) {
     val scrim = Color.Black.copy(alpha = 0.45f)
     Box(modifier = Modifier.fillMaxSize().background(scrim)) {
@@ -403,6 +418,7 @@ private fun PlayerControls(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             )
+            SleepTimerControl(sleep = sleep, onSetSleep = onSetSleep)
             IconButton(onClick = onShowTracks) {
                 Icon(Icons.Filled.Subtitles, contentDescription = "Audio & subtitle tracks", tint = Color.White)
             }
@@ -464,6 +480,43 @@ private fun PlayerControls(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Sleep-timer control (v6.3): a bedtime icon that opens a preset menu; when a minute timer is
+ * running the icon is accented and shows the mm:ss countdown beside it.
+ */
+@Composable
+private fun SleepTimerControl(sleep: SleepState, onSetSleep: (SleepPreset) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val active = sleep.preset != SleepPreset.OFF
+    val tint = if (active) Color(0xFF35C3F3) else Color.White
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (sleep.preset == SleepPreset.END_OF_TRACK) {
+            Text("End", color = tint)
+        } else if (active && sleep.remainingSeconds > 0) {
+            Text(SleepTimer.formatRemaining(sleep.remainingSeconds), color = tint)
+        }
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.Bedtime, contentDescription = "Sleep timer", tint = tint)
+        }
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        val options = listOf(
+            "Off" to SleepPreset.OFF,
+            "15 minutes" to SleepPreset.M15,
+            "30 minutes" to SleepPreset.M30,
+            "45 minutes" to SleepPreset.M45,
+            "60 minutes" to SleepPreset.M60,
+            "End of track" to SleepPreset.END_OF_TRACK,
+        )
+        options.forEach { (label, preset) ->
+            DropdownMenuItem(
+                text = { Text(if (sleep.preset == preset) "✓ $label" else label) },
+                onClick = { open = false; onSetSleep(preset) },
+            )
         }
     }
 }
