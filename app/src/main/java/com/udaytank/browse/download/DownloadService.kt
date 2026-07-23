@@ -176,7 +176,19 @@ class DownloadService : Service() {
                 "PAUSED" -> pausedNotification(id)
             }
             scope.launch {
-                dao.setState(id, state, error)
+                if (state == "RUNNING") {
+                    // v6.8: claim RUNNING atomically here too. In the narrow window where a CANCEL
+                    // landed between handleStart's claim and this engine-emitted RUNNING (engine.cancel
+                    // no-op'd because the generation wasn't registered yet), this must NOT overwrite
+                    // CANCELLED. markRunningIfLive returns 0 then; cancel the now-registered generation
+                    // so its own cancel path deletes the partial file, and let that CANCELLED emit flow.
+                    if (dao.markRunningIfLive(id) == 0) {
+                        engine.cancel(id)
+                        return@launch
+                    }
+                } else {
+                    dao.setState(id, state, error)
+                }
                 when (state) {
                     "DONE", "FAILED", "CANCELLED", "PAUSED" -> {
                         activeCount.decrementAndGet()
