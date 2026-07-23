@@ -1749,6 +1749,13 @@ class BrowserViewModel(
         viewModelScope.launch { bookmarkDao.deleteByUrl(orbitId, url) }
     }
 
+    /** v6.10: assign (or clear, folder = null/blank) the active Orbit's bookmark for [url] to a folder. */
+    fun onSetBookmarkFolder(url: String, folder: String?) {
+        val orbitId = activeOrbitId.value
+        val norm = com.udaytank.browse.browser.BookmarkFolders.normalize(folder)
+        viewModelScope.launch { bookmarkDao.setFolder(orbitId, url, norm) }
+    }
+
     /** Returns Netscape-format HTML of the active Orbit's bookmarks for export. */
     suspend fun exportBookmarksHtml(): String =
         com.udaytank.browse.browser.BookmarkIO.export(bookmarkDao.getAllForOrbit(activeOrbitId.value))

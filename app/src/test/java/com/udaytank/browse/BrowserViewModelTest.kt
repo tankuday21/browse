@@ -1318,6 +1318,25 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `onSetBookmarkFolder writes the normalized folder for the active orbit and blank clears it`() = runTest {
+        val bookmarkDao = FakeBookmarkDao()
+        val vm = vm(bookmarkDao = bookmarkDao)
+        advanceUntilIdle()
+        val orbit = vm.activeOrbitId.value
+        bookmarkDao.insert(
+            com.udaytank.browse.data.Bookmark(url = "https://a.com", title = "A", createdAt = 1, orbitId = orbit)
+        )
+
+        vm.onSetBookmarkFolder("https://a.com", "  Work  ")
+        advanceUntilIdle()
+        assertEquals("Work", bookmarkDao.bookmarks.value.single().folder)
+
+        vm.onSetBookmarkFolder("https://a.com", "   ")
+        advanceUntilIdle()
+        assertNull(bookmarkDao.bookmarks.value.single().folder)
+    }
+
+    @Test
     fun `restore merges with dedupe across every section and reports counts`() = runTest {
         val bookmarkDao = FakeBookmarkDao()
         val shortcutDao = FakeHomeShortcutDao()
