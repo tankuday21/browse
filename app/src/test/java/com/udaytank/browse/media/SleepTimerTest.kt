@@ -29,6 +29,16 @@ class SleepTimerTest {
     }
 
     @Test
+    fun `preset minute mapping`() {
+        assertEquals(0, SleepPreset.OFF.minutes)
+        assertEquals(15, SleepPreset.M15.minutes)
+        assertEquals(30, SleepPreset.M30.minutes)
+        assertEquals(45, SleepPreset.M45.minutes)
+        assertEquals(60, SleepPreset.M60.minutes)
+        assertNull(SleepPreset.END_OF_TRACK.minutes)
+    }
+
+    @Test
     fun `formats mm ss`() {
         assertEquals("0:09", SleepTimer.formatRemaining(9))
         assertEquals("1:00", SleepTimer.formatRemaining(60))

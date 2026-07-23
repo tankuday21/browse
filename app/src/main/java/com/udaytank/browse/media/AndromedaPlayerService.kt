@@ -74,7 +74,12 @@ class AndromedaPlayerService : MediaSessionService() {
                         saveProgress(path, positionMs = 0, durationMs = 0, finished = true)
                     }
                     // The queue ended while "End of track" was armed — the timer is satisfied.
-                    if (endOfTrackArmed) disarmSleep()
+                    // STATE_ENDED already halts playback; pause() is defensive in case a future
+                    // repeat/loop mode ever changed that (STATE_ENDED wouldn't fire under repeat).
+                    if (endOfTrackArmed) {
+                        exo.pause()
+                        disarmSleep()
+                    }
                 }
             }
 
@@ -220,10 +225,10 @@ class AndromedaPlayerService : MediaSessionService() {
         private const val ACTION_SET_SLEEP = "com.udaytank.browse.media.action.SET_SLEEP"
         private const val EXTRA_PRESET = "com.udaytank.browse.media.extra.SLEEP_PRESET"
 
-        /** Live sleep-timer state for the Andromeda Player UI (in-process; one service instance). */
-        private val _sleepState = MutableStateFlow(SleepState())
-        val sleepState: MutableStateFlow<SleepState> = _sleepState
-        val sleepStateFlow: StateFlow<SleepState> = _sleepState.asStateFlow()
+        /** Live sleep-timer state for the Andromeda Player UI (in-process; one service instance).
+         *  Mutable handle is private — only the service writes it; the UI reads [sleepStateFlow]. */
+        private val sleepState = MutableStateFlow(SleepState())
+        val sleepStateFlow: StateFlow<SleepState> = sleepState.asStateFlow()
 
         /**
          * UI entry point: set (or clear, with OFF) the sleep timer on the running player service.
