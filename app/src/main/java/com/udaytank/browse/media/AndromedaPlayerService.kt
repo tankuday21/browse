@@ -1,10 +1,16 @@
 package com.udaytank.browse.media
 
+import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -38,8 +44,13 @@ class AndromedaPlayerService : MediaSessionService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var persistJob: Job? = null
 
+    // v6.3 sleep timer.
+    private var sleepTickerJob: Job? = null
+    private var endOfTrackArmed = false
+
     override fun onCreate() {
         super.onCreate()
+        sleepState.value = SleepState() // fresh session starts with no timer
         val exo = ExoPlayer.Builder(this)
             // Let ExoPlayer manage audio focus (pause when another app plays) and pause when
             // headphones are unplugged — the behavior a music player is expected to have.
@@ -59,8 +70,20 @@ class AndromedaPlayerService : MediaSessionService() {
             override fun onPlaybackStateChanged(state: Int) {
                 // A finished clip clears its saved position so it restarts next time.
                 if (state == Player.STATE_ENDED) {
-                    val path = exo.currentMediaItem?.mediaId ?: return
-                    saveProgress(path, positionMs = 0, durationMs = 0, finished = true)
+                    exo.currentMediaItem?.mediaId?.let { path ->
+                        saveProgress(path, positionMs = 0, durationMs = 0, finished = true)
+                    }
+                    // The queue ended while "End of track" was armed — the timer is satisfied.
+                    if (endOfTrackArmed) disarmSleep()
+                }
+            }
+
+            override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                // "End of track": the current item finished and the player auto-advanced — pause
+                // at that boundary and clear the timer.
+                if (endOfTrackArmed && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    exo.pause()
+                    disarmSleep()
                 }
             }
 
@@ -108,6 +131,50 @@ class AndromedaPlayerService : MediaSessionService() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_SET_SLEEP) {
+            val preset = runCatching {
+                SleepPreset.valueOf(intent.getStringExtra(EXTRA_PRESET) ?: SleepPreset.OFF.name)
+            }.getOrDefault(SleepPreset.OFF)
+            applySleep(preset)
+            return START_NOT_STICKY
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    /** Applies a sleep preset: minute presets start a countdown; END_OF_TRACK arms the transition. */
+    private fun applySleep(preset: SleepPreset) {
+        sleepTickerJob?.cancel()
+        endOfTrackArmed = false
+        when (preset) {
+            SleepPreset.OFF -> sleepState.value = SleepState()
+            SleepPreset.END_OF_TRACK -> {
+                endOfTrackArmed = true
+                sleepState.value = SleepState(preset, 0)
+            }
+            else -> {
+                val deadline = SleepTimer.deadline(preset, SystemClock.elapsedRealtime()) ?: return
+                sleepTickerJob = scope.launch {
+                    while (true) {
+                        val remaining = SleepTimer.remainingSeconds(deadline, SystemClock.elapsedRealtime())
+                        sleepState.value = SleepState(preset, remaining)
+                        if (remaining <= 0) {
+                            player?.pause()
+                            sleepState.value = SleepState()
+                            break
+                        }
+                        delay(1_000L)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun disarmSleep() {
+        endOfTrackArmed = false
+        sleepState.value = SleepState()
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -120,6 +187,8 @@ class AndromedaPlayerService : MediaSessionService() {
 
     override fun onDestroy() {
         persistJob?.cancel()
+        sleepTickerJob?.cancel()
+        sleepState.value = SleepState()
         // Final synchronous flush BEFORE cancelling the scope / releasing the player, so the
         // notification "stop" and app-kill paths don't lose the last position (spec: save on stop).
         player?.let { p ->
@@ -147,5 +216,26 @@ class AndromedaPlayerService : MediaSessionService() {
 
     companion object {
         private const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
+
+        private const val ACTION_SET_SLEEP = "com.udaytank.browse.media.action.SET_SLEEP"
+        private const val EXTRA_PRESET = "com.udaytank.browse.media.extra.SLEEP_PRESET"
+
+        /** Live sleep-timer state for the Andromeda Player UI (in-process; one service instance). */
+        private val _sleepState = MutableStateFlow(SleepState())
+        val sleepState: MutableStateFlow<SleepState> = _sleepState
+        val sleepStateFlow: StateFlow<SleepState> = _sleepState.asStateFlow()
+
+        /**
+         * UI entry point: set (or clear, with OFF) the sleep timer on the running player service.
+         * Plain startService (not startForegroundService) — this is only ever called from the
+         * player screen while the service is already playing/foreground, so there's no
+         * startForeground() obligation to satisfy.
+         */
+        fun setSleep(context: Context, preset: SleepPreset) {
+            val intent = Intent(context, AndromedaPlayerService::class.java)
+                .setAction(ACTION_SET_SLEEP)
+                .putExtra(EXTRA_PRESET, preset.name)
+            runCatching { context.startService(intent) }
+        }
     }
 }
