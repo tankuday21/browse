@@ -541,6 +541,21 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `incognito never prompts to save regardless of the never-save set`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = neverSaveVm(settings)
+        advanceUntilIdle()
+        // Incognito tab; host is NOT on the never-save list, so only the incognito guard can
+        // suppress the prompt — pins the guard ordering (incognito check precedes the new gate).
+        vm.onNewIncognitoTab(); advanceUntilIdle()
+        val incId = vm.activeTabId.value!!
+        assertTrue(incId < 0)
+        vm.onPageStarted(incId, "https://example.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(incId, "example.com", "alice", "pw"); advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+    }
+
+    @Test
     fun `onNeverSaveForSite with no pending prompt is a safe no-op`() = runTest {
         val settings = FakeSettingsRepository()
         val vm = neverSaveVm(settings)

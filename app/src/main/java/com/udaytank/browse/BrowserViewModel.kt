@@ -460,6 +460,9 @@ class BrowserViewModel(
         // split save vs. fill and hide the saved login.
         val normHost = UrlHosts.of(url) ?: host.lowercase().ifBlank { return }
         // v6.6: respect a "Never save for this site" decision — no save prompt on those hosts.
+        // The Eagerly-warmed StateFlow can still read its empty initial value in the sub-second
+        // window before DataStore's first emission, but that fails OPEN (shows a prompt the user
+        // can dismiss) — it can never wrongly SUPPRESS a save. Same pattern as activeOrbitId below.
         if (normHost in neverSaveSites.value) return
         val orbitId = tab.orbitId ?: activeOrbitId.value
         _saveCredentialPrompt.value = SaveCredentialPrompt(orbitId, normHost, username, password)
