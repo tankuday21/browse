@@ -74,6 +74,7 @@ import com.udaytank.browse.browser.adblock.FilterLists
 import com.udaytank.browse.data.SearchEngine
 import com.udaytank.browse.data.ShortcutDensity
 import com.udaytank.browse.data.ThemeMode
+import com.udaytank.browse.ui.components.BlackHoleConfirmDialog
 import com.udaytank.browse.ui.components.OrbitListRow
 import androidx.compose.ui.text.input.KeyboardType
 import com.udaytank.browse.ui.components.OrbitTextField
@@ -864,6 +865,18 @@ private fun PrivacySecuritySettings(
             )
             Text("Black Hole — erase everything", color = MaterialTheme.colorScheme.error)
         }
+        val blackHoleGesture by viewModel.blackHoleGesture.collectAsStateWithLifecycle()
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Shake to erase",
+                checked = blackHoleGesture,
+                onCheckedChange = viewModel::onBlackHoleGestureToggled,
+            )
+            Caption(
+                "When on, a hard shake opens the Black Hole confirmation. You'll always be asked " +
+                    "before anything is erased.",
+            )
+        }
         Spacer(Modifier.height(OrbitSpacing.xl))
     }
 
@@ -889,29 +902,13 @@ private fun PrivacySecuritySettings(
     }
 
     if (showBlackHoleDialog) {
-        AlertDialog(
-            onDismissRequest = { showBlackHoleDialog = false },
-            icon = { Icon(Icons.Filled.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Enter the Black Hole?") },
-            text = {
-                Text(
-                    "This permanently erases ALL of your data in Andromeda — every Orbit, tab, " +
-                        "cookie, login, bookmark, home shortcut, history entry, download, and saved " +
-                        "page. The app restarts to a clean slate. This cannot be undone.",
-                )
+        BlackHoleConfirmDialog(
+            onConfirm = {
+                showBlackHoleDialog = false
+                Toast.makeText(context, "Erasing everything…", Toast.LENGTH_SHORT).show()
+                viewModel.onBlackHole()
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    showBlackHoleDialog = false
-                    Toast.makeText(context, "Erasing everything…", Toast.LENGTH_SHORT).show()
-                    viewModel.onBlackHole()
-                }) {
-                    Text("Erase everything", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBlackHoleDialog = false }) { Text("Cancel") }
-            },
+            onDismiss = { showBlackHoleDialog = false },
         )
     }
 }
