@@ -25,8 +25,8 @@ android {
         applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "6.7"
+        versionCode = 36
+        versionName = "6.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
