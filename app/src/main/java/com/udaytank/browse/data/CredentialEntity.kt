@@ -58,9 +58,17 @@ interface CredentialDao {
     @Query("SELECT * FROM credentials WHERE orbitId = :orbitId ORDER BY updatedAt DESC")
     fun observeForOrbit(orbitId: Long): Flow<List<CredentialEntity>>
 
-    /** Saved logins for a host within one Orbit (drives the fill prompt). */
+    /** Saved logins for a host within one Orbit (exact-host re-lookup at fill time). */
     @Query("SELECT * FROM credentials WHERE orbitId = :orbitId AND host = :host ORDER BY updatedAt DESC")
     suspend fun getForOrbitAndHost(orbitId: Long, host: String): List<CredentialEntity>
+
+    /**
+     * All of one Orbit's logins (newest first). Cross-subdomain fill (v6.5) filters these by
+     * registrable domain in Kotlin and decrypts only the matches — the plaintext host column is
+     * enough to match on before any decryption.
+     */
+    @Query("SELECT * FROM credentials WHERE orbitId = :orbitId ORDER BY updatedAt DESC")
+    suspend fun getAllForOrbit(orbitId: Long): List<CredentialEntity>
 
     /** Insert or replace on the (orbitId, host, username) unique index. */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

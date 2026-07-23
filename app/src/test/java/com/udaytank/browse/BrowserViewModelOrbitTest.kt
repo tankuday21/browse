@@ -352,7 +352,7 @@ class BrowserViewModelOrbitTest {
         advanceUntilIdle()
         vm.onPageFinished(tabId, "https://example.com/login", "Login")
         advanceUntilIdle()
-        assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.candidates?.map { it.username })
         vm.onFillCredential(tabId, personal.id, "example.com", "alice")
         advanceUntilIdle()
         assertEquals(1, filled.size)
@@ -388,7 +388,91 @@ class BrowserViewModelOrbitTest {
 
         // Fill offer appears on the canonical lowercase host.
         vm.onPageFinished(tabId, "https://example.com/", "Home"); advanceUntilIdle()
-        assertEquals(listOf("alice"), vm.fillPrompt.value?.usernames)
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.candidates?.map { it.username })
+    }
+
+    // --- v6.5 cross-subdomain fill ---
+
+    private fun crossSubdomainVm(): Pair<BrowserViewModel, com.udaytank.browse.data.CredentialRepository> {
+        val credDao = FakeCredentialDao()
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            credDao, FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        return vm(credentialRepository = repo) to repo
+    }
+
+    @Test
+    fun `credential saved on bare domain fills on a subdomain, carrying its own host`() = runTest {
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "example.com", "alice", "s3cret", 1L)
+
+        val filled = mutableListOf<BrowserViewModel.FillCredentialAction>()
+        val job = launch { vm.fillCredentialRequest.collect { filled.add(it) } }
+        advanceUntilIdle()
+
+        vm.onPageFinished(tabId, "https://login.example.com/signin", "Login"); advanceUntilIdle()
+        val fp = vm.fillPrompt.value!!
+        assertEquals(listOf("alice"), fp.candidates.map { it.username })
+        // The stored host (example.com), not the page host, rides along so the re-lookup hits it.
+        assertEquals("example.com", fp.candidates.single().host)
+
+        vm.onFillCredential(tabId, orbitId, fp.candidates.single().host, "alice"); advanceUntilIdle()
+        assertEquals("s3cret", filled.single().password)
+        job.cancel()
+    }
+
+    @Test
+    fun `credential saved on a subdomain fills on the bare domain`() = runTest {
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "login.example.com", "alice", "pw", 1L)
+
+        vm.onPageFinished(tabId, "https://example.com/", "Home"); advanceUntilIdle()
+        assertEquals(listOf("alice"), vm.fillPrompt.value?.candidates?.map { it.username })
+    }
+
+    @Test
+    fun `a suffix-append lookalike host is never offered a fill`() = runTest {
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "example.com", "alice", "pw", 1L)
+
+        vm.onPageFinished(tabId, "https://example.com.evil.net/", "Phish"); advanceUntilIdle()
+        assertNull(vm.fillPrompt.value)
+    }
+
+    @Test
+    fun `a cleartext subdomain page is never offered a fill`() = runTest {
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "example.com", "alice", "pw", 1L)
+
+        vm.onPageFinished(tabId, "http://login.example.com/", "Insecure"); advanceUntilIdle()
+        assertNull(vm.fillPrompt.value)
+    }
+
+    @Test
+    fun `a repeated username across hosts is deduped, preferring the exact-host row`() = runTest {
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "example.com", "bob", "pwA", 1L)
+        repo.save(orbitId, "www.example.com", "bob", "pwB", 2L)
+
+        vm.onPageFinished(tabId, "https://www.example.com/", "Home"); advanceUntilIdle()
+        val fp = vm.fillPrompt.value!!
+        assertEquals(1, fp.candidates.size)
+        assertEquals("www.example.com", fp.candidates.single().host)
     }
 
     // --- v5.1 manual add/edit + gate state ---

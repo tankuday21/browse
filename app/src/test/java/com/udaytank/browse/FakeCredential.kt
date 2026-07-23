@@ -30,6 +30,9 @@ class FakeCredentialDao : CredentialDao {
     override suspend fun getForOrbitAndHost(orbitId: Long, host: String): List<CredentialEntity> =
         items.value.filter { it.orbitId == orbitId && it.host == host }.sortedByDescending { it.updatedAt }
 
+    override suspend fun getAllForOrbit(orbitId: Long): List<CredentialEntity> =
+        items.value.filter { it.orbitId == orbitId }.sortedByDescending { it.updatedAt }
+
     override suspend fun upsert(entity: CredentialEntity) {
         // Mirror the (orbitId, host, username) unique index: replace a matching row.
         val existing = items.value.firstOrNull {
