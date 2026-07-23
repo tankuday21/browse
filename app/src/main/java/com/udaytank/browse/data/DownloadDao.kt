@@ -41,7 +41,7 @@ interface DownloadDao {
      * ACTION_CANCEL's setState(CANCELLED) — exactly one wins, closing the orphan-file / undead-
      * download race in DownloadService.handleStart.
      */
-    @Query("UPDATE downloads SET state = 'RUNNING' WHERE id = :id AND state != 'CANCELLED' AND state != 'DONE'")
+    @Query("UPDATE downloads SET state = 'RUNNING', error = NULL WHERE id = :id AND state != 'CANCELLED' AND state != 'DONE'")
     suspend fun markRunningIfLive(id: Long): Int
 
     @Query("UPDATE downloads SET downloadedBytes = :downloaded, totalBytes = :total, segmentState = :segmentState WHERE id = :id")
