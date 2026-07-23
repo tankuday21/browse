@@ -1,5 +1,6 @@
 package com.udaytank.browse.data
 
+import com.udaytank.browse.browser.CredentialHostMatch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -44,10 +45,29 @@ class CredentialRepository(
             true
         }
 
-    /** Decrypted logins for a host in one Orbit (fill prompt); rows that fail to decrypt are dropped. */
+    /** Decrypted logins for a host in one Orbit (exact re-lookup at fill time); undecryptable rows dropped. */
     suspend fun credentialsForHost(orbitId: Long, host: String): List<DecryptedCredential> =
         withContext(io) {
             dao.getForOrbitAndHost(orbitId, host).mapNotNull { it.toDecrypted() }
+        }
+
+    /**
+     * Decrypted logins whose stored host fills on [pageHost] — same registrable domain (v6.5,
+     * cross-subdomain). Exact-host matches rank first (see [CredentialHostMatch.rankHosts]); within
+     * a host, recency order from the DAO is preserved. Only matching rows are decrypted; rows that
+     * fail to decrypt are dropped.
+     */
+    suspend fun credentialsForSite(orbitId: Long, pageHost: String): List<DecryptedCredential> =
+        withContext(io) {
+            // matches() = exact-host OR same registrable domain. The exact-host arm keeps fill from
+            // ever being weaker than the pre-v6.5 behaviour for hosts that have no registrable
+            // domain (IP literals, `localhost`, a bare public suffix like `wordpress.com`).
+            val rows = dao.getAllForOrbit(orbitId).filter {
+                CredentialHostMatch.matches(pageHost, it.host)
+            }
+            val hostRank = CredentialHostMatch.rankHosts(pageHost, rows.map { it.host })
+                .withIndex().associate { (i, h) -> h to i }
+            rows.sortedBy { hostRank[it.host] ?: Int.MAX_VALUE }.mapNotNull { it.toDecrypted() }
         }
 
     /** Reveal a single row's password (management screen). Null if decryption fails. */

@@ -60,13 +60,17 @@ fun SavePasswordBar(host: String, onSave: () -> Unit, onDismiss: () -> Unit, mod
 }
 
 /**
- * A slim prompt offering to fill a saved login on the current page (v4.7). One button per saved
- * username; the password never appears here — filling is what injects it, on the user's tap.
+ * A slim prompt offering to fill a saved login on the current page (v4.7; cross-subdomain since
+ * v6.5). One button per saved candidate; the password never appears here — filling is what injects
+ * it, on the user's tap. When a candidate was saved on a different host under the same site (e.g.
+ * the login lives on `example.com` but the page is `login.example.com`), a muted `@host` hint is
+ * shown so the user can tell subdomain logins apart.
  */
 @Composable
 fun FillPasswordBar(
-    usernames: List<String>,
-    onFill: (String) -> Unit,
+    candidates: List<com.udaytank.browse.BrowserViewModel.FillCandidate>,
+    pageHost: String,
+    onFill: (com.udaytank.browse.BrowserViewModel.FillCandidate) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -88,13 +92,15 @@ fun FillPasswordBar(
                 modifier = Modifier.weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.xs),
             ) {
-                usernames.take(3).forEach { user ->
-                    TextButton(onClick = { onFill(user) }) {
+                candidates.take(3).forEach { candidate ->
+                    val label = candidate.username.ifBlank { "(login)" }
+                    val shownLabel = if (candidate.host != pageHost) "$label @${candidate.host}" else label
+                    TextButton(onClick = { onFill(candidate) }) {
                         Text(
-                            user.ifBlank { "(login)" },
+                            shownLabel,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 120.dp),
+                            modifier = Modifier.widthIn(max = 160.dp),
                         )
                     }
                 }

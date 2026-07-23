@@ -420,8 +420,16 @@ class BrowserViewModel(
     /** A submitted login awaiting the user's "Save password?" decision. */
     data class SaveCredentialPrompt(val orbitId: Long, val host: String, val username: String, val password: String)
 
-    /** Saved logins are available for the current page; the UI offers to fill one of [usernames]. */
-    data class FillPromptState(val tabId: Long, val orbitId: Long, val host: String, val usernames: List<String>)
+    /** One fillable saved login: its stored [host] (may be a sibling subdomain of the page) + [username]. */
+    data class FillCandidate(val host: String, val username: String)
+
+    /** Saved logins are available for the current page; the UI offers to fill one of [candidates]. */
+    data class FillPromptState(
+        val tabId: Long,
+        val orbitId: Long,
+        val pageHost: String,
+        val candidates: List<FillCandidate>,
+    )
 
     /** Instruction to MainActivity to inject a chosen login into a tab's page (user-initiated). */
     data class FillCredentialAction(val tabId: Long, val username: String, val password: String)
@@ -1993,10 +2001,17 @@ class BrowserViewModel(
         if (repo != null && tabId == activeTabId.value && url.startsWith("https://", ignoreCase = true)) {
             viewModelScope.launch {
                 val host = UrlHosts.of(url)
-                val usernames = if (host.isNullOrBlank()) emptyList()
-                else repo.credentialsForHost(orbitId, host).map { it.username }
+                // v6.5: offer logins saved on any host under the same registrable domain (e.g. a
+                // credential saved on example.com fills on login.example.com), exact-host ranked
+                // first. Dedup by username keeps the highest-ranked host for a repeated username;
+                // accepted trade-off — two same-named accounts on sibling subdomains of ONE site
+                // collapse to one candidate (same registrable domain + same Orbit, so not a leak).
+                val candidates = if (host.isNullOrBlank()) emptyList()
+                else repo.credentialsForSite(orbitId, host)
+                    .map { FillCandidate(it.host, it.username) }
+                    .distinctBy { it.username }
                 _fillPrompt.value =
-                    if (usernames.isNotEmpty() && host != null) FillPromptState(tabId, orbitId, host, usernames)
+                    if (candidates.isNotEmpty() && host != null) FillPromptState(tabId, orbitId, host, candidates)
                     else null
             }
         }
