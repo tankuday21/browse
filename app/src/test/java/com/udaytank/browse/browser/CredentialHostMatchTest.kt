@@ -127,4 +127,47 @@ class CredentialHostMatchTest {
     fun `rankHosts returns empty when nothing matches`() {
         assertTrue(CredentialHostMatch.rankHosts("example.com", listOf("evil.net", "co.uk")).isEmpty())
     }
+
+    // --- matches(): exact-host fill must survive for hosts with no registrable domain ---
+
+    @Test
+    fun `matches keeps exact-host fill for an ip literal`() {
+        assertTrue(CredentialHostMatch.matches("192.168.1.1", "192.168.1.1"))
+        assertFalse(CredentialHostMatch.matches("192.168.1.1", "192.168.1.2"))
+    }
+
+    @Test
+    fun `matches keeps exact-host fill for a bare public suffix host`() {
+        // wordpress.com is a public suffix (has no registrable domain) but is a real login site.
+        assertTrue(CredentialHostMatch.matches("wordpress.com", "wordpress.com"))
+        assertTrue(CredentialHostMatch.matches("localhost", "localhost"))
+    }
+
+    @Test
+    fun `matches still broadens to same registrable domain`() {
+        assertTrue(CredentialHostMatch.matches("login.example.com", "example.com"))
+        assertFalse(CredentialHostMatch.matches("example.com", "example.com.evil.net"))
+    }
+
+    @Test
+    fun `matches on a bare suffix host does not bleed into its subdomains`() {
+        // A login saved on the bare suffix must NOT be offered on a tenant subdomain, and vice-versa.
+        assertFalse(CredentialHostMatch.matches("alice.wordpress.com", "wordpress.com"))
+        assertFalse(CredentialHostMatch.matches("wordpress.com", "alice.wordpress.com"))
+    }
+
+    @Test
+    fun `multi-tenant SaaS suffixes isolate tenants`() {
+        assertFalse(CredentialHostMatch.sameSite("store-a.myshopify.com", "store-b.myshopify.com"))
+        assertFalse(CredentialHostMatch.sameSite("acme.atlassian.net", "evil.atlassian.net"))
+        assertFalse(CredentialHostMatch.sameSite("team-a.zendesk.com", "team-b.zendesk.com"))
+        assertTrue(CredentialHostMatch.sameSite("store-a.myshopify.com", "www.store-a.myshopify.com"))
+    }
+
+    @Test
+    fun `every curated suffix fits within the matcher's label-depth window`() {
+        // Guards the data-derived MAX_SUFFIX_LABELS: a deeper suffix entry stays reachable.
+        val deepest = CredentialHostMatch.registrableDomain("tenant.s3.amazonaws.com")
+        assertEquals("tenant.s3.amazonaws.com", deepest)
+    }
 }

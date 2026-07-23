@@ -46,17 +46,23 @@ object CredentialHostMatch {
         "com.ru", "net.ru", "org.ru",
         "co.id", "or.id", "ac.id", "go.id", "net.id", "web.id",
         "co.th", "in.th", "ac.th", "go.th", "net.th", "or.th",
-        // Widely-used site-hosting suffixes — each label below is a distinct owner, so they must
-        // reduce to distinct registrable domains (do NOT let a.github.io match b.github.io).
+        // Widely-used site-hosting / multi-tenant SaaS suffixes — each label below is a distinct
+        // OWNER, so they must reduce to distinct registrable domains (do NOT let a.github.io match
+        // b.github.io, or one Shopify store fill another's login). This is the security-relevant
+        // half of the list: a per-tenant suffix we omit here would over-match across tenants.
         "github.io", "gitlab.io", "githubusercontent.com",
-        "blogspot.com", "wordpress.com", "tumblr.com",
-        "appspot.com", "web.app", "firebaseapp.com", "cloudfunctions.net",
+        "blogspot.com", "wordpress.com", "tumblr.com", "notion.site",
+        "appspot.com", "web.app", "firebaseapp.com", "firebaseio.com", "cloudfunctions.net",
         "herokuapp.com", "herokussl.com",
-        "pages.dev", "workers.dev",
-        "vercel.app", "netlify.app", "netlify.com",
-        "azurewebsites.net", "cloudapp.net",
+        "pages.dev", "workers.dev", "r2.dev",
+        "vercel.app", "netlify.app", "netlify.com", "webflow.io",
+        "azurewebsites.net", "cloudapp.net", "sharepoint.com",
+        // `amazonaws.com` is intentionally treated as a blanket suffix (the real PSL enumerates
+        // specific regional/service sub-suffixes); collapsing all of it is over-restrictive, i.e.
+        // it fails SAFE (never over-matches) rather than permissive.
         "amazonaws.com", "s3.amazonaws.com", "elasticbeanstalk.com",
-        "surge.sh", "now.sh", "glitch.me", "repl.co",
+        "myshopify.com", "zendesk.com", "freshdesk.com", "atlassian.net", "myjetbrains.com",
+        "surge.sh", "now.sh", "glitch.me", "repl.co", "ngrok-free.app", "trycloudflare.com",
     )
 
     /**
@@ -98,17 +104,32 @@ object CredentialHostMatch {
     }
 
     /**
-     * Filters [credentialHosts] to those that fill on [pageHost] (same registrable domain) and
-     * ranks them: an exact host match first, then the rest in their original order (stable).
+     * True iff a credential stored for [credentialHost] may be offered on [pageHost]. This is the
+     * exact-host match (which must never be weaker than the pre-v6.5 exact-only behaviour — it
+     * still works for hosts that have no registrable domain, e.g. `192.168.1.1`, `localhost`, or a
+     * bare public suffix like `wordpress.com`) OR the same registrable domain (the v6.5 broadening).
+     */
+    fun matches(pageHost: String?, credentialHost: String?): Boolean =
+        (normalize(pageHost) != null && normalize(pageHost) == normalize(credentialHost)) ||
+            sameSite(pageHost, credentialHost)
+
+    /**
+     * Filters [credentialHosts] to those that fill on [pageHost] ([matches]) and ranks them: an
+     * exact host match first, then the rest in their original order (stable).
      */
     fun rankHosts(pageHost: String, credentialHosts: List<String>): List<String> {
-        val page = pageHost.trim().trimEnd('.').lowercase()
-        val matches = credentialHosts.filter { sameSite(page, it) }
-        val (exact, others) = matches.partition { it.trim().trimEnd('.').lowercase() == page }
+        val page = normalize(pageHost)
+        val matched = credentialHosts.filter { matches(pageHost, it) }
+        val (exact, others) = matched.partition { normalize(it) == page }
         return exact + others
     }
 
-    private const val MAX_SUFFIX_LABELS = 3
+    private fun normalize(host: String?): String? =
+        host?.trim()?.trimEnd('.')?.lowercase()?.ifBlank { null }
+
+    // Derived from the data so adding a deeper suffix (e.g. a 4-label one) can never be silently
+    // ignored by the matching loop — the loop's upper bound tracks the longest entry automatically.
+    private val MAX_SUFFIX_LABELS: Int = PUBLIC_SUFFIXES.maxOf { suffix -> suffix.count { it == '.' } + 1 }
 
     private fun isIpLiteral(host: String): Boolean {
         if (host.startsWith("[") || host.contains(':')) return true // bracketed / raw IPv6

@@ -59,8 +59,11 @@ class CredentialRepository(
      */
     suspend fun credentialsForSite(orbitId: Long, pageHost: String): List<DecryptedCredential> =
         withContext(io) {
+            // matches() = exact-host OR same registrable domain. The exact-host arm keeps fill from
+            // ever being weaker than the pre-v6.5 behaviour for hosts that have no registrable
+            // domain (IP literals, `localhost`, a bare public suffix like `wordpress.com`).
             val rows = dao.getAllForOrbit(orbitId).filter {
-                CredentialHostMatch.sameSite(pageHost, it.host)
+                CredentialHostMatch.matches(pageHost, it.host)
             }
             val hostRank = CredentialHostMatch.rankHosts(pageHost, rows.map { it.host })
                 .withIndex().associate { (i, h) -> h to i }

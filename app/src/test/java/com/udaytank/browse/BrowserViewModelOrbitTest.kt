@@ -461,6 +461,24 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `exact-host fill still works for a host with no registrable domain`() = runTest {
+        // Regression: routing the offer through credentialsForSite must not drop exact-host fill
+        // for IP literals / bare public suffixes (which have no registrable domain).
+        val (vm, repo) = crossSubdomainVm()
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+        val orbitId = vm.orbits.value.single().id
+        repo.save(orbitId, "192.168.1.1", "admin", "pw", 1L)
+        repo.save(orbitId, "wordpress.com", "blogger", "pw2", 2L)
+
+        vm.onPageFinished(tabId, "https://192.168.1.1/", "Router"); advanceUntilIdle()
+        assertEquals(listOf("admin"), vm.fillPrompt.value?.candidates?.map { it.username })
+
+        vm.onPageFinished(tabId, "https://wordpress.com/wp-login.php", "WP"); advanceUntilIdle()
+        assertEquals(listOf("blogger"), vm.fillPrompt.value?.candidates?.map { it.username })
+    }
+
+    @Test
     fun `a repeated username across hosts is deduped, preferring the exact-host row`() = runTest {
         val (vm, repo) = crossSubdomainVm()
         advanceUntilIdle()

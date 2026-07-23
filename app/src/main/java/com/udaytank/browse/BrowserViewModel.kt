@@ -2003,7 +2003,9 @@ class BrowserViewModel(
                 val host = UrlHosts.of(url)
                 // v6.5: offer logins saved on any host under the same registrable domain (e.g. a
                 // credential saved on example.com fills on login.example.com), exact-host ranked
-                // first. Dedup by username keeps the highest-ranked host for a repeated username.
+                // first. Dedup by username keeps the highest-ranked host for a repeated username;
+                // accepted trade-off — two same-named accounts on sibling subdomains of ONE site
+                // collapse to one candidate (same registrable domain + same Orbit, so not a leak).
                 val candidates = if (host.isNullOrBlank()) emptyList()
                 else repo.credentialsForSite(orbitId, host)
                     .map { FillCandidate(it.host, it.username) }
