@@ -1544,7 +1544,7 @@ class BrowserViewModelTest {
 
         // Toggle on → the next translate downloads Wi-Fi-only.
         settings.translateWifiOnly.value = true
-        vm.onShowOriginal(1L) {} // reset to Idle so the reentrancy guard allows a new run
+        vm.onShowOriginal(1L) {} // return to Idle to mirror real usage between runs
         vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> })
         advanceUntilIdle()
         assertEquals(true, engine.lastRequireWifi)
