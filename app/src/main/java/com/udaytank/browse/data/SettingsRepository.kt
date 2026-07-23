@@ -56,6 +56,9 @@ interface SettingsRepository {
     /** Target language code for full-page translate (v6.1); blank = the device default. */
     val translateTarget: Flow<String>
     suspend fun setTranslateTarget(code: String)
+    /** v6.2: when on, a hard device shake arms the Black Hole confirmation. Default OFF. */
+    val blackHoleGesture: Flow<Boolean>
+    suspend fun setBlackHoleGesture(enabled: Boolean)
     val themeMode: Flow<ThemeMode>
     val javaScriptEnabled: Flow<Boolean>
     val cookiesEnabled: Flow<Boolean>
@@ -492,6 +495,12 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override val blackHoleGesture: Flow<Boolean> =
+        dataStore.data.map { it[BLACK_HOLE_GESTURE_KEY] ?: false }
+    override suspend fun setBlackHoleGesture(enabled: Boolean) {
+        dataStore.edit { it[BLACK_HOLE_GESTURE_KEY] = enabled }
+    }
+
     override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
     override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
 
@@ -511,6 +520,7 @@ class DataStoreSettingsRepository(
         val CUSTOM_SEARCH_ENGINES_KEY = stringPreferencesKey("custom_search_engines")
         val SELECTED_CUSTOM_ENGINE_KEY = stringPreferencesKey("selected_custom_engine")
         val TRANSLATE_TARGET_KEY = stringPreferencesKey("translate_target")
+        val BLACK_HOLE_GESTURE_KEY = booleanPreferencesKey("black_hole_gesture")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")

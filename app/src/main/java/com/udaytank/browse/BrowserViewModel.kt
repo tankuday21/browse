@@ -1003,6 +1003,14 @@ class BrowserViewModel(
         viewModelScope.launch { settings.setSafeBrowsing(enabled) }
     }
 
+    /** v6.2: shake-to-open-Black-Hole toggle. Default OFF (a destructive gesture is never default-on). */
+    val blackHoleGesture: StateFlow<Boolean> = settings.blackHoleGesture
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun onBlackHoleGestureToggled(enabled: Boolean) {
+        viewModelScope.launch { settings.setBlackHoleGesture(enabled) }
+    }
+
     val dismissCookieBanners: StateFlow<Boolean> = settings.dismissCookieBanners
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 

@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.data.ThemeMode
 import com.udaytank.browse.ui.SettingsScreen
@@ -89,6 +90,28 @@ class MainActivity : FragmentActivity() {
      *  Activity-scoped (not per-composition) state so the Compose tree, [onUserLeaveHint] and
      *  [onPictureInPictureModeChanged] all see the same value. */
     private var fullscreenVideoView by mutableStateOf<View?>(null)
+
+    // v6.2 Black Hole shake gesture. Activity-scoped so the sensor listener (outside compose) and
+    // the compose tree share the armed flag. The recognizer/listener are only registered while
+    // foregrounded AND the pref is on (see the repeatOnLifecycle collector in onCreate).
+    private val shakeDetector = com.udaytank.browse.browser.ShakeDetector()
+    private var shakeArmed by mutableStateOf(false)
+    private var shakeSensorManager: android.hardware.SensorManager? = null
+    private var shakeRegistered = false
+    private val shakeListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            if (e.values.size < 3) return
+            val fired = shakeDetector.onSample(
+                e.values[0], e.values[1], e.values[2], android.os.SystemClock.elapsedRealtime(),
+            )
+            if (fired) {
+                buzz()
+                shakeArmed = true
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+    }
 
     /** Non-null while the Andromeda Player (v6.0) is showing a playing video — its aspect ratio,
      *  used to enter Picture-in-Picture when the user backgrounds the app. Null for audio, when
@@ -646,6 +669,36 @@ class MainActivity : FragmentActivity() {
         runCatching { startActivity(intent) }
     }
 
+    private fun registerShake() {
+        if (shakeRegistered) return
+        val sm = getSystemService(SENSOR_SERVICE) as? android.hardware.SensorManager ?: return
+        val accel = sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) ?: return
+        sm.registerListener(shakeListener, accel, android.hardware.SensorManager.SENSOR_DELAY_UI)
+        shakeSensorManager = sm
+        shakeRegistered = true
+    }
+
+    private fun unregisterShake() {
+        if (!shakeRegistered) return
+        shakeSensorManager?.unregisterListener(shakeListener)
+        shakeRegistered = false
+    }
+
+    /** Short confirmation buzz when a shake is recognized; best-effort (no vibrator = silent). */
+    private fun buzz() {
+        runCatching {
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            vibrator.vibrate(
+                android.os.VibrationEffect.createOneShot(60, android.os.VibrationEffect.DEFAULT_AMPLITUDE),
+            )
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -659,6 +712,19 @@ class MainActivity : FragmentActivity() {
         // Only a fresh launch acts on a shortcut extra — a recreation (process death restore)
         // still carries the old intent and must not open yet another tab.
         if (savedInstanceState == null) handleShortcutIntent(intent)
+        // v6.2: listen for the shake gesture only while foregrounded (repeatOnLifecycle cancels on
+        // pause → the finally unregisters) AND only when the pref is on. No background sensor cost.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                try {
+                    viewModel.blackHoleGesture.collect { enabled ->
+                        if (enabled) registerShake() else unregisterShake()
+                    }
+                } finally {
+                    unregisterShake()
+                }
+            }
+        }
         setContent {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             BrowseTheme(
@@ -1062,6 +1128,21 @@ class MainActivity : FragmentActivity() {
                 val activeIsIncognito = tabs.find { it.id == activeId }?.isIncognito == true
                 if (locked && activeIsIncognito) {
                     IncognitoLockScreen(onUnlock = { promptBiometricUnlock() })
+                }
+
+                // v6.2 Black Hole shake gesture: a recognized shake only ARMS this confirmation —
+                // the wipe still requires the explicit tap, exactly like the Settings button.
+                if (shakeArmed) {
+                    com.udaytank.browse.ui.components.BlackHoleConfirmDialog(
+                        onConfirm = {
+                            shakeArmed = false
+                            android.widget.Toast.makeText(
+                                this@MainActivity, "Erasing everything…", android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            viewModel.onBlackHole()
+                        },
+                        onDismiss = { shakeArmed = false },
+                    )
                 }
 
                 // Fullscreen HTML5 video (WebChromeClient custom view) - drawn above everything

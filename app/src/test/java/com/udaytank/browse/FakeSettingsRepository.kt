@@ -108,6 +108,9 @@ class FakeSettingsRepository : SettingsRepository {
     override val translateTarget = MutableStateFlow("")
     override suspend fun setTranslateTarget(code: String) { translateTarget.value = code }
 
+    override val blackHoleGesture = MutableStateFlow(false)
+    override suspend fun setBlackHoleGesture(enabled: Boolean) { blackHoleGesture.value = enabled }
+
     override val autoIslands = MutableStateFlow(true)
     override suspend fun setAutoIslands(enabled: Boolean) {
         autoIslands.value = enabled
