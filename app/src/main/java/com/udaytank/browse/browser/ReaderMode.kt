@@ -132,6 +132,9 @@ object ReaderMode {
         val scheme = if (resolved == ReaderTheme.DARK) "dark" else "light"
         val fontSize = formatPx(19.0 * fontScale / 100.0)
         val widthCss = if (wide) "" else " max-width:680px;"
+        // v6.11: an estimated reading time under the title (omitted for an empty body).
+        val readingTime = ReadingTime.label(contentHtml)
+            ?.let { "<div class=\"reading-time\">${escape(it)}</div>" } ?: ""
         return """
             <!DOCTYPE html><html><head>
             <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -140,14 +143,15 @@ object ReaderMode {
               :root { color-scheme: $scheme; }
               body { background:$bg; color:$fg; margin:0 auto; padding:24px 20px 96px;$widthCss
                      font-family:-apple-system,Roboto,sans-serif; font-size:${fontSize}px; line-height:1.7; }
-              h1 { font-size:28px; line-height:1.25; margin:0 0 20px; }
+              h1 { font-size:28px; line-height:1.25; margin:0 0 8px; }
+              .reading-time { opacity:.6; font-size:15px; margin:0 0 24px; }
               h2,h3 { line-height:1.3; margin-top:32px; }
               a { color:$link; }
               img { max-width:100%; height:auto; border-radius:12px; margin:16px 0; }
               blockquote { border-left:3px solid $link; margin:16px 0; padding-left:16px; opacity:.9; }
               pre,code { font-family:monospace; font-size:16px; white-space:pre-wrap; }
             </style></head>
-            <body><h1>${escape(title)}</h1>$contentHtml</body></html>
+            <body><h1>${escape(title)}</h1>$readingTime$contentHtml</body></html>
         """.trimIndent()
     }
 
