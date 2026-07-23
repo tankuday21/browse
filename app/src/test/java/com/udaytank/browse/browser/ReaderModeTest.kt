@@ -26,6 +26,16 @@ class ReaderModeTest {
     }
 
     @Test
+    fun `reader html shows a reading-time byline for real content and omits it when empty`() {
+        val withText = build(content = "<p>${"word ".repeat(300)}</p>")
+        assertTrue(withText.contains("min read"))
+        assertTrue(withText.contains("reading-time"))
+        // An empty body produces no byline (no bogus "0 min read").
+        val empty = build(content = "<p></p>")
+        assertFalse(empty.contains("min read"))
+    }
+
+    @Test
     fun `dark theme uses the dark palette`() {
         val html = build(theme = ReaderTheme.DARK)
         assertTrue(html.contains("#14142E"))
