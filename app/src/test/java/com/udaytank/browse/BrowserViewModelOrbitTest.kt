@@ -493,6 +493,82 @@ class BrowserViewModelOrbitTest {
         assertEquals("www.example.com", fp.candidates.single().host)
     }
 
+    // --- v6.6 "Never save for this site" ---
+
+    private fun neverSaveVm(settings: FakeSettingsRepository): BrowserViewModel {
+        val repo = com.udaytank.browse.data.CredentialRepository(
+            FakeCredentialDao(), FakeCredentialCipher(), io = Dispatchers.Unconfined,
+        )
+        return vm(settings = settings, credentialRepository = repo)
+    }
+
+    @Test
+    fun `a never-saved host does not prompt to save, a normal host still does`() = runTest {
+        val settings = FakeSettingsRepository()
+        settings.neverSaveSites.value = setOf("example.com")
+        val vm = neverSaveVm(settings)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+
+        vm.onPageStarted(tabId, "https://example.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "pw"); advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+
+        // Positive control: a host NOT on the list still prompts.
+        vm.onPageStarted(tabId, "https://other.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "other.com", "bob", "pw"); advanceUntilIdle()
+        assertNotNull(vm.saveCredentialPrompt.value)
+    }
+
+    @Test
+    fun `tapping Never remembers the host and clears the prompt`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = neverSaveVm(settings)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+
+        vm.onPageStarted(tabId, "https://example.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "pw"); advanceUntilIdle()
+        assertNotNull(vm.saveCredentialPrompt.value)
+
+        vm.onNeverSaveForSite(); advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+        assertTrue("example.com" in settings.neverSaveSites.value)
+
+        // And a subsequent submit on that host no longer prompts.
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "pw2"); advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+    }
+
+    @Test
+    fun `onNeverSaveForSite with no pending prompt is a safe no-op`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = neverSaveVm(settings)
+        advanceUntilIdle()
+        vm.onNeverSaveForSite(); advanceUntilIdle() // no prompt showing
+        assertTrue(settings.neverSaveSites.value.isEmpty())
+    }
+
+    @Test
+    fun `removeNeverSaveSite re-enables the save prompt on that host`() = runTest {
+        val settings = FakeSettingsRepository()
+        settings.neverSaveSites.value = setOf("example.com")
+        val vm = neverSaveVm(settings)
+        advanceUntilIdle()
+        val tabId = vm.activeTabId.value!!
+
+        // Suppressed while listed.
+        vm.onPageStarted(tabId, "https://example.com/login"); advanceUntilIdle()
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "pw"); advanceUntilIdle()
+        assertNull(vm.saveCredentialPrompt.value)
+
+        // Remove → the next submit prompts again.
+        vm.onRemoveNeverSaveSite("example.com"); advanceUntilIdle()
+        assertTrue("example.com" !in settings.neverSaveSites.value)
+        vm.onLoginSubmitted(tabId, "example.com", "alice", "pw"); advanceUntilIdle()
+        assertNotNull(vm.saveCredentialPrompt.value)
+    }
+
     // --- v5.1 manual add/edit + gate state ---
 
     @Test

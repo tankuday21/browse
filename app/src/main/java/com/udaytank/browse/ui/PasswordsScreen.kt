@@ -83,6 +83,7 @@ fun PasswordsScreen(
     onBack: () -> Unit,
 ) {
     val credentials by viewModel.credentials.collectAsStateWithLifecycle()
+    val neverSaveSites by viewModel.neverSaveSites.collectAsStateWithLifecycle()
     val orbits by viewModel.orbits.collectAsStateWithLifecycle()
     val activeOrbitId by viewModel.activeOrbitId.collectAsStateWithLifecycle()
     val activeOrbit = remember(orbits, activeOrbitId) { orbits.firstOrNull { it.id == activeOrbitId } }
@@ -109,7 +110,7 @@ fun PasswordsScreen(
         },
         containerColor = scheme.surfaces.base,
     ) { innerPadding ->
-        if (credentials.isEmpty()) {
+        if (credentials.isEmpty() && neverSaveSites.isEmpty()) {
             PasswordsEmptyState(activeOrbit, Modifier.fillMaxSize().padding(innerPadding))
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -120,6 +121,13 @@ fun PasswordsScreen(
                         onEdit = { editorFor = entry; editorOpen = true },
                         onDelete = { viewModel.onDeleteCredential(entry.id) },
                     )
+                }
+                // v6.6: sites the user chose "Never save" for — the only place to undo that choice.
+                if (neverSaveSites.isNotEmpty()) {
+                    item(key = "never-header") { NeverSaveHeader() }
+                    items(neverSaveSites.toList().sorted(), key = { "never:$it" }) { host ->
+                        NeverSaveRow(host = host, onRemove = { viewModel.onRemoveNeverSaveSite(host) })
+                    }
                 }
             }
         }
@@ -304,6 +312,45 @@ private fun CredentialRow(
         }
         IconButton(onClick = onDelete) {
             Icon(Icons.Filled.Delete, contentDescription = "Delete login", tint = scheme.text.secondary)
+        }
+    }
+}
+
+@Composable
+private fun NeverSaveHeader() {
+    val scheme = orbit()
+    Text(
+        "Never saved on",
+        style = orbitCaption,
+        color = scheme.text.muted,
+        modifier = Modifier.fillMaxWidth().padding(
+            start = OrbitSpacing.lg, end = OrbitSpacing.lg, top = OrbitSpacing.lg, bottom = OrbitSpacing.xs,
+        ),
+    )
+}
+
+@Composable
+private fun NeverSaveRow(host: String, onRemove: () -> Unit) {
+    val scheme = orbit()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.md),
+    ) {
+        FaviconOrLetter(url = "https://$host", label = host, size = 36.dp)
+        Text(
+            host,
+            style = orbitBody,
+            color = scheme.text.secondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Filled.Delete, contentDescription = "Stop ignoring $host", tint = scheme.text.secondary)
         }
     }
 }

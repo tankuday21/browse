@@ -459,6 +459,8 @@ class BrowserViewModel(
         // committed URL, not the JS-supplied host), so a mixed-case/parser-divergent host can't
         // split save vs. fill and hide the saved login.
         val normHost = UrlHosts.of(url) ?: host.lowercase().ifBlank { return }
+        // v6.6: respect a "Never save for this site" decision — no save prompt on those hosts.
+        if (normHost in neverSaveSites.value) return
         val orbitId = tab.orbitId ?: activeOrbitId.value
         _saveCredentialPrompt.value = SaveCredentialPrompt(orbitId, normHost, username, password)
     }
@@ -474,6 +476,18 @@ class BrowserViewModel(
     }
 
     fun onDismissSaveCredentialPrompt() { _saveCredentialPrompt.value = null }
+
+    /**
+     * User tapped "Never" on the save prompt (v6.6): remember the host so this site never prompts
+     * again, and dismiss. Guarded to only ADD (the prompt is only showing when the host isn't yet
+     * in the set), so a double-tap can't toggle it back off.
+     */
+    fun onNeverSaveForSite() {
+        val prompt = _saveCredentialPrompt.value ?: return
+        _saveCredentialPrompt.value = null
+        if (prompt.host in neverSaveSites.value) return
+        viewModelScope.launch { settings.toggleNeverSaveSite(prompt.host) }
+    }
 
     /**
      * User tapped a saved login to fill: re-decrypt (kept out of long-lived state) and inject it.
@@ -1017,6 +1031,18 @@ class BrowserViewModel(
 
     fun onBlackHoleGestureToggled(enabled: Boolean) {
         viewModelScope.launch { settings.setBlackHoleGesture(enabled) }
+    }
+
+    /**
+     * v6.6: hosts the user chose "Never save" for. Eagerly warmed so [onLoginSubmitted] (not a
+     * suspend fun) can read `.value` synchronously when deciding whether to offer to save.
+     */
+    val neverSaveSites: StateFlow<Set<String>> = settings.neverSaveSites
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Management screen: forget a "Never save" host, re-enabling its save prompt. */
+    fun onRemoveNeverSaveSite(host: String) {
+        viewModelScope.launch { settings.removeNeverSaveSite(host) }
     }
 
     /** v6.4: download translate language models over Wi-Fi only. */
@@ -1669,6 +1695,7 @@ class BrowserViewModel(
             // Reset browsing-trace preferences (active orbit re-resolves on cold start).
             settings.setActiveOrbitId(0L)
             settings.clearAdAllowedSites()
+            settings.clearNeverSaveSites()
             settings.setBackgroundMediaSites(emptySet())
             // Location + aggregate stats are traces too on a "clean slate".
             settings.setWeatherCity("")

@@ -25,11 +25,17 @@ import com.udaytank.browse.ui.theme.orbitBody
 
 /**
  * A slim prompt above the address bar offering to save a just-submitted login (v4.7). No auto-save
- * — the user decides. "Not now" simply dismisses (a persistent "never for this site" list is a
- * later phase).
+ * — the user decides. "Save" stores it; "Never" (v6.6) remembers not to prompt on this host again
+ * (undo via Passwords → "Never saved on"); the dismiss X just closes this one prompt.
  */
 @Composable
-fun SavePasswordBar(host: String, onSave: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+fun SavePasswordBar(
+    host: String,
+    onSave: () -> Unit,
+    onNever: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scheme = orbit()
     Surface(
         modifier = modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.md, vertical = OrbitSpacing.xs),
@@ -40,7 +46,7 @@ fun SavePasswordBar(host: String, onSave: () -> Unit, onDismiss: () -> Unit, mod
         Row(
             modifier = Modifier.padding(start = OrbitSpacing.md, end = OrbitSpacing.xs).padding(vertical = OrbitSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(OrbitSpacing.xs),
         ) {
             Icon(Icons.Filled.Key, contentDescription = null, tint = scheme.accent.solid)
             Text(
@@ -51,6 +57,7 @@ fun SavePasswordBar(host: String, onSave: () -> Unit, onDismiss: () -> Unit, mod
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            TextButton(onClick = onNever) { Text("Never", color = scheme.text.muted) }
             TextButton(onClick = onSave) { Text("Save") }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Filled.Close, contentDescription = "Not now", tint = scheme.text.muted)
