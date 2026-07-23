@@ -62,6 +62,14 @@ interface SettingsRepository {
     /** v6.2: when on, a hard device shake arms the Black Hole confirmation. Default OFF. */
     val blackHoleGesture: Flow<Boolean>
     suspend fun setBlackHoleGesture(enabled: Boolean)
+    /** v6.6: hosts the user chose "Never save" for — the save prompt is suppressed there. */
+    val neverSaveSites: Flow<Set<String>>
+    /** Add if absent / remove if present (management-screen toggle). */
+    suspend fun toggleNeverSaveSite(host: String)
+    /** Management-screen delete (re-enables the save prompt on that host). */
+    suspend fun removeNeverSaveSite(host: String)
+    /** Black Hole panic-wipe: forget every never-save host (a decided-on-site trace). */
+    suspend fun clearNeverSaveSites()
     val themeMode: Flow<ThemeMode>
     val javaScriptEnabled: Flow<Boolean>
     val cookiesEnabled: Flow<Boolean>
@@ -504,6 +512,23 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[BLACK_HOLE_GESTURE_KEY] = enabled }
     }
 
+    override val neverSaveSites: Flow<Set<String>> =
+        dataStore.data.map { it[NEVER_SAVE_SITES_KEY] ?: emptySet() }
+    override suspend fun toggleNeverSaveSite(host: String) {
+        dataStore.edit { prefs ->
+            val current = prefs[NEVER_SAVE_SITES_KEY] ?: emptySet()
+            prefs[NEVER_SAVE_SITES_KEY] = if (host in current) current - host else current + host
+        }
+    }
+    override suspend fun removeNeverSaveSite(host: String) {
+        dataStore.edit { prefs ->
+            prefs[NEVER_SAVE_SITES_KEY] = (prefs[NEVER_SAVE_SITES_KEY] ?: emptySet()) - host
+        }
+    }
+    override suspend fun clearNeverSaveSites() {
+        dataStore.edit { it.remove(NEVER_SAVE_SITES_KEY) }
+    }
+
     override val translateWifiOnly: Flow<Boolean> =
         dataStore.data.map { it[TRANSLATE_WIFI_ONLY_KEY] ?: false }
     override suspend fun setTranslateWifiOnly(enabled: Boolean) {
@@ -530,6 +555,7 @@ class DataStoreSettingsRepository(
         val SELECTED_CUSTOM_ENGINE_KEY = stringPreferencesKey("selected_custom_engine")
         val TRANSLATE_TARGET_KEY = stringPreferencesKey("translate_target")
         val BLACK_HOLE_GESTURE_KEY = booleanPreferencesKey("black_hole_gesture")
+        val NEVER_SAVE_SITES_KEY = stringSetPreferencesKey("never_save_sites")
         val TRANSLATE_WIFI_ONLY_KEY = booleanPreferencesKey("translate_wifi_only")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")

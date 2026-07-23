@@ -111,6 +111,16 @@ class FakeSettingsRepository : SettingsRepository {
     override val blackHoleGesture = MutableStateFlow(false)
     override suspend fun setBlackHoleGesture(enabled: Boolean) { blackHoleGesture.value = enabled }
 
+    override val neverSaveSites = MutableStateFlow<Set<String>>(emptySet())
+    override suspend fun toggleNeverSaveSite(host: String) {
+        neverSaveSites.value =
+            if (host in neverSaveSites.value) neverSaveSites.value - host else neverSaveSites.value + host
+    }
+    override suspend fun removeNeverSaveSite(host: String) {
+        neverSaveSites.value = neverSaveSites.value - host
+    }
+    override suspend fun clearNeverSaveSites() { neverSaveSites.value = emptySet() }
+
     override val translateWifiOnly = MutableStateFlow(false)
     override suspend fun setTranslateWifiOnly(enabled: Boolean) { translateWifiOnly.value = enabled }
 

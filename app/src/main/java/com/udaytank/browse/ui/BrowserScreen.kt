@@ -618,6 +618,7 @@ fun BrowserScreen(
                 SavePasswordBar(
                     host = p.host,
                     onSave = viewModel::onSaveCredential,
+                    onNever = viewModel::onNeverSaveForSite,
                     onDismiss = viewModel::onDismissSaveCredentialPrompt,
                 )
             }
