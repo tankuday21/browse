@@ -673,6 +673,7 @@ class MainActivity : FragmentActivity() {
         if (shakeRegistered) return
         val sm = getSystemService(SENSOR_SERVICE) as? android.hardware.SensorManager ?: return
         val accel = sm.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) ?: return
+        shakeDetector.reset() // don't carry stale jolts across a background/foreground cycle
         sm.registerListener(shakeListener, accel, android.hardware.SensorManager.SENSOR_DELAY_UI)
         shakeSensorManager = sm
         shakeRegistered = true
@@ -1132,7 +1133,9 @@ class MainActivity : FragmentActivity() {
 
                 // v6.2 Black Hole shake gesture: a recognized shake only ARMS this confirmation —
                 // the wipe still requires the explicit tap, exactly like the Settings button.
-                if (shakeArmed) {
+                // Suppressed while incognito is locked: someone who can't pass the biometric gate
+                // must not be able to shake-and-wipe the protected session (review finding).
+                if (shakeArmed && !(locked && activeIsIncognito)) {
                     com.udaytank.browse.ui.components.BlackHoleConfirmDialog(
                         onConfirm = {
                             shakeArmed = false

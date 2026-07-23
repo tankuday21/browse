@@ -16,8 +16,10 @@ class ShakeDetector(
     private val requiredJolts: Int = 3,
     private val windowMs: Long = 1000L,
     private val cooldownMs: Long = 2000L,
+    private val minJoltGapMs: Long = 120L,
 ) {
     private val jolts = ArrayDeque<Long>()
+    private var lastJoltMs = Long.MIN_VALUE
     private var cooldownUntil = Long.MIN_VALUE
 
     /**
@@ -29,6 +31,12 @@ class ShakeDetector(
 
         val gForce = sqrt(x * x + y * y + z * z) / EARTH_GRAVITY
         if (gForce <= gThreshold) return false
+
+        // A shake is DISTINCT jolts, not one sustained impact: ignore over-threshold samples that
+        // arrive within minJoltGapMs of the last recorded jolt, so setting the phone down hard
+        // (a burst of consecutive high-g samples from a single contact) can't count as three.
+        if (lastJoltMs != Long.MIN_VALUE && timeMs - lastJoltMs < minJoltGapMs) return false
+        lastJoltMs = timeMs
 
         // Record this jolt, drop any older than the sliding window.
         jolts.addLast(timeMs)
@@ -42,6 +50,13 @@ class ShakeDetector(
             return true
         }
         return false
+    }
+
+    /** Clears accumulated state; call when (re)starting listening so stale jolts don't carry over. */
+    fun reset() {
+        jolts.clear()
+        lastJoltMs = Long.MIN_VALUE
+        cooldownUntil = Long.MIN_VALUE
     }
 
     private companion object {
