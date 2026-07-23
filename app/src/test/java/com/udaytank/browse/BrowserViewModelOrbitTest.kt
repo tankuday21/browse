@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -491,6 +492,59 @@ class BrowserViewModelOrbitTest {
         val fp = vm.fillPrompt.value!!
         assertEquals(1, fp.candidates.size)
         assertEquals("www.example.com", fp.candidates.single().host)
+    }
+
+    // --- v6.9 duplicate tab ---
+
+    @Test
+    fun `duplicating a tab creates a second tab with the same url and orbit`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val srcId = vm.activeTabId.value!!
+        val src = vm.tabs.value.single { it.id == srcId }
+
+        vm.onDuplicateTab(srcId)
+        advanceUntilIdle()
+
+        assertEquals(2, vm.tabs.value.size)
+        val dup = vm.tabs.value.single { it.id != srcId }
+        assertEquals(src.url, dup.url)
+        assertEquals(src.orbitId, dup.orbitId)
+        assertFalse(dup.isIncognito)
+    }
+
+    @Test
+    fun `duplicating an incognito tab yields another incognito tab with no persisted orbit`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        vm.onNewIncognitoTab()
+        advanceUntilIdle()
+        val incId = vm.activeTabId.value!!
+        assertTrue(incId < 0)
+
+        vm.onDuplicateTab(incId)
+        advanceUntilIdle()
+
+        val dup = vm.tabs.value.single { it.isIncognito && it.id != incId }
+        assertTrue(dup.id < 0)          // incognito ids are negative / in-memory
+        assertNull(dup.orbitId)          // incognito tabs never carry an Orbit
+    }
+
+    @Test
+    fun `duplicating a grouped tab preserves the group`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+        val srcId = vm.activeTabId.value!!
+        vm.onCreateGroupWithTabs("Work", listOf(srcId))
+        advanceUntilIdle()
+        val groupId = vm.tabs.value.single { it.id == srcId }.groupId
+        assertNotNull(groupId)
+
+        vm.onDuplicateTab(srcId)
+        advanceUntilIdle()
+
+        val dup = vm.tabs.value.single { it.id != srcId }
+        assertEquals(groupId, dup.groupId)
     }
 
     // --- v6.6 "Never save for this site" ---

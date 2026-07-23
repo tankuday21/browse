@@ -1252,6 +1252,23 @@ class BrowserViewModel(
         viewModelScope.launch { tabManager.newTab(HOME_URL, incognito = true) }
     }
 
+    /**
+     * v6.9: duplicate a tab — a new foreground tab on the same URL, inheriting the source tab's
+     * Orbit, incognito state, and group. Delegates to [TabManager.newTab] (which handles id
+     * allocation, incognito, and persistence); the new WebView loads the URL via the normal flow.
+     */
+    fun onDuplicateTab(id: Long) {
+        val src = tabs.value.find { it.id == id } ?: return
+        viewModelScope.launch {
+            tabManager.newTab(
+                url = src.url,
+                incognito = src.isIncognito,
+                groupId = src.groupId,
+                orbitId = src.orbitId,
+            )
+        }
+    }
+
     fun onCloseTab(id: Long) {
         val tab = tabs.value.find { it.id == id }
         if (tab?.locked == true) {

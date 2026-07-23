@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -441,6 +442,7 @@ fun TabSwitcherScreen(
                                 val onStartSelection = { selection = setOf(tab.id) }
                                 val onTogglePinned = { viewModel.onTogglePinned(tab.id) }
                                 val onToggleLocked = { viewModel.onToggleLocked(tab.id) }
+                                val onDuplicate = { viewModel.onDuplicateTab(tab.id) }
                                 val onAssignToGroup =
                                     { groupId: Long? -> viewModel.onAssignTabToGroup(tab.id, groupId) }
                                 val onRequestNewGroup = {
@@ -460,6 +462,7 @@ fun TabSwitcherScreen(
                                         onStartSelection = onStartSelection,
                                         onTogglePinned = onTogglePinned,
                                         onToggleLocked = onToggleLocked,
+                                        onDuplicate = onDuplicate,
                                         onAssignToGroup = onAssignToGroup,
                                         onRequestNewGroup = onRequestNewGroup,
                                         modifier = Modifier.animateItem(),
@@ -477,6 +480,7 @@ fun TabSwitcherScreen(
                                         onStartSelection = onStartSelection,
                                         onTogglePinned = onTogglePinned,
                                         onToggleLocked = onToggleLocked,
+                                        onDuplicate = onDuplicate,
                                         onAssignToGroup = onAssignToGroup,
                                         onRequestNewGroup = onRequestNewGroup,
                                         modifier = Modifier.animateItem(),
@@ -685,6 +689,7 @@ private fun TabCard(
     onStartSelection: () -> Unit,
     onTogglePinned: () -> Unit,
     onToggleLocked: () -> Unit,
+    onDuplicate: () -> Unit,
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
     modifier: Modifier = Modifier,
@@ -893,6 +898,7 @@ private fun TabCard(
             onDismiss = { showMenu = false },
             onTogglePinned = onTogglePinned,
             onToggleLocked = onToggleLocked,
+            onDuplicate = onDuplicate,
             onAssignToGroup = onAssignToGroup,
             onRequestNewGroup = onRequestNewGroup,
             onStartSelection = onStartSelection,
@@ -919,6 +925,7 @@ private fun TabListRow(
     onStartSelection: () -> Unit,
     onTogglePinned: () -> Unit,
     onToggleLocked: () -> Unit,
+    onDuplicate: () -> Unit,
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1123,6 +1130,7 @@ private fun TabListRow(
             onDismiss = { showMenu = false },
             onTogglePinned = onTogglePinned,
             onToggleLocked = onToggleLocked,
+            onDuplicate = onDuplicate,
             onAssignToGroup = onAssignToGroup,
             onRequestNewGroup = onRequestNewGroup,
             onStartSelection = onStartSelection,
@@ -1142,6 +1150,7 @@ private fun TabContextMenu(
     onDismiss: () -> Unit,
     onTogglePinned: () -> Unit,
     onToggleLocked: () -> Unit,
+    onDuplicate: () -> Unit,
     onAssignToGroup: (Long?) -> Unit,
     onRequestNewGroup: () -> Unit,
     onStartSelection: () -> Unit,
@@ -1158,6 +1167,11 @@ private fun TabContextMenu(
             text = { Text(if (tab.pinned) "Unpin" else "Pin") },
             leadingIcon = { Icon(Icons.Filled.PushPin, contentDescription = null) },
             onClick = { onTogglePinned(); onDismiss() },
+        )
+        DropdownMenuItem(
+            text = { Text("Duplicate") },
+            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null) },
+            onClick = { onDuplicate(); onDismiss() },
         )
         DropdownMenuItem(
             text = { Text(if (tab.locked) "Unlock" else "Lock") },
