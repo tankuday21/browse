@@ -56,6 +56,9 @@ interface SettingsRepository {
     /** Target language code for full-page translate (v6.1); blank = the device default. */
     val translateTarget: Flow<String>
     suspend fun setTranslateTarget(code: String)
+    /** v6.4: download translate language models over Wi-Fi only. Default OFF. */
+    val translateWifiOnly: Flow<Boolean>
+    suspend fun setTranslateWifiOnly(enabled: Boolean)
     /** v6.2: when on, a hard device shake arms the Black Hole confirmation. Default OFF. */
     val blackHoleGesture: Flow<Boolean>
     suspend fun setBlackHoleGesture(enabled: Boolean)
@@ -501,6 +504,12 @@ class DataStoreSettingsRepository(
         dataStore.edit { it[BLACK_HOLE_GESTURE_KEY] = enabled }
     }
 
+    override val translateWifiOnly: Flow<Boolean> =
+        dataStore.data.map { it[TRANSLATE_WIFI_ONLY_KEY] ?: false }
+    override suspend fun setTranslateWifiOnly(enabled: Boolean) {
+        dataStore.edit { it[TRANSLATE_WIFI_ONLY_KEY] = enabled }
+    }
+
     override val activeOrbitId: Flow<Long> = dataStore.data.map { it[ACTIVE_ORBIT_ID_KEY] ?: 0L }
     override suspend fun setActiveOrbitId(id: Long) { dataStore.edit { it[ACTIVE_ORBIT_ID_KEY] = id } }
 
@@ -521,6 +530,7 @@ class DataStoreSettingsRepository(
         val SELECTED_CUSTOM_ENGINE_KEY = stringPreferencesKey("selected_custom_engine")
         val TRANSLATE_TARGET_KEY = stringPreferencesKey("translate_target")
         val BLACK_HOLE_GESTURE_KEY = booleanPreferencesKey("black_hole_gesture")
+        val TRANSLATE_WIFI_ONLY_KEY = booleanPreferencesKey("translate_wifi_only")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
         val JAVASCRIPT_KEY = booleanPreferencesKey("javascript_enabled")

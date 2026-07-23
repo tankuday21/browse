@@ -14,10 +14,15 @@ class FakeTranslateEngine(
     var ensureCalls = 0
         private set
 
+    /** The requireWifi flag from the most recent ensureModel call (v6.4). */
+    var lastRequireWifi: Boolean? = null
+        private set
+
     override suspend fun detect(sample: String): String? = detected
 
     override suspend fun ensureModel(source: String, target: String, requireWifi: Boolean): Result<Unit> {
         ensureCalls++
+        lastRequireWifi = requireWifi
         return modelResult
     }
 

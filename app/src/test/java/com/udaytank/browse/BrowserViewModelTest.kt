@@ -1531,6 +1531,26 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `translate wifi-only preference is passed through to the model download`() = runTest {
+        val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
+        val engine = FakeTranslateEngine(detected = "es")
+        val vm = vm(settings = settings, translateEngine = engine)
+        advanceUntilIdle()
+
+        // Default OFF → requireWifi false.
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> })
+        advanceUntilIdle()
+        assertEquals(false, engine.lastRequireWifi)
+
+        // Toggle on → the next translate downloads Wi-Fi-only.
+        settings.translateWifiOnly.value = true
+        vm.onShowOriginal(1L) {} // return to Idle to mirror real usage between runs
+        vm.onTranslatePage(1L, collectReturning("""["Hola"]"""), { _, _ -> })
+        advanceUntilIdle()
+        assertEquals(true, engine.lastRequireWifi)
+    }
+
+    @Test
     fun `an unsupported source language reports it cannot be translated`() = runTest {
         val settings = FakeSettingsRepository().apply { translateTarget.value = "en" }
         val vm = vm(settings = settings, translateEngine = FakeTranslateEngine(detected = "xx"))

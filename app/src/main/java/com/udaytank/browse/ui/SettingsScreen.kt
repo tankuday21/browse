@@ -442,6 +442,17 @@ private fun GeneralSettings(
         // v5.9: honest suggestion story — the suggest endpoint follows the engine choice,
         // and no keystroke leaves the device for custom engines or in incognito.
         Caption("Typing suggestions come from the selected engine. Custom engines and incognito show only your bookmarks and history.")
+
+        // v6.4: translate language-pack download preference.
+        val translateWifiOnly by viewModel.translateWifiOnly.collectAsStateWithLifecycle()
+        SettingsGroup {
+            PrefSwitchRow(
+                title = "Translate over Wi-Fi only",
+                checked = translateWifiOnly,
+                onCheckedChange = viewModel::onTranslateWifiOnlyToggled,
+            )
+            Caption("Download the ~30 MB per-language translation packs only on Wi-Fi. Translation itself is always on-device.")
+        }
         if (addEngineOpen) {
             AddSearchEngineDialog(
                 isNameTaken = { name ->

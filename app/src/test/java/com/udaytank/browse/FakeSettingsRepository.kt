@@ -111,6 +111,9 @@ class FakeSettingsRepository : SettingsRepository {
     override val blackHoleGesture = MutableStateFlow(false)
     override suspend fun setBlackHoleGesture(enabled: Boolean) { blackHoleGesture.value = enabled }
 
+    override val translateWifiOnly = MutableStateFlow(false)
+    override suspend fun setTranslateWifiOnly(enabled: Boolean) { translateWifiOnly.value = enabled }
+
     override val autoIslands = MutableStateFlow(true)
     override suspend fun setAutoIslands(enabled: Boolean) {
         autoIslands.value = enabled
