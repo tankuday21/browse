@@ -59,6 +59,10 @@ class FakeHistoryDao : HistoryDao {
         entries.value = emptyList()
     }
 
+    override suspend fun clearSince(cutoff: Long) {
+        entries.value = entries.value.filterNot { it.visitedAt >= cutoff }
+    }
+
     override suspend fun topVisited(orbitId: Long, limit: Int): List<TopVisitedRow> =
         entries.value
             .filter { it.orbitId == orbitId }

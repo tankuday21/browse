@@ -1685,9 +1685,19 @@ class BrowserViewModel(
         viewModelScope.launch { historyDao.clearForOrbit(activeOrbitId.value) }
     }
 
-    /** Clears history across every Orbit — the Settings "Clear browsing data" (all-Orbits) path. */
-    fun onClearAllHistory() {
-        viewModelScope.launch { historyDao.clearAll() }
+    /**
+     * Clears history across every Orbit for a time range (v6.14) — the Settings "Clear browsing
+     * data" (all-Orbits) path. ALL_TIME wipes everything; other ranges delete only rows newer than
+     * the cutoff. (Cookies/cache are cleared separately and always in full — no WebView range API.)
+     */
+    fun onClearHistoryRange(range: com.udaytank.browse.browser.ClearDataRange) {
+        viewModelScope.launch {
+            if (range == com.udaytank.browse.browser.ClearDataRange.ALL_TIME) {
+                historyDao.clearAll()
+            } else {
+                historyDao.clearSince(range.cutoff(System.currentTimeMillis()))
+            }
+        }
     }
 
     /**

@@ -48,6 +48,10 @@ interface HistoryDao {
     @Query("DELETE FROM history")
     suspend fun clearAll()
 
+    /** Clears history newer than [cutoff] across every Orbit (v6.14 time-range clear). */
+    @Query("DELETE FROM history WHERE visitedAt >= :cutoff")
+    suspend fun clearSince(cutoff: Long)
+
     /** Most-visited URLs in one Orbit (for that Orbit's home quick dials). */
     @Query(
         "SELECT url, title, COUNT(*) AS visits FROM history WHERE orbitId = :orbitId " +
