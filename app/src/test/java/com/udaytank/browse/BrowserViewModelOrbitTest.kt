@@ -494,6 +494,30 @@ class BrowserViewModelOrbitTest {
         assertEquals("www.example.com", fp.candidates.single().host)
     }
 
+    // --- v6.14 clear browsing data by time range ---
+
+    @Test
+    fun `onClearHistoryRange clears only recent rows, ALL_TIME clears everything`() = runTest {
+        val historyDao = FakeHistoryDao()
+        val vm = vm(historyDao = historyDao)
+        advanceUntilIdle()
+        val now = System.currentTimeMillis()
+        historyDao.insert(HistoryEntry(url = "https://recent.com", title = "R", visitedAt = now, orbitId = 1))
+        historyDao.insert(
+            HistoryEntry(url = "https://old.com", title = "O", visitedAt = now - 2 * 86_400_000L, orbitId = 1),
+        )
+
+        // Last 24h removes the recent row and keeps the 2-day-old one.
+        vm.onClearHistoryRange(com.udaytank.browse.browser.ClearDataRange.LAST_24H)
+        advanceUntilIdle()
+        assertEquals(listOf("https://old.com"), historyDao.entries.value.map { it.url })
+
+        // All time removes the rest.
+        vm.onClearHistoryRange(com.udaytank.browse.browser.ClearDataRange.ALL_TIME)
+        advanceUntilIdle()
+        assertTrue(historyDao.entries.value.isEmpty())
+    }
+
     // --- v6.9 duplicate tab ---
 
     @Test

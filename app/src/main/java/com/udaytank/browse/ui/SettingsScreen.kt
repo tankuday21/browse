@@ -47,6 +47,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -738,6 +741,7 @@ private fun PrivacySecuritySettings(
     val lockIncognito by viewModel.lockIncognito.collectAsStateWithLifecycle()
     val lockPasswords by viewModel.lockPasswords.collectAsStateWithLifecycle()
     var showClearDialog by remember { mutableStateOf(false) }
+    var clearRange by remember { mutableStateOf(com.udaytank.browse.browser.ClearDataRange.LAST_HOUR) }
     var showBlackHoleDialog by remember { mutableStateOf(false) }
 
     CategoryScaffold(title = "Privacy & security", onBack = onBack) {
@@ -856,7 +860,9 @@ private fun PrivacySecuritySettings(
 
         Spacer(Modifier.height(OrbitSpacing.xl))
         TextButton(
-            onClick = { showClearDialog = true },
+            // Re-assert the least-destructive default every open, so a prior "All time" choice
+            // can't linger and be cleared by a careless tap (review: destructive-action safety).
+            onClick = { clearRange = com.udaytank.browse.browser.ClearDataRange.LAST_HOUR; showClearDialog = true },
             modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
         ) {
             Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
@@ -903,10 +909,28 @@ private fun PrivacySecuritySettings(
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
             title = { Text("Clear browsing data?") },
-            text = { Text("Deletes your history, cookies, and cached files. Bookmarks are kept.") },
+            text = {
+                Column {
+                    Text(
+                        "Deletes history for the chosen range. Cookies and cached files are always " +
+                            "cleared in full. Bookmarks are kept.",
+                    )
+                    Spacer(Modifier.height(OrbitSpacing.md))
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        val ranges = com.udaytank.browse.browser.ClearDataRange.entries
+                        ranges.forEachIndexed { index, range ->
+                            SegmentedButton(
+                                selected = clearRange == range,
+                                onClick = { clearRange = range },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = ranges.size),
+                            ) { Text(range.label) }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.onClearAllHistory()
+                    viewModel.onClearHistoryRange(clearRange)
                     onClearBrowsingData()
                     showClearDialog = false
                     Toast.makeText(context, "Browsing data cleared", Toast.LENGTH_SHORT).show()
