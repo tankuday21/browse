@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,8 +77,10 @@ fun BookmarksScreen(
     val sections = remember(bookmarks) { BookmarkFolders.sections(bookmarks) }
     val allFolders = remember(bookmarks) { BookmarkFolders.folders(bookmarks) }
     val hasNamedFolders = sections.any { it.first != null }
-    // Collapse state per folder, defaulting to expanded (absent = expanded).
+    // Collapse state per folder, defaulting to expanded (absent = expanded). Pruned to the folders
+    // that currently exist so a removed-then-recreated folder doesn't inherit a stale collapse.
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    LaunchedEffect(allFolders) { collapsed.keys.retainAll(allFolders.toSet()) }
     // When non-null, the new-folder dialog is open for this bookmark URL.
     var newFolderForUrl by remember { mutableStateOf<String?>(null) }
 
@@ -97,21 +100,24 @@ fun BookmarksScreen(
             )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                sections.forEach { (folder, items) ->
+                sections.forEach { (folder, rows) ->
+                    // Header keys ("hdr:") and the ungrouped key are in a disjoint namespace from
+                    // both named-folder keys and the Long row keys, so no user folder name (even
+                    // literally "__ungrouped__") can collide.
                     if (folder != null) {
-                        item(key = "folder:$folder") {
+                        item(key = "hdr:$folder") {
                             FolderHeader(
                                 name = folder,
-                                count = items.size,
+                                count = rows.size,
                                 collapsed = collapsed[folder] == true,
                                 onToggle = { collapsed[folder] = !(collapsed[folder] ?: false) },
                             )
                         }
                     } else if (hasNamedFolders) {
-                        item(key = "folder:__ungrouped__") { UngroupedHeader() }
+                        item(key = "hdr-ungrouped") { UngroupedHeader() }
                     }
                     if (folder == null || collapsed[folder] != true) {
-                        items(items, key = { it.id }) { bookmark ->
+                        items(rows, key = { it.id }) { bookmark ->
                             BookmarkRow(
                                 bookmark = bookmark,
                                 folders = allFolders,

@@ -65,6 +65,16 @@ class BookmarkFoldersTest {
     }
 
     @Test
+    fun `folder identity is case-sensitive but sorts case-insensitively`() {
+        val list = listOf(bm("https://a", "Work"), bm("https://b", "work"))
+        // Two distinct sections (case-sensitive identity), adjacent in the case-insensitive sort.
+        val sections = BookmarkFolders.sections(list)
+        assertEquals(listOf("Work", "work"), sections.map { it.first })
+        assertEquals(listOf("https://a"), sections[0].second.map { it.url })
+        assertEquals(listOf("https://b"), sections[1].second.map { it.url })
+    }
+
+    @Test
     fun `empty input yields no sections`() {
         assertEquals(emptyList<Pair<String?, List<Bookmark>>>(), BookmarkFolders.sections(emptyList()))
     }
