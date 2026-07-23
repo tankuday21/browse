@@ -860,7 +860,9 @@ private fun PrivacySecuritySettings(
 
         Spacer(Modifier.height(OrbitSpacing.xl))
         TextButton(
-            onClick = { showClearDialog = true },
+            // Re-assert the least-destructive default every open, so a prior "All time" choice
+            // can't linger and be cleared by a careless tap (review: destructive-action safety).
+            onClick = { clearRange = com.udaytank.browse.browser.ClearDataRange.LAST_HOUR; showClearDialog = true },
             modifier = Modifier.padding(horizontal = OrbitSpacing.lg),
         ) {
             Text("Clear browsing data", color = MaterialTheme.colorScheme.error)
