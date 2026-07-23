@@ -353,6 +353,7 @@ private fun SavedArticleReader(
     val fontScale by viewModel.readerFontScale.collectAsStateWithLifecycle()
     val theme by viewModel.readerTheme.collectAsStateWithLifecycle()
     val wide by viewModel.readerWide.collectAsStateWithLifecycle()
+    val readerFont by viewModel.readerFont.collectAsStateWithLifecycle()
 
     var loaded by remember(entry.id) { mutableStateOf(false) }
     var content by remember(entry.id) { mutableStateOf<String?>(null) }
@@ -375,6 +376,7 @@ private fun SavedArticleReader(
                 systemDark = dark,
                 fontScale = fontScale,
                 wide = wide,
+                font = readerFont,
             )
             val background = MaterialTheme.colorScheme.surface
             AndroidView(
@@ -410,9 +412,11 @@ private fun SavedArticleReader(
                     fontScale = fontScale,
                     theme = theme,
                     wide = wide,
+                    font = readerFont,
                     onFontScale = viewModel::onReaderFontScaleChanged,
                     onTheme = viewModel::onReaderThemeSelected,
                     onWide = viewModel::onReaderWideToggled,
+                    onFont = viewModel::onReaderFontSelected,
                 )
             }
         }

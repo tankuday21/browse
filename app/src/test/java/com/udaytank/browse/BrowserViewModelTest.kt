@@ -1289,6 +1289,7 @@ class BrowserViewModelTest {
         val settings = FakeSettingsRepository()
         settings.setSearchEngine(SearchEngine.BING)
         settings.setReaderFontScale(130)
+        settings.setReaderFont(com.udaytank.browse.data.ReaderFont.SERIF)
         val vm = vm(
             bookmarkDao = bookmarkDao, homeShortcutDao = shortcutDao,
             readingListDao = readingDao, tabGroupDao = groupDao, settings = settings,
@@ -1310,6 +1311,7 @@ class BrowserViewModelTest {
         decoded!!
         assertEquals("BING", decoded.settings["searchEngine"])
         assertEquals("130", decoded.settings["readerFontScale"])
+        assertEquals("SERIF", decoded.settings["readerFont"])
         assertEquals("Work", decoded.bookmarks.single().folder)
         assertEquals("https://b.com", decoded.homeShortcuts.single().url)
         // Reading list travels as metadata only - never a device file path.

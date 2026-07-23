@@ -1,5 +1,6 @@
 package com.udaytank.browse.browser
 
+import com.udaytank.browse.data.ReaderFont
 import com.udaytank.browse.data.ReaderTheme
 import java.util.Locale
 import kotlin.math.round
@@ -119,6 +120,7 @@ object ReaderMode {
         systemDark: Boolean,
         fontScale: Int,
         wide: Boolean,
+        font: ReaderFont = ReaderFont.SANS,
     ): String {
         val resolved = when (theme) {
             ReaderTheme.SYSTEM -> if (systemDark) ReaderTheme.DARK else ReaderTheme.LIGHT
@@ -131,6 +133,10 @@ object ReaderMode {
         }
         val scheme = if (resolved == ReaderTheme.DARK) "dark" else "light"
         val fontSize = formatPx(19.0 * fontScale / 100.0)
+        val fontFamily = when (font) {
+            ReaderFont.SERIF -> "Georgia,'Times New Roman',serif"
+            ReaderFont.SANS -> "-apple-system,Roboto,sans-serif"
+        }
         val widthCss = if (wide) "" else " max-width:680px;"
         // v6.11: an estimated reading time under the title (omitted for an empty body).
         val readingTime = ReadingTime.label(contentHtml)
@@ -142,7 +148,7 @@ object ReaderMode {
             <style>
               :root { color-scheme: $scheme; }
               body { background:$bg; color:$fg; margin:0 auto; padding:24px 20px 96px;$widthCss
-                     font-family:-apple-system,Roboto,sans-serif; font-size:${fontSize}px; line-height:1.7; }
+                     font-family:$fontFamily; font-size:${fontSize}px; line-height:1.7; }
               h1 { font-size:28px; line-height:1.25; margin:0 0 8px; }
               .reading-time { opacity:.6; font-size:15px; margin:0 0 24px; }
               h2,h3 { line-height:1.3; margin-top:32px; }

@@ -838,8 +838,15 @@ class BrowserViewModel(
     val readerWide: StateFlow<Boolean> = settings.readerWide
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val readerFont: StateFlow<com.udaytank.browse.data.ReaderFont> = settings.readerFont
+        .stateIn(viewModelScope, SharingStarted.Eagerly, com.udaytank.browse.data.ReaderFont.SANS)
+
     fun onReaderFontScaleChanged(percent: Int) {
         viewModelScope.launch { settings.setReaderFontScale(percent) }
+    }
+
+    fun onReaderFontSelected(font: com.udaytank.browse.data.ReaderFont) {
+        viewModelScope.launch { settings.setReaderFont(font) }
     }
 
     fun onReaderThemeSelected(theme: ReaderTheme) {
@@ -1796,6 +1803,7 @@ class BrowserViewModel(
         "textScale" to settings.textScale.first().toString(),
         "readerTheme" to settings.readerTheme.first().name,
         "readerWide" to settings.readerWide.first().toString(),
+        "readerFont" to settings.readerFont.first().name,
         "safeBrowsing" to settings.safeBrowsing.first().toString(),
         "dismissCookieBanners" to settings.dismissCookieBanners.first().toString(),
         "gpcEnabled" to settings.gpcEnabled.first().toString(),
@@ -1910,6 +1918,8 @@ class BrowserViewModel(
         map["readerTheme"]?.let { v -> ReaderTheme.entries.find { it.name == v } }
             ?.let { settings.setReaderTheme(it) }
         map["readerWide"]?.toBooleanStrictOrNull()?.let { settings.setReaderWide(it) }
+        map["readerFont"]?.let { v -> com.udaytank.browse.data.ReaderFont.entries.find { it.name == v } }
+            ?.let { settings.setReaderFont(it) }
         map["safeBrowsing"]?.toBooleanStrictOrNull()?.let { settings.setSafeBrowsing(it) }
         map["dismissCookieBanners"]?.toBooleanStrictOrNull()?.let { settings.setDismissCookieBanners(it) }
         map["gpcEnabled"]?.toBooleanStrictOrNull()?.let { settings.setGpcEnabled(it) }
