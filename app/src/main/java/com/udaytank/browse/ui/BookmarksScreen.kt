@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.udaytank.browse.BrowserViewModel
 import com.udaytank.browse.browser.BookmarkFolders
+import com.udaytank.browse.browser.BookmarkSearch
 import com.udaytank.browse.data.Bookmark
 import com.udaytank.browse.data.OrbitEntity
 import com.udaytank.browse.ui.components.FaviconOrLetter
@@ -83,6 +85,8 @@ fun BookmarksScreen(
     LaunchedEffect(allFolders) { collapsed.keys.retainAll(allFolders.toSet()) }
     // When non-null, the new-folder dialog is open for this bookmark URL.
     var newFolderForUrl by remember { mutableStateOf<String?>(null) }
+    // v6.12 search: blank = grouped folder view; non-blank = flat filtered list.
+    var query by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -99,33 +103,68 @@ fun BookmarksScreen(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
             )
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                sections.forEach { (folder, rows) ->
-                    // Header keys ("hdr:") and the ungrouped key are in a disjoint namespace from
-                    // both named-folder keys and the Long row keys, so no user folder name (even
-                    // literally "__ungrouped__") can collide.
-                    if (folder != null) {
-                        item(key = "hdr:$folder") {
-                            FolderHeader(
-                                name = folder,
-                                count = rows.size,
-                                collapsed = collapsed[folder] == true,
-                                onToggle = { collapsed[folder] = !(collapsed[folder] ?: false) },
-                            )
+            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                OrbitTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = "Search bookmarks",
+                    leadingIcon = Icons.Filled.Search,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = OrbitSpacing.lg, vertical = OrbitSpacing.sm),
+                )
+                val q = query.trim()
+                if (q.isEmpty()) {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        sections.forEach { (folder, rows) ->
+                            // Header keys ("hdr:") and the ungrouped key are in a disjoint namespace
+                            // from both named-folder keys and the Long row keys, so no user folder
+                            // name (even literally "__ungrouped__") can collide.
+                            if (folder != null) {
+                                item(key = "hdr:$folder") {
+                                    FolderHeader(
+                                        name = folder,
+                                        count = rows.size,
+                                        collapsed = collapsed[folder] == true,
+                                        onToggle = { collapsed[folder] = !(collapsed[folder] ?: false) },
+                                    )
+                                }
+                            } else if (hasNamedFolders) {
+                                item(key = "hdr-ungrouped") { UngroupedHeader() }
+                            }
+                            if (folder == null || collapsed[folder] != true) {
+                                items(rows, key = { it.id }) { bookmark ->
+                                    BookmarkRow(
+                                        bookmark = bookmark,
+                                        folders = allFolders,
+                                        onClick = { onOpenUrl(bookmark.url) },
+                                        onMoveToFolder = { viewModel.onSetBookmarkFolder(bookmark.url, it) },
+                                        onNewFolder = { newFolderForUrl = bookmark.url },
+                                        onDelete = { viewModel.onDeleteBookmark(bookmark.url) },
+                                    )
+                                }
+                            }
                         }
-                    } else if (hasNamedFolders) {
-                        item(key = "hdr-ungrouped") { UngroupedHeader() }
                     }
-                    if (folder == null || collapsed[folder] != true) {
-                        items(rows, key = { it.id }) { bookmark ->
-                            BookmarkRow(
-                                bookmark = bookmark,
-                                folders = allFolders,
-                                onClick = { onOpenUrl(bookmark.url) },
-                                onMoveToFolder = { viewModel.onSetBookmarkFolder(bookmark.url, it) },
-                                onNewFolder = { newFolderForUrl = bookmark.url },
-                                onDelete = { viewModel.onDeleteBookmark(bookmark.url) },
-                            )
+                } else {
+                    val filtered = BookmarkSearch.filter(bookmarks, q)
+                    if (filtered.isEmpty()) {
+                        Text(
+                            "No bookmarks match “$q”",
+                            style = orbitBody,
+                            color = scheme.text.muted,
+                            modifier = Modifier.fillMaxWidth().padding(OrbitSpacing.lg),
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            items(filtered, key = { it.id }) { bookmark ->
+                                BookmarkRow(
+                                    bookmark = bookmark,
+                                    folders = allFolders,
+                                    onClick = { onOpenUrl(bookmark.url) },
+                                    onMoveToFolder = { viewModel.onSetBookmarkFolder(bookmark.url, it) },
+                                    onNewFolder = { newFolderForUrl = bookmark.url },
+                                    onDelete = { viewModel.onDeleteBookmark(bookmark.url) },
+                                )
+                            }
                         }
                     }
                 }
