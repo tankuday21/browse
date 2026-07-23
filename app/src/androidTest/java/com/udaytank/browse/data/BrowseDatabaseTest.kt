@@ -403,13 +403,15 @@ class BrowseDatabaseTest {
         assertEquals(150, stored?.textZoom)
         assertEquals(-1, stored?.forceDark)
         assertEquals(-1, stored?.desktopMode)
+        assertEquals(-1, stored?.blockImages)
 
         // upsert replaces on conflict (same host).
-        dao.upsert(SiteSettingsEntity(host = "a.com", textZoom = 80, forceDark = 1, desktopMode = 0))
+        dao.upsert(SiteSettingsEntity(host = "a.com", textZoom = 80, forceDark = 1, desktopMode = 0, blockImages = 1))
         val replaced = dao.getByHost("a.com")
         assertEquals(80, replaced?.textZoom)
         assertEquals(1, replaced?.forceDark)
         assertEquals(0, replaced?.desktopMode)
+        assertEquals(1, replaced?.blockImages)
 
         dao.upsert(SiteSettingsEntity(host = "b.com"))
         assertEquals(setOf("a.com", "b.com"), dao.observeAll().first().map { it.host }.toSet())
@@ -417,6 +419,32 @@ class BrowseDatabaseTest {
         dao.deleteByHost("a.com")
         assertEquals(null, dao.getByHost("a.com"))
         assertEquals(listOf("b.com"), dao.observeAll().first().map { it.host })
+    }
+
+    @Test
+    fun migrate20to21_addsBlockImagesColumnDefaultingToUnset() {
+        helper.createDatabase(DB, 20).apply {
+            execSQL(
+                "INSERT INTO site_settings (host, textZoom, forceDark, desktopMode) " +
+                    "VALUES ('a.com', 150, 1, 0)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 21, true, BrowseDatabase.MIGRATION_20_21)
+        // Pre-existing columns survive; the new blockImages column defaults to -1 (unset).
+        db.query("SELECT textZoom, forceDark, desktopMode, blockImages FROM site_settings").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(150, c.getInt(0))
+            assertEquals(1, c.getInt(1))
+            assertEquals(0, c.getInt(2))
+            assertEquals(-1, c.getInt(3))
+        }
+        // The column is writable.
+        db.execSQL("UPDATE site_settings SET blockImages = 1 WHERE host = 'a.com'")
+        db.query("SELECT blockImages FROM site_settings").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(1, c.getInt(0))
+        }
     }
 
     @Test

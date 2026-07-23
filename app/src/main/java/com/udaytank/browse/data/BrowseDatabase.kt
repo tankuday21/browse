@@ -27,7 +27,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         CredentialEntity::class,
         PlayerProgressEntity::class,
     ],
-    version = 20,
+    version = 21,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -49,6 +49,15 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v6.7 Data saver: per-site tri-state block-images column on site_settings
+                // (-1 default → follow the global toggle, 0 show, 1 block). Additive, non-null
+                // with a default so existing rows keep "no opinion".
+                db.execSQL("ALTER TABLE site_settings ADD COLUMN blockImages INTEGER NOT NULL DEFAULT -1")
+            }
+        }
 
         val MIGRATION_19_20 = object : Migration(19, 20) {
             override fun migrate(db: SupportSQLiteDatabase) {

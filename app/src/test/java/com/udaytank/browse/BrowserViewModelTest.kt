@@ -1057,18 +1057,43 @@ class BrowserViewModelTest {
     }
 
     @Test
+    fun `site override persists a per-site block-images choice`() = runTest {
+        val siteDao = FakeSiteSettingsDao()
+        val vm = vm(siteSettingsDao = siteDao)
+        advanceUntilIdle()
+        vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
+
+        vm.onSetSiteOverride(blockImages = 1)
+        advanceUntilIdle()
+        assertEquals(1, siteDao.entries.value.single().blockImages)
+    }
+
+    @Test
     fun `setting every field back to default deletes the row instead of storing a no-op`() = runTest {
         val siteDao = FakeSiteSettingsDao()
         val vm = vm(siteSettingsDao = siteDao)
         advanceUntilIdle()
         vm.onPageStarted(vm.activeTabId.value!!, "https://a.com/page")
 
-        vm.onSetSiteOverride(forceDark = 1)
+        // Set every tri-state, then clear each back to -1 — the row must not linger as a no-op.
+        vm.onSetSiteOverride(forceDark = 1, blockImages = 1)
         advanceUntilIdle()
-        vm.onSetSiteOverride(forceDark = -1)
+        vm.onSetSiteOverride(forceDark = -1, blockImages = -1)
         advanceUntilIdle()
 
         assertTrue(siteDao.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `data saver toggle flips the global flag`() = runTest {
+        val settings = FakeSettingsRepository()
+        val vm = vm(settings = settings)
+        advanceUntilIdle()
+        assertFalse(vm.dataSaver.value)
+        vm.onDataSaverToggled(true)
+        advanceUntilIdle()
+        assertTrue(settings.dataSaver.value)
+        assertTrue(vm.dataSaver.value)
     }
 
     @Test

@@ -149,6 +149,7 @@ fun BrowserScreen(
     val siteOverride by viewModel.siteSettingsForCurrentSite.collectAsStateWithLifecycle()
     val globalForceDark by viewModel.forceDark.collectAsStateWithLifecycle()
     val globalTextScale by viewModel.textScale.collectAsStateWithLifecycle()
+    val globalDataSaver by viewModel.dataSaver.collectAsStateWithLifecycle()
     val lifetimeBlocked by viewModel.lifetimeBlocked.collectAsStateWithLifecycle()
     val showGreeting by viewModel.showGreeting.collectAsStateWithLifecycle()
     val showHomeStats by viewModel.showHomeStats.collectAsStateWithLifecycle()
@@ -953,6 +954,9 @@ fun BrowserScreen(
             var draftDesktop by remember(siteOverride?.desktopMode) {
                 mutableStateOf(siteOverride?.desktopMode ?: -1)
             }
+            var draftBlockImages by remember(siteOverride?.blockImages) {
+                mutableStateOf(siteOverride?.blockImages ?: -1)
+            }
             val tabDesktopBaseline = sheetTabId in desktopTabs
             ModalBottomSheet(onDismissRequest = { siteSheetOpen = false }) {
                 Text(
@@ -1012,15 +1016,29 @@ fun BrowserScreen(
                         )
                     },
                 )
+                TriStateChipRow(
+                    label = "Block images",
+                    value = draftBlockImages,
+                    onSelect = { value ->
+                        draftBlockImages = value
+                        viewModel.onSetSiteOverride(blockImages = value)
+                        holder.applyBlockImages(
+                            sheetTabId,
+                            if (value == -1) globalDataSaver else value == 1,
+                        )
+                    },
+                )
                 TextButton(
                     onClick = {
                         viewModel.onClearSiteOverrides()
                         draftZoom = -1
                         draftForceDark = -1
                         draftDesktop = -1
+                        draftBlockImages = -1
                         holder.applyTextZoom(sheetTabId, globalTextScale)
                         holder.applyForceDark(sheetTabId, globalForceDark)
                         holder.applyDesktopMode(sheetTabId, tabDesktopBaseline)
+                        holder.applyBlockImages(sheetTabId, globalDataSaver)
                     },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 ) { Text("Clear for this site") }

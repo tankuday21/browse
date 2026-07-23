@@ -105,6 +105,9 @@ interface SettingsRepository {
     suspend fun clearAdAllowedSites()
     val forceDarkWebsites: Flow<Boolean>
     suspend fun setForceDarkWebsites(enabled: Boolean)
+    /** v6.7 data saver: block network images globally (per-site override wins). Default OFF. */
+    val dataSaver: Flow<Boolean>
+    suspend fun setDataSaver(enabled: Boolean)
     val httpsOnly: Flow<Boolean>
     suspend fun setHttpsOnly(enabled: Boolean)
     val lockIncognito: Flow<Boolean>
@@ -207,6 +210,11 @@ class DataStoreSettingsRepository(
 
     override suspend fun setForceDarkWebsites(enabled: Boolean) {
         dataStore.edit { it[FORCE_DARK_KEY] = enabled }
+    }
+
+    override val dataSaver: Flow<Boolean> = dataStore.data.map { it[DATA_SAVER_KEY] ?: false }
+    override suspend fun setDataSaver(enabled: Boolean) {
+        dataStore.edit { it[DATA_SAVER_KEY] = enabled }
     }
 
     override val httpsOnly: Flow<Boolean> = dataStore.data.map { it[HTTPS_ONLY_KEY] ?: false }
@@ -556,6 +564,7 @@ class DataStoreSettingsRepository(
         val TRANSLATE_TARGET_KEY = stringPreferencesKey("translate_target")
         val BLACK_HOLE_GESTURE_KEY = booleanPreferencesKey("black_hole_gesture")
         val NEVER_SAVE_SITES_KEY = stringSetPreferencesKey("never_save_sites")
+        val DATA_SAVER_KEY = booleanPreferencesKey("data_saver")
         val TRANSLATE_WIFI_ONLY_KEY = booleanPreferencesKey("translate_wifi_only")
         val SEARCH_ENGINE_KEY = stringPreferencesKey("search_engine")
         val THEME_MODE_KEY = stringPreferencesKey("theme_mode")
