@@ -41,6 +41,13 @@ class FakeDownloadDao : DownloadDao {
         }
     }
 
+    override suspend fun markRunningIfLive(id: Long): Int {
+        val row = entries.value.firstOrNull { it.id == id }
+        if (row == null || row.state == "CANCELLED" || row.state == "DONE") return 0
+        entries.value = entries.value.map { if (it.id == id) it.copy(state = "RUNNING") else it }
+        return 1
+    }
+
     override suspend fun setProgress(id: Long, downloaded: Long, total: Long, segmentState: String?) {
         entries.value = entries.value.map {
             if (it.id == id) {

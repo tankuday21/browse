@@ -631,4 +631,32 @@ class BrowseDatabaseTest {
         assertEquals("FAILED", failed?.state)
         assertEquals("network error", failed?.error)
     }
+
+    @Test
+    fun downloadDao_markRunningIfLive_onlyClaimsLiveRows() = runBlocking {
+        val dao = database.downloadDao()
+        // A queued row is claimable → becomes RUNNING, returns 1.
+        val live = dao.insertReturning(
+            DownloadEntry(fileName = "a", url = "https://a", createdAt = 1, state = "PENDING")
+        )
+        assertEquals(1, dao.markRunningIfLive(live))
+        assertEquals("RUNNING", dao.getById(live)?.state)
+
+        // A cancelled row is NOT claimed → stays CANCELLED, returns 0 (the race fix).
+        val cancelled = dao.insertReturning(
+            DownloadEntry(fileName = "b", url = "https://b", createdAt = 2, state = "CANCELLED")
+        )
+        assertEquals(0, dao.markRunningIfLive(cancelled))
+        assertEquals("CANCELLED", dao.getById(cancelled)?.state)
+
+        // A completed row is NOT resurrected → stays DONE, returns 0.
+        val done = dao.insertReturning(
+            DownloadEntry(fileName = "c", url = "https://c", createdAt = 3, state = "DONE")
+        )
+        assertEquals(0, dao.markRunningIfLive(done))
+        assertEquals("DONE", dao.getById(done)?.state)
+
+        // A missing id updates nothing.
+        assertEquals(0, dao.markRunningIfLive(999_999L))
+    }
 }

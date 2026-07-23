@@ -34,6 +34,16 @@ interface DownloadDao {
     @Query("UPDATE downloads SET state = :state, error = :error WHERE id = :id")
     suspend fun setState(id: Long, state: String, error: String? = null)
 
+    /**
+     * Atomically claim a download for RUNNING only if it hasn't been cancelled or already finished
+     * (v6.8 start-path race). Returns the number of rows updated: 1 = claimed, 0 = the row was
+     * CANCELLED/DONE or gone. SQLite serializes writes, so this can't interleave with a concurrent
+     * ACTION_CANCEL's setState(CANCELLED) — exactly one wins, closing the orphan-file / undead-
+     * download race in DownloadService.handleStart.
+     */
+    @Query("UPDATE downloads SET state = 'RUNNING' WHERE id = :id AND state != 'CANCELLED' AND state != 'DONE'")
+    suspend fun markRunningIfLive(id: Long): Int
+
     @Query("UPDATE downloads SET downloadedBytes = :downloaded, totalBytes = :total, segmentState = :segmentState WHERE id = :id")
     suspend fun setProgress(id: Long, downloaded: Long, total: Long, segmentState: String?)
 

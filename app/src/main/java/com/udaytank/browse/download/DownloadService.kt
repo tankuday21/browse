@@ -105,6 +105,15 @@ class DownloadService : Service() {
                 stopIfIdle()
                 return@launch
             }
+            // v6.8 start-path race — fast path: a CANCEL that already landed on a still-queued
+            // download must not be overwritten by a start. Bail before creating any file, so no
+            // orphan is left behind (engine.cancel is a no-op until engine.start registers the id,
+            // and nothing else deletes a file handleStart created).
+            if (entry.state == "CANCELLED") {
+                activeCount.decrementAndGet()
+                stopIfIdle()
+                return@launch
+            }
 
             val dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             dir?.mkdirs()
@@ -112,15 +121,24 @@ class DownloadService : Service() {
             // verbatim, so it keeps writing the same file. Only a first start resolves a fresh,
             // collision-free name from entry.fileName and persists it - never re-derive from the
             // raw fileName on subsequent starts, or two same-named downloads could still collide.
+            val createdThisRun = entry.filePath == null
             val dest = entry.filePath?.let { File(it) } ?: synchronized(nameLock) {
                 val name = UniqueName.resolve(entry.fileName) { candidate -> File(dir, candidate).exists() }
                 File(dir, name).apply { parentFile?.mkdirs(); createNewFile() }
             }
-            if (entry.filePath == null) {
+            if (createdThisRun) {
                 dao.setFileInfo(id, dest.name, dest.absolutePath, entry.mimeType, entry.etag, entry.segments)
             }
 
-            dao.setState(id, "RUNNING")
+            // v6.8: atomically claim RUNNING only if a CANCEL didn't win the race during the file
+            // setup above (and the row isn't already DONE/gone). 0 rows updated → abort and delete
+            // the file we just created, matching the engine's own cancel-deletes-file behaviour.
+            if (dao.markRunningIfLive(id) == 0) {
+                if (createdThisRun) runCatching { dest.delete() }
+                activeCount.decrementAndGet()
+                stopIfIdle()
+                return@launch
+            }
             engine.start(
                 id = id,
                 url = entry.url,
