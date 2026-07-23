@@ -86,18 +86,19 @@ fun ReaderOverlay(
     val fontScale by viewModel.readerFontScale.collectAsStateWithLifecycle()
     val theme by viewModel.readerTheme.collectAsStateWithLifecycle()
     val wide by viewModel.readerWide.collectAsStateWithLifecycle()
+    val readerFont by viewModel.readerFont.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         val current = article
         val html = when {
             current != null -> ReaderMode.buildReaderHtml(
                 current.title, current.content, theme,
-                systemDark = dark, fontScale = fontScale, wide = wide,
+                systemDark = dark, fontScale = fontScale, wide = wide, font = readerFont,
             )
             extractionFailed -> ReaderMode.buildReaderHtml(
                 "No article found",
                 "<p>This page doesn't have a readable article. Tap reader again to return.</p>",
-                theme, systemDark = dark, fontScale = fontScale, wide = wide,
+                theme, systemDark = dark, fontScale = fontScale, wide = wide, font = readerFont,
             )
             else -> null
         }
@@ -139,9 +140,11 @@ fun ReaderOverlay(
                     fontScale = fontScale,
                     theme = theme,
                     wide = wide,
+                    font = readerFont,
                     onFontScale = viewModel::onReaderFontScaleChanged,
                     onTheme = viewModel::onReaderThemeSelected,
                     onWide = viewModel::onReaderWideToggled,
+                    onFont = viewModel::onReaderFontSelected,
                 )
             }
         }
@@ -204,9 +207,11 @@ fun ReaderControls(
     fontScale: Int,
     theme: ReaderTheme,
     wide: Boolean,
+    font: com.udaytank.browse.data.ReaderFont,
     onFontScale: (Int) -> Unit,
     onTheme: (ReaderTheme) -> Unit,
     onWide: (Boolean) -> Unit,
+    onFont: (com.udaytank.browse.data.ReaderFont) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var sheetOpen by remember { mutableStateOf(false) }
@@ -290,6 +295,21 @@ fun ReaderControls(
                         onClick = { onWide(true) },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                     ) { Text("Full") }
+                }
+                Spacer(modifier = Modifier.height(OrbitSpacing.lg))
+                Text("Typeface", style = orbitCaption, color = scheme.text.secondary)
+                Spacer(modifier = Modifier.height(OrbitSpacing.sm))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = font == com.udaytank.browse.data.ReaderFont.SANS,
+                        onClick = { onFont(com.udaytank.browse.data.ReaderFont.SANS) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                    ) { Text("Sans") }
+                    SegmentedButton(
+                        selected = font == com.udaytank.browse.data.ReaderFont.SERIF,
+                        onClick = { onFont(com.udaytank.browse.data.ReaderFont.SERIF) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                    ) { Text("Serif") }
                 }
             }
         }

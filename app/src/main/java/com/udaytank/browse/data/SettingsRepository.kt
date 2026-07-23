@@ -36,6 +36,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 enum class ReaderTheme { SYSTEM, LIGHT, SEPIA, DARK }
 
+/** Reader typeface (v6.13). SANS = the app default; SERIF for long-form comfort. */
+enum class ReaderFont { SANS, SERIF }
+
 /** Home canvas shortcut layout (v3.1 Focused home): one calm row, or the full grid. */
 enum class ShortcutDensity { FEW, MORE }
 
@@ -131,6 +134,9 @@ interface SettingsRepository {
     suspend fun setReaderTheme(theme: ReaderTheme)
     val readerWide: Flow<Boolean>
     suspend fun setReaderWide(wide: Boolean)
+    /** Reader typeface (v6.13). Default SANS. */
+    val readerFont: Flow<ReaderFont>
+    suspend fun setReaderFont(font: ReaderFont)
     /** First-run onboarding finished (J2). Device-local — deliberately never backed up. */
     val onboardingDone: Flow<Boolean>
     suspend fun setOnboardingDone(done: Boolean)
@@ -298,6 +304,14 @@ class DataStoreSettingsRepository(
 
     override suspend fun setReaderWide(wide: Boolean) {
         dataStore.edit { it[READER_WIDE_KEY] = wide }
+    }
+
+    override val readerFont: Flow<ReaderFont> = dataStore.data.map { prefs ->
+        prefs[READER_FONT_KEY]?.let { stored -> ReaderFont.entries.find { it.name == stored } } ?: ReaderFont.SANS
+    }
+
+    override suspend fun setReaderFont(font: ReaderFont) {
+        dataStore.edit { it[READER_FONT_KEY] = font.name }
     }
 
     override val onboardingDone: Flow<Boolean> = dataStore.data.map { prefs ->
@@ -590,6 +604,7 @@ class DataStoreSettingsRepository(
         val READER_FONT_SCALE_KEY = intPreferencesKey("reader_font_scale")
         val READER_THEME_KEY = stringPreferencesKey("reader_theme")
         val READER_WIDE_KEY = booleanPreferencesKey("reader_wide")
+        val READER_FONT_KEY = stringPreferencesKey("reader_font")
         val ONBOARDING_DONE_KEY = booleanPreferencesKey("onboarding_done")
         val TEXT_SCALE_KEY = intPreferencesKey("text_scale")
         val ASTEROID_HIGH_SCORE_KEY = intPreferencesKey("asteroid_high_score")

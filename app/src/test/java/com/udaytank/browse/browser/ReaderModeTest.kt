@@ -1,5 +1,6 @@
 package com.udaytank.browse.browser
 
+import com.udaytank.browse.data.ReaderFont
 import com.udaytank.browse.data.ReaderTheme
 import java.util.Locale
 import org.junit.Assert.assertFalse
@@ -15,7 +16,8 @@ class ReaderModeTest {
         systemDark: Boolean = false,
         fontScale: Int = 100,
         wide: Boolean = false,
-    ) = ReaderMode.buildReaderHtml(title, content, theme, systemDark, fontScale, wide)
+        font: ReaderFont = ReaderFont.SANS,
+    ) = ReaderMode.buildReaderHtml(title, content, theme, systemDark, fontScale, wide, font)
 
     @Test
     fun `reader html carries the title and content`() {
@@ -23,6 +25,18 @@ class ReaderModeTest {
         assertTrue(html.contains("My Article"))
         assertTrue(html.contains("<p>Hello world</p>"))
         assertTrue(html.contains("color-scheme: light"))
+    }
+
+    @Test
+    fun `serif font uses a serif family, sans uses the default`() {
+        val serif = build(font = ReaderFont.SERIF)
+        assertTrue(serif.contains("Georgia"))
+        assertTrue(serif.contains("serif"))
+        assertFalse(serif.contains("-apple-system"))
+
+        val sans = build(font = ReaderFont.SANS)
+        assertTrue(sans.contains("-apple-system,Roboto,sans-serif"))
+        assertFalse(sans.contains("Georgia"))
     }
 
     @Test

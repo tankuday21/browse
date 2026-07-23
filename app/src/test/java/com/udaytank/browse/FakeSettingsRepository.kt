@@ -167,6 +167,9 @@ class FakeSettingsRepository : SettingsRepository {
         readerWide.value = wide
     }
 
+    override val readerFont = MutableStateFlow(com.udaytank.browse.data.ReaderFont.SANS)
+    override suspend fun setReaderFont(font: com.udaytank.browse.data.ReaderFont) { readerFont.value = font }
+
     override val onboardingDone = MutableStateFlow(false)
     override suspend fun setOnboardingDone(done: Boolean) {
         onboardingDone.value = done
