@@ -25,16 +25,18 @@ android {
         applicationId = "com.udaytank.andromeda"
         minSdk = 26
         targetSdk = 36
-        versionCode = 42
-        versionName = "6.14"
+        versionCode = 43
+        versionName = "6.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // ML Kit's libtranslate_jni.so ships per-ABI (~64 MB across all four in a universal APK).
-        // Keep only the two ARM ABIs — every real Android phone is arm — dropping x86/x86_64,
-        // which exist essentially only for emulators. Cuts the APK from ~74 MB to ~40 MB (v6.1).
+        // v6.1 dropped x86/x86_64 (emulator-only), cutting ~74 MB to ~40 MB. v6.15 drops the
+        // 32-bit arm copy too: Andromeda targets modern arm64-v8a devices only, so the
+        // armeabi-v7a libtranslate_jni.so (~11 MB) was pure dead weight. Cuts ~37 MB to ~24 MB.
+        // arm32-only devices can no longer install — an accepted trade for modern-device targeting.
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
