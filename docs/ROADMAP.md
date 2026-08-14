@@ -1,6 +1,6 @@
 # Roadmap & backlog
 
-> **Last updated:** 2026-08-14, after v6.15.
+> **Last updated:** 2026-08-14, after v6.16.
 > This is the single list of what is *not* done. When you ship an item, delete it here and add it to
 > [../CHANGELOG.md](../CHANGELOG.md) in the same commit.
 
@@ -21,12 +21,11 @@ first.
 
 ## Tier 1 — Correctness & privacy gaps
 
-Defects and broken promises, not features. All four verified open on 2026-08-14.
+Defects and broken promises, not features.
 
 | Item | Detail | Source |
 |---|---|---|
-| **`closed_tabs` crosses Orbits** | No `orbitId` column, and `SELECT * FROM closed_tabs` is unfiltered — a tab closed in *Work* appears in *Personal* and reopens into the active Orbit ([BrowserViewModel.kt:1314](../app/src/main/java/com/udaytank/browse/BrowserViewModel.kt#L1314)). Incognito is unaffected. Needs a column + migration 21→22 + filtered query. | Found 2026-08-14 |
-| **`reading_list` is not Orbit-scoped** | Saved articles and their offline bodies are global. Decide explicitly: scope it, or document it as intentionally device-level. Currently it is neither. | Found 2026-08-14 |
+| **`reading_list` is not Orbit-scoped** | Saved articles and their offline bodies are global. Decide explicitly: scope it (as `closed_tabs` was in v6.16), or document it as intentionally device-level. Currently it is neither. | Found 2026-08-14 |
 | **User-Agent version drift** | Hardcoded in three places and out of sync: `Andromeda/5.9` in `SuggestionEngine`, `Andromeda/3.2` in `FeedRepository` **and** `WeatherRepository`. Extract one constant from `BuildConfig`. | v5.9 |
 | **Bundle the full Mozilla PSL** | The curated suffix set can over-match between tenants of a SaaS provider it doesn't list. Bounded today by HTTPS + explicit tap + `@host` display, but the real fix is the full list. [ADR-0011](adr/0011-curated-public-suffix-list.md) | v6.5 |
 
@@ -74,6 +73,7 @@ Verified against code on 2026-08-14. These appeared in old deferral notes and ar
 
 | Was listed as deferred | Actually shipped in | Evidence |
 |---|---|---|
+| `closed_tabs` crossing Orbits | **v6.16** | `closed_tabs.orbitId` (migration 21 → 22), per-Orbit `observeRecent`/`trimTo`/`deleteForOrbit` |
 | Biometric gate on passwords | **v5.1** | `_passwordsLocked` defaults to `true`; `LockGate` + `promptPasswordsUnlock()` before `PasswordsScreen` ([MainActivity.kt:1116](../app/src/main/java/com/udaytank/browse/MainActivity.kt#L1116)) |
 | Manual add / edit credentials | **v5.1** | `onAddCredential`, `onEditCredential` in `BrowserViewModel` |
 | QR code generation | **v5.4** | `browser/QrGenerate.kt`, `ui/components/QrShareSheet.kt` |

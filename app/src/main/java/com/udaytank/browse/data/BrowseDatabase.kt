@@ -27,7 +27,7 @@ import com.udaytank.browse.data.feed.RssSourceEntity
         CredentialEntity::class,
         PlayerProgressEntity::class,
     ],
-    version = 21,
+    version = 22,
 )
 abstract class BrowseDatabase : RoomDatabase() {
     abstract fun historyDao(): HistoryDao
@@ -49,6 +49,20 @@ abstract class BrowseDatabase : RoomDatabase() {
     companion object {
         /** Orbit accent blue — default color for the seeded "Personal" Orbit. */
         const val DEFAULT_ORBIT_COLOR = 0xFF2C5BE6.toInt()
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // v6.16: scope recently-closed tabs to their Orbit. Without orbitId, every Orbit
+                // saw (and could reopen) every other Orbit's closed tabs.
+                db.execSQL("ALTER TABLE closed_tabs ADD COLUMN orbitId INTEGER")
+                // DELIBERATE deviation from the backfill convention used by 15->16 / 16->17 /
+                // 18->19: legacy rows are UNATTRIBUTABLE (they were global), so assigning them to
+                // the first Orbit would preserve the very leak this release fixes -- one profile's
+                // URLs surfacing in another. Recently-closed is ephemeral, low-value data, so the
+                // privacy-correct migration is to discard it.
+                db.execSQL("DELETE FROM closed_tabs")
+            }
+        }
 
         val MIGRATION_20_21 = object : Migration(20, 21) {
             override fun migrate(db: SupportSQLiteDatabase) {

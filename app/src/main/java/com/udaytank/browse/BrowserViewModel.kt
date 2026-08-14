@@ -668,6 +668,9 @@ class BrowserViewModel(
             bookmarkDao.deleteForOrbit(id)
             homeShortcutDao.deleteForOrbit(id)
             credentialRepository?.deleteForOrbit(id)
+            // v6.16: closeTab above files each tab under this Orbit, so purge those rows too —
+            // otherwise a deleted Orbit's closed tabs outlive it (invisible, but on disk).
+            closedTabDao.deleteForOrbit(id)
             // Downloads (v5.5): cancel anything still transferring (PAUSED included — its
             // notification must not outlive the Orbit), delete the on-disk files (their paths
             // live in the rows we're about to drop), THEN drop the rows. Known residual (same
@@ -718,7 +721,10 @@ class BrowserViewModel(
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val recentlyClosed: StateFlow<List<ClosedTabEntity>> = closedTabDao.observeRecent(100)
+    // Orbit-scoped (v6.16): recently-closed must not cross profiles. Eagerly retained — the tab
+    // switcher reads this immediately, before any subscriber settles.
+    val recentlyClosed: StateFlow<List<ClosedTabEntity>> = activeOrbitId
+        .flatMapLatest { orbitId -> closedTabDao.observeRecent(orbitId, 100) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _uiState = MutableStateFlow(BrowserUiState())
@@ -1313,7 +1319,10 @@ class BrowserViewModel(
 
     fun onReopenClosed(entry: ClosedTabEntity) {
         viewModelScope.launch {
-            tabManager.newTab(entry.url, orbitId = activeOrbitId.value)
+            // v6.16: reopen into the entry's OWN Orbit. Since the list is now Orbit-filtered these
+            // normally agree; preferring entry.orbitId makes the intent explicit and keeps a stale
+            // list item (Orbit switched mid-tap) from landing a URL in the wrong profile.
+            tabManager.newTab(entry.url, orbitId = entry.orbitId ?: activeOrbitId.value)
             closedTabDao.deleteById(entry.id)
         }
     }

@@ -422,6 +422,50 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate21to22_addsClosedTabOrbitIdAndDiscardsUnattributableRows() {
+        helper.createDatabase(DB, 21).apply {
+            execSQL(
+                "INSERT INTO closed_tabs (url, title, closedAt) " +
+                    "VALUES ('https://legacy.com', 'Legacy', 1000)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 22, true, BrowseDatabase.MIGRATION_21_22)
+
+        // Legacy rows are DISCARDED, not backfilled: they were global, so there is no Orbit they
+        // can honestly be attributed to, and assigning them to the first Orbit would preserve the
+        // very cross-profile leak v6.16 fixes.
+        db.query("SELECT COUNT(*) FROM closed_tabs").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(0, c.getInt(0))
+        }
+
+        // The new column exists, is writable, and filters per Orbit.
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://work.com', 'Work', 2000, 2)"
+        )
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://personal.com', 'Personal', 3000, 1)"
+        )
+        db.query("SELECT url FROM closed_tabs WHERE orbitId = 2").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("https://work.com", c.getString(0))
+            assertEquals(1, c.count)
+        }
+        // A NULL-orbit row must match no Orbit's filter — fail-closed.
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://orphan.com', 'Orphan', 4000, NULL)"
+        )
+        db.query("SELECT COUNT(*) FROM closed_tabs WHERE orbitId = 1").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(1, c.getInt(0))
+        }
+    }
+
+    @Test
     fun migrate20to21_addsBlockImagesColumnDefaultingToUnset() {
         helper.createDatabase(DB, 20).apply {
             execSQL(

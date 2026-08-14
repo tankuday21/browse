@@ -124,6 +124,98 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `recently closed is orbit-scoped and never crosses profiles`() = runTest {
+        // v6.16 headline fix: closed_tabs had no orbitId and was read unfiltered, so a tab closed
+        // in Work showed up in Personal's recently-closed list and reopened into it.
+        val vm = vm()
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        // Close a Work tab.
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://work-secret.com", "Work Secret")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+
+        // Positive control: it IS visible in the Orbit it was closed in.
+        assertTrue(vm.recentlyClosed.value.any { it.url == "https://work-secret.com" })
+
+        // The real assertion: invisible from the other Orbit.
+        vm.onSwitchOrbit(personalId)
+        advanceUntilIdle()
+        assertTrue(
+            "a Work closed tab must not be visible in Personal",
+            vm.recentlyClosed.value.none { it.url == "https://work-secret.com" },
+        )
+    }
+
+    @Test
+    fun `reopening a closed tab lands in that entry's own orbit`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://reopen.com", "Reopen")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+
+        val entry = vm.recentlyClosed.value.first { it.url == "https://reopen.com" }
+        assertEquals(work.id, entry.orbitId)
+
+        vm.onReopenClosed(entry)
+        advanceUntilIdle()
+
+        val reopened = vm.tabs.value.first { it.url == "https://reopen.com" }
+        assertEquals(work.id, reopened.orbitId)
+    }
+
+    @Test
+    fun `deleting an orbit purges its closed tabs`() = runTest {
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://gone.com", "Gone")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+        // Positive control: the row exists before the delete.
+        assertTrue(closedTabs.entries.value.any { it.url == "https://gone.com" })
+
+        vm.onSwitchOrbit(personalId)
+        advanceUntilIdle()
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        assertTrue(
+            "a deleted Orbit's closed tabs must not survive it",
+            closedTabs.entries.value.none { it.orbitId == work.id },
+        )
+    }
+
+    @Test
     fun `a page finishing is recorded against its own tab's orbit, not the active one`() = runTest {
         // The headline Phase 2 invariant: a late/background onPageFinished for a tab that lives in
         // Orbit A must land in A's history even if the user has since switched active to Orbit B.

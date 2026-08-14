@@ -160,9 +160,21 @@ class TabManager(
     suspend fun closeTab(id: Long, homeUrl: String) {
         val next = TabClosePolicy.nextActiveId(_tabs.value, closingId = id, activeId = _activeTabId.value)
         val closing = _tabs.value.find { it.id == id }
-        if (closing != null && !isIncognitoId(id)) {
-            closedTabDao.insert(ClosedTabEntity(url = closing.url, title = closing.title, closedAt = now()))
-            closedTabDao.trimTo(100)
+        // v6.16: record against the CLOSING TAB's own Orbit, not the active one, so closing a tab
+        // that belongs to another Orbit files it under the right profile. The null guard covers the
+        // documented first-install window where initialize can create a tab before an Orbit is
+        // seeded — such a tab yields no recently-closed row rather than an invisible orphan.
+        val closingOrbitId = closing?.orbitId
+        if (closing != null && !isIncognitoId(id) && closingOrbitId != null) {
+            closedTabDao.insert(
+                ClosedTabEntity(
+                    url = closing.url,
+                    title = closing.title,
+                    closedAt = now(),
+                    orbitId = closingOrbitId,
+                )
+            )
+            closedTabDao.trimTo(closingOrbitId, 100)
         }
         _tabs.value = _tabs.value.filterNot { it.id == id }
         if (!isIncognitoId(id)) tabDao.deleteById(id)
