@@ -11,7 +11,10 @@ captures/
 *.apk
 *.aab
 keystore.properties
+# Catch every variant (.bak/.old/.orig/copies) — these hold signing credentials.
+keystore.properties*
 *.jks
+*.keystore
 
 # Subagent-driven-development scratch ledger
 .superpowers/
