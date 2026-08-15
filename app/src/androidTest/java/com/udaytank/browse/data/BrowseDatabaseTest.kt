@@ -173,13 +173,31 @@ class BrowseDatabaseTest {
     }
 
     @Test
-    fun closedTabDao_trimsToCap() = runBlocking {
+    fun closedTabDao_trimsPerOrbitAndFiltersByOrbit() = runBlocking {
+        // v6.16: the ring is PER ORBIT and reads are Orbit-filtered. This is the real-SQL cover for
+        // both (the JVM tests exercise the fake).
         val dao = database.closedTabDao()
-        repeat(105) { dao.insert(ClosedTabEntity(url = "https://x$it.com", title = "x$it", closedAt = it.toLong())) }
-        dao.trimTo(100)
-        val recent = dao.observeRecent(200).first()
-        assertEquals(100, recent.size)
-        assertEquals("x104", recent.first().title) // newest kept, ordered newest-first
+        repeat(105) {
+            dao.insert(
+                ClosedTabEntity(url = "https://x$it.com", title = "x$it", closedAt = it.toLong(), orbitId = 1L)
+            )
+        }
+        dao.insert(ClosedTabEntity(url = "https://other.com", title = "other", closedAt = 500L, orbitId = 2L))
+        dao.insert(ClosedTabEntity(url = "https://orphan.com", title = "orphan", closedAt = 600L, orbitId = null))
+
+        dao.trimTo(orbitId = 1L, max = 100)
+
+        val orbit1 = dao.observeRecent(1L, 200).first()
+        assertEquals(100, orbit1.size)
+        assertEquals("x104", orbit1.first().title) // newest kept, ordered newest-first
+
+        // Trimming Orbit 1 must not evict Orbit 2's entry.
+        val orbit2 = dao.observeRecent(2L, 200).first()
+        assertEquals(listOf("other"), orbit2.map { it.title })
+
+        // A NULL-orbit row matches no Orbit's filter — fail-closed, never misfiled.
+        assertTrue(orbit1.none { it.title == "orphan" })
+        assertTrue(orbit2.none { it.title == "orphan" })
     }
 
     @Test
@@ -422,6 +440,50 @@ class BrowseDatabaseTest {
     }
 
     @Test
+    fun migrate21to22_addsClosedTabOrbitIdAndDiscardsUnattributableRows() {
+        helper.createDatabase(DB, 21).apply {
+            execSQL(
+                "INSERT INTO closed_tabs (url, title, closedAt) " +
+                    "VALUES ('https://legacy.com', 'Legacy', 1000)"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 22, true, BrowseDatabase.MIGRATION_21_22)
+
+        // Legacy rows are DISCARDED, not backfilled: they were global, so there is no Orbit they
+        // can honestly be attributed to, and assigning them to the first Orbit would preserve the
+        // very cross-profile leak v6.16 fixes.
+        db.query("SELECT COUNT(*) FROM closed_tabs").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(0, c.getInt(0))
+        }
+
+        // The new column exists, is writable, and filters per Orbit.
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://work.com', 'Work', 2000, 2)"
+        )
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://personal.com', 'Personal', 3000, 1)"
+        )
+        db.query("SELECT url FROM closed_tabs WHERE orbitId = 2").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("https://work.com", c.getString(0))
+            assertEquals(1, c.count)
+        }
+        // A NULL-orbit row must match no Orbit's filter — fail-closed.
+        db.execSQL(
+            "INSERT INTO closed_tabs (url, title, closedAt, orbitId) " +
+                "VALUES ('https://orphan.com', 'Orphan', 4000, NULL)"
+        )
+        db.query("SELECT COUNT(*) FROM closed_tabs WHERE orbitId = 1").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(1, c.getInt(0))
+        }
+    }
+
+    @Test
     fun migrate20to21_addsBlockImagesColumnDefaultingToUnset() {
         helper.createDatabase(DB, 20).apply {
             execSQL(
@@ -450,13 +512,18 @@ class BrowseDatabaseTest {
     @Test
     fun migrate13to14_seedsPersonalOrbitAndAssignsNonIncognitoTabs() {
         helper.createDatabase(DB, 13).apply {
+            // pinned/locked are NOT NULL from migration 5->6. The ALTER TABLE that added them
+            // carried a DEFAULT, but createDatabase(13) builds the schema from 13.json, and Room
+            // emits no DEFAULT clause for a non-null Boolean — so these columns must be supplied
+            // explicitly. (This test had never actually been executed; omitting them threw
+            // SQLiteConstraintException the first time it ran on a device.)
             execSQL(
-                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
-                    "VALUES ('https://a.com', 'A', 0, 1, 0)"
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0, 0, 0)"
             )
             execSQL(
-                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
-                    "VALUES ('https://incognito.com', 'Incognito', 1, 0, 1)"
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://incognito.com', 'Incognito', 1, 0, 1, 0, 0)"
             )
             close()
         }

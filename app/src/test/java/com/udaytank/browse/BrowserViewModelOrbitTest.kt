@@ -1,7 +1,9 @@
 package com.udaytank.browse
 
+import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.HistoryEntry
 import com.udaytank.browse.data.OrbitRepository
+import com.udaytank.browse.data.TabEntity
 import com.udaytank.browse.reading.ArticleStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -121,6 +123,237 @@ class BrowserViewModelOrbitTest {
         assertTrue(vm.tabs.value.none { it.orbitId == work.id })
         assertTrue(vm.orbits.value.none { it.id == work.id })
         assertEquals(personalId, vm.activeOrbitId.value)
+    }
+
+    @Test
+    fun `recently closed is orbit-scoped and never crosses profiles`() = runTest {
+        // v6.16 headline fix: closed_tabs had no orbitId and was read unfiltered, so a tab closed
+        // in Work showed up in Personal's recently-closed list and reopened into it.
+        val vm = vm()
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        // Close a Work tab.
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://work-secret.com", "Work Secret")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+
+        // Positive control: it IS visible in the Orbit it was closed in.
+        assertTrue(vm.recentlyClosed.value.any { it.url == "https://work-secret.com" })
+
+        // The real assertion: invisible from the other Orbit.
+        vm.onSwitchOrbit(personalId)
+        advanceUntilIdle()
+        assertTrue(
+            "a Work closed tab must not be visible in Personal",
+            vm.recentlyClosed.value.none { it.url == "https://work-secret.com" },
+        )
+    }
+
+    @Test
+    fun `reopening a closed tab lands in that entry's own orbit`() = runTest {
+        val vm = vm()
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://reopen.com", "Reopen")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+
+        val entry = vm.recentlyClosed.value.first { it.url == "https://reopen.com" }
+        assertEquals(work.id, entry.orbitId)
+
+        vm.onReopenClosed(entry)
+        advanceUntilIdle()
+
+        val reopened = vm.tabs.value.first { it.url == "https://reopen.com" }
+        assertEquals(work.id, reopened.orbitId)
+    }
+
+    @Test
+    fun `deleting an orbit purges its closed tabs`() = runTest {
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://gone.com", "Gone")
+        advanceUntilIdle()
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+        // Positive control asserts the ORBIT too. Without that, a regression that filed the row
+        // under Personal would satisfy both this and the post-condition — the test would report
+        // success having purged nothing.
+        assertTrue(
+            closedTabs.entries.value.any { it.url == "https://gone.com" && it.orbitId == work.id },
+        )
+
+        vm.onSwitchOrbit(personalId)
+        advanceUntilIdle()
+        vm.onDeleteOrbit(work.id)
+        advanceUntilIdle()
+
+        assertTrue(
+            "a deleted Orbit's closed tabs must not survive it",
+            closedTabs.entries.value.none { it.url == "https://gone.com" },
+        )
+    }
+
+    @Test
+    fun `Undo restores the tab that was closed, even after switching Orbit`() = runTest {
+        // The v6.16 review regression: the Undo snackbar used to reopen "newest entry in the current
+        // Orbit's list". Once that list became Orbit-filtered, switching Orbit before tapping Undo
+        // restored the OTHER profile's newest closed tab. onRestoreTab takes the tab itself.
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+        val personalId = vm.activeOrbitId.value
+
+        // Give Personal its own CLOSED tab — the entry the old "newest in the list" heuristic would
+        // grab. It must be closed, not merely open, to sit in recentlyClosed. Use a second tab so
+        // closing it doesn't trigger the last-tab-reopens-home path.
+        vm.onNewTab()
+        advanceUntilIdle()
+        val decoyTab = vm.tabs.value.last { it.orbitId == personalId }
+        vm.onPageFinished(decoyTab.id, "https://personal-decoy.com", "Decoy")
+        advanceUntilIdle()
+        vm.onCloseTab(decoyTab.id)
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+
+        val workTab = vm.tabs.value.first { it.orbitId == work.id }
+        vm.onPageFinished(workTab.id, "https://work-page.com", "Work Page")
+        advanceUntilIdle()
+        val snapshot = vm.tabs.value.first { it.id == workTab.id } // what the UI captures
+
+        vm.onCloseTab(workTab.id)
+        advanceUntilIdle()
+        vm.onSwitchOrbit(personalId) // user switches BEFORE tapping Undo
+        advanceUntilIdle()
+
+        vm.onRestoreTab(snapshot)
+        advanceUntilIdle()
+
+        // The Work tab came back, in Work — not Personal's decoy into Personal.
+        val restored = vm.tabs.value.first { it.url == "https://work-page.com" }
+        assertEquals(work.id, restored.orbitId)
+        assertTrue(vm.tabs.value.none { it.url == "https://personal-decoy.com" })
+        // And its recently-closed row was consumed, while the decoy's survives.
+        assertTrue(closedTabs.entries.value.none { it.url == "https://work-page.com" })
+        assertTrue(closedTabs.entries.value.any { it.url == "https://personal-decoy.com" })
+    }
+
+    @Test
+    fun `Undo on an incognito tab restores it incognito and touches no closed-tab row`() = runTest {
+        // Incognito files no recently-closed row, so the old "newest entry" heuristic restored an
+        // unrelated NORMAL page while the user was in private mode.
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+        val before = closedTabs.entries.value
+
+        val incognito = TabEntity(
+            url = "https://secret.com", title = "Secret", position = 0,
+            isActive = true, isIncognito = true, orbitId = null,
+        )
+        vm.onRestoreTab(incognito)
+        advanceUntilIdle()
+
+        val restored = vm.tabs.value.first { it.url == "https://secret.com" }
+        assertTrue("a restored incognito tab must stay incognito", restored.isIncognito)
+        assertNull("an incognito tab must have no Orbit", restored.orbitId)
+        assertEquals("no closed-tab row may be written or consumed", before, closedTabs.entries.value)
+    }
+
+    @Test
+    fun `onRestoreTab on a 0-sentinel tab restores it without filing a row or moving the active Orbit`() = runTest {
+        // Mirror of the TabManager 0L guard, on the Undo path. Restoring must still work (the user
+        // asked for their tab back), but the unresolved Orbit may neither be filed under nor
+        // SWITCHED TO.
+        //
+        // TWO Orbits are load-bearing here. With one, resolveActiveOrbitId(0L) resolves straight
+        // back to that same Orbit, so a setActiveOrbitId(0L) clobber is invisible and the test
+        // passes for the wrong reason — which is exactly how the first version of this test missed
+        // the bug it was written to catch.
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        assertEquals(work.id, vm.activeOrbitId.value) // control: we really are in Work
+
+        closedTabs.insert(
+            ClosedTabEntity(url = "https://early.com", title = "Early", closedAt = 1L, orbitId = 0L)
+        )
+        val before = closedTabs.entries.value
+
+        val unresolved = TabEntity(
+            url = "https://early.com", title = "Early", position = 0,
+            isActive = true, isIncognito = false, orbitId = 0L,
+        )
+        vm.onRestoreTab(unresolved)
+        advanceUntilIdle()
+
+        assertTrue(vm.tabs.value.any { it.url == "https://early.com" })
+        assertEquals("no ring row may be written or consumed under Orbit 0", before, closedTabs.entries.value)
+        assertEquals(
+            "the 0 sentinel must not move the active Orbit (nor persist into the preference)",
+            work.id, vm.activeOrbitId.value,
+        )
+    }
+
+    @Test
+    fun `onReopenClosed refuses a null-orbit entry instead of guessing the active Orbit`() = runTest {
+        // Fail-closed: guessing would open one profile's URL in another — the leak v6.16 closes.
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+
+        closedTabs.insert(
+            ClosedTabEntity(url = "https://unattributed.com", title = "Orphan", closedAt = 1L, orbitId = null)
+        )
+        val orphan = closedTabs.entries.value.single { it.url == "https://unattributed.com" }
+
+        vm.onReopenClosed(orphan)
+        advanceUntilIdle()
+
+        assertTrue(
+            "a null-orbit entry must never be opened into the active Orbit",
+            vm.tabs.value.none { it.url == "https://unattributed.com" },
+        )
+        // Refused, not silently consumed.
+        assertTrue(closedTabs.entries.value.any { it.url == "https://unattributed.com" })
     }
 
     @Test

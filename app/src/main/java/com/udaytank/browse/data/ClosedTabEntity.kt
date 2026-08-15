@@ -9,4 +9,10 @@ data class ClosedTabEntity(
     val url: String,
     val title: String,
     val closedAt: Long,
+    /**
+     * Owning Orbit (v6.16). Nullable to match `tabs`/`history`/`bookmarks`. A NULL row matches no
+     * `WHERE orbitId = :orbitId`, so an unattributed entry is invisible everywhere rather than
+     * visible in the wrong Orbit — fail-closed by construction.
+     */
+    val orbitId: Long? = null,
 )

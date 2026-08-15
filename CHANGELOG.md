@@ -11,6 +11,14 @@ Development ran 2026-07-10 → 2026-07-24: **45 releases, 339 commits**.
 
 ## v6.x — Depth & polish
 
+### v6.16 — 2026-08-14 · Recently-closed tabs are Orbit-scoped
+- **Privacy fix.** `closed_tabs` had no `orbitId` and was read unfiltered, so a tab closed in *Work* appeared in *Personal*'s "Recently closed" list and reopened into whichever Orbit was active. Found while writing the documentation suite.
+- `closed_tabs.orbitId` (schema **v21 → v22**); `observeRecent` filters by active Orbit; entries are filed under the **closing tab's own** Orbit; reopen lands in `entry.orbitId`.
+- The 100-entry ring is now **per Orbit** — a busy Orbit could previously evict another's entries.
+- Deleting an Orbit purges its closed tabs.
+- **Migration discards legacy rows rather than backfilling them:** they were global, so attributing them to the first Orbit would have preserved the leak.
+- Incognito was never affected — the insert was already gated on `!isIncognitoId(id)`.
+
 ### v6.15 — 2026-07-24 · arm64-only APK
 - **Build:** dropped `armeabi-v7a` from `abiFilters`. APK **35.35 MB → 23.62 MB** (−33%), no functional change. arm32-only devices can no longer install (accepted). [ADR-0010](docs/adr/0010-arm64-only-apk.md)
 

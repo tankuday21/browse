@@ -1,6 +1,6 @@
 # Data model
 
-> **Last verified against:** schema **v21**, v6.15, 2026-08-14.
+> **Last verified against:** schema **v22**, v6.16, 2026-08-14.
 > When you add an entity, column, or migration: update the table below **and** export the new
 > schema JSON in the same commit.
 
@@ -8,13 +8,13 @@
 
 | Store | Used for | Location |
 |---|---|---|
-| **Room** (`BrowseDatabase`, v21) | Structured user data: tabs, history, bookmarks, downloads, credentials, … | `data/` |
+| **Room** (`BrowseDatabase`, v22) | Structured user data: tabs, history, bookmarks, downloads, credentials, … | `data/` |
 | **DataStore Preferences** (`SettingsRepository`) | Scalar settings and small string-sets (toggles, reader prefs, `neverSaveSites`) | `data/SettingsRepository.kt` |
 | **Files** (`ArticleStore`) | Offline cleaned article bodies for the reading list | app-private storage |
 | **Bundled assets** | Ad-block filter lists (~5.1 MB of text), language-id model | `app/src/main/assets/` |
 
 Schemas are exported to `app/schemas/com.udaytank.browse.data.BrowseDatabase/` via
-`ksp { arg("room.schemaLocation", ...) }`. **Versions 5–21 are exported**; v1–v4 predate the export
+`ksp { arg("room.schemaLocation", ...) }`. **Versions 5–22 are exported**; v1–v4 predate the export
 setting, so `MigrationTestHelper` tests can only start from v5.
 
 ## Entities
@@ -37,30 +37,31 @@ pre-migration/unassigned).
 | `feed_items` / `rss_sources` | `FeedItemEntity` / `RssSourceEntity` | no *(by design)* | Home dashboard news; content is public by nature |
 | `tab_groups` | `TabGroupEntity` | no *(by design)* | Group metadata; membership lives on the scoped `tabs` row |
 | `player_progress` | `PlayerProgressEntity` | no *(by design)* | Resume position keyed by `filePath`; purged whenever the download row is deleted |
-| `closed_tabs` | `ClosedTabEntity` | **no — gap** | See below |
+| `closed_tabs` | `ClosedTabEntity` | **yes** *(v6.16)* | Per-Orbit ring (newest 100 **per Orbit**); recently-closed no longer crosses profiles |
 | `reading_list` | `ReadingListEntry` | **no — gap** | See below |
 
 ## Orbit scoping status
 
 Orbits promise isolated browsing profiles. That promise is **fully kept for tabs, history,
-bookmarks, shortcuts, credentials and downloads**, and **not kept** for two tables:
+bookmarks, shortcuts, credentials, downloads and closed tabs**, and **not kept** for one table:
 
-### `closed_tabs` — cross-Orbit visibility (open issue)
+### `closed_tabs` — fixed in v6.16
 
-`ClosedTabEntity` has no `orbitId`, and the DAO reads unfiltered:
+Previously `ClosedTabEntity` had no `orbitId` and the DAO read unfiltered, so a tab closed in *Work*
+appeared in *Personal*'s "Recently closed" and reopened into whichever Orbit was active. Now:
 
-```kotlin
-@Query("SELECT * FROM closed_tabs ORDER BY closedAt DESC, id DESC LIMIT :limit")
-```
+- `orbitId` column (nullable — a `NULL` row matches no filter, so it is invisible rather than
+  misfiled: **fail-closed**)
+- `observeRecent(orbitId, limit)` filters on the active Orbit
+- `trimTo(orbitId, max)` — the 100-entry ring is **per Orbit**, so a busy Orbit can no longer evict
+  another's entries
+- `TabManager.closeTab` files each entry under the **closing tab's own** `orbitId`, not the active one
+- `onReopenClosed` reopens into `entry.orbitId`
+- deleting an Orbit purges its closed tabs (`deleteForOrbit`)
 
-Consequence: a tab closed in Orbit *Work* appears in *Personal*'s "Recently closed" list, and
-`onReopenClosed` reopens it into **whichever Orbit is active**
-([BrowserViewModel.kt:1314](../app/src/main/java/com/udaytank/browse/BrowserViewModel.kt#L1314)).
-
-**Incognito is not affected** — `TabManager.closeTab` gates the insert on `!isIncognitoId(id)`
-([TabManager.kt:163](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L163)), so
-incognito tabs are never recorded. This is a *normal-browsing cross-profile leak*, not an incognito
-leak. Tracked in [ROADMAP.md](ROADMAP.md).
+**Incognito was never affected** — `TabManager.closeTab` gates the insert on `!isIncognitoId(id)`
+([TabManager.kt](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt)), so incognito tabs
+are never recorded. This was a *normal-browsing cross-profile leak*, not an incognito leak.
 
 ### `reading_list` — shared across Orbits
 
@@ -95,11 +96,17 @@ step is in `BrowseDatabase.kt`'s companion object.
 | 18 → 19 | `downloads.orbitId` |
 | 19 → 20 | create `player_progress` |
 | 20 → 21 | `site_settings.blockImages` |
+| **21 → 22** | `closed_tabs.orbitId` **+ `DELETE FROM closed_tabs`** — legacy rows discarded, not backfilled (see below) |
 
 ### Migration conventions
 
 - **Backfill, don't orphan.** When adding `orbitId` to an existing table, existing rows are assigned
   to the first Orbit (`UPDATE <table> SET orbitId = $firstOrbit`) so nothing silently disappears.
+- **…unless backfilling would preserve a leak.** Migration 21 → 22 deliberately *discards*
+  `closed_tabs` rows instead. They were global, so no Orbit can honestly claim them, and assigning
+  them to the first Orbit would surface one profile's URLs in another — exactly the bug being fixed.
+  Ephemeral, low-value data makes discarding the privacy-correct choice. **When the convention and
+  the invariant conflict, the invariant wins — and you say so in the migration comment.**
 - **Replace unique indexes deliberately.** Adding `orbitId` to a table with a unique `url` means
   dropping that index and creating a composite one — otherwise the same URL can't exist in two
   Orbits (this is exactly what 16 → 17 does for `bookmarks`).

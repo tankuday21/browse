@@ -85,6 +85,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -668,6 +669,9 @@ class BrowserViewModel(
             bookmarkDao.deleteForOrbit(id)
             homeShortcutDao.deleteForOrbit(id)
             credentialRepository?.deleteForOrbit(id)
+            // v6.16: closeTab above files each tab under this Orbit, so purge those rows too —
+            // otherwise a deleted Orbit's closed tabs outlive it (invisible, but on disk).
+            closedTabDao.deleteForOrbit(id)
             // Downloads (v5.5): cancel anything still transferring (PAUSED included — its
             // notification must not outlive the Orbit), delete the on-disk files (their paths
             // live in the rows we're about to drop), THEN drop the rows. Known residual (same
@@ -718,7 +722,23 @@ class BrowserViewModel(
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val recentlyClosed: StateFlow<List<ClosedTabEntity>> = closedTabDao.observeRecent(100)
+    // Orbit-scoped (v6.16): recently-closed must not cross profiles.
+    //
+    // Eagerly is inherited, not justified by the UI: the list renders only inside a modal sheet, so
+    // WhileSubscribed(5_000) would fit better (and would re-arm the onStart empty on each open).
+    // Kept as-is because several tests read `.value` without collecting; switching sharing strategy
+    // is a separate change with its own test churn. Tracked in ROADMAP.
+    //
+    // onStart { emit(emptyList()) } is load-bearing, not decoration. flatMapLatest cancels the old
+    // Room flow at once, but stateIn KEEPS ITS LAST VALUE until the new one emits — and Room emits
+    // only after running the query on its executor. Without this, switching Orbit leaves the
+    // previous Orbit's URLs rendered for a few frames, and the Orbit switcher sits directly above
+    // the Recently-closed list, so that window is on screen exactly where the switch happens.
+    // Emitting empty first makes the gap fail closed (blank), never cross-profile.
+    val recentlyClosed: StateFlow<List<ClosedTabEntity>> = activeOrbitId
+        .flatMapLatest { orbitId ->
+            closedTabDao.observeRecent(orbitId, 100).onStart { emit(emptyList()) }
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _uiState = MutableStateFlow(BrowserUiState())
@@ -1312,9 +1332,65 @@ class BrowserViewModel(
     }
 
     fun onReopenClosed(entry: ClosedTabEntity) {
+        // v6.16: reopen into the entry's OWN Orbit, and NEVER guess one. Falling back to the active
+        // Orbit would be the one fail-open spot in this invariant — it would open another profile's
+        // URL in the active profile, the exact leak shape v6.16 closes. Unreachable today
+        // (observeRecent cannot emit a null-orbit row), so this is defence-in-depth for the next
+        // caller that reads closed_tabs some other way.
+        val orbitId = entry.orbitId ?: return
         viewModelScope.launch {
-            tabManager.newTab(entry.url, orbitId = activeOrbitId.value)
+            // Switch Orbit FIRST when the entry belongs elsewhere (mirrors onOpenLinkInOrbit).
+            // newTab foregrounds the tab, so without this the active tab's Orbit would disagree
+            // with activeOrbitId — and the switcher filters on activeOrbitId, so the very tab the
+            // user is looking at would be missing from it: unclosable and unswitchable.
+            if (orbitId != activeOrbitId.value) settings.setActiveOrbitId(orbitId)
+            tabManager.newTab(entry.url, orbitId = orbitId)
             closedTabDao.deleteById(entry.id)
+        }
+    }
+
+    /**
+     * Restore a SPECIFIC tab (v6.16 — backs the "Tab closed / Undo" snackbar).
+     *
+     * Undo used to reopen `recentlyClosed.maxByOrNull { closedAt }`, never re-identifying the tab it
+     * had closed. That heuristic was reliable while the list was global; now that it is
+     * Orbit-filtered it resolves to the wrong entry — switch Orbit before tapping Undo and it
+     * restores the OTHER profile's newest closed tab. It also misfired for incognito tabs, which
+     * record no row at all, so Undo surfaced an unrelated normal page while in private mode.
+     *
+     * Taking the [TabEntity] makes Undo exact, and makes it work for tabs that were never filed
+     * (incognito, or the anomalous null-Orbit tab).
+     */
+    fun onRestoreTab(tab: TabEntity) {
+        viewModelScope.launch {
+            // Normalise the sentinel ONCE so every use below is in step. 0L is
+            // resolveActiveOrbitId's "not resolved yet" value, not a real Orbit: it may neither be
+            // switched to nor filed under. Guarding only the DAO write left setActiveOrbitId(0L)
+            // reachable, which silently relocates the user (0L re-resolves to the FIRST Orbit) and
+            // — because the value is persisted — makes every later cold start resolve to "first
+            // Orbit" instead of their last choice. The damage outlives the session.
+            // takeIf also means the restored tab carries orbitId = null rather than 0L: equally
+            // invisible to every filter, but null is the canonical "no Orbit" that a future
+            // deleteOrphans() reaper is written against.
+            val orbitId = tab.orbitId?.takeIf { it != 0L }
+            // Same active-tab <-> active-Orbit invariant as onReopenClosed: Undo can be tapped after
+            // the user switched Orbit, and the restored tab is foregrounded. Incognito is not an
+            // Orbit, so it is exempt.
+            if (!tab.isIncognito && orbitId != null && orbitId != activeOrbitId.value) {
+                settings.setActiveOrbitId(orbitId)
+            }
+            // Undo should give back the tab as it was, not a stripped copy of it: carry the group,
+            // and re-apply pinned/locked (which newTab has no parameters for).
+            val restoredId = tabManager.newTab(
+                tab.url, incognito = tab.isIncognito, groupId = tab.groupId, orbitId = orbitId,
+            )
+            if (tab.pinned) tabManager.setPinned(restoredId, true)
+            if (tab.locked) tabManager.setLocked(restoredId, true)
+            // Consume the recently-closed row this tab produced — if it produced one. Incognito and
+            // null/0-Orbit tabs never insert, so there is nothing to clean up for them.
+            if (!tab.isIncognito && orbitId != null) {
+                closedTabDao.deleteNewestForUrl(orbitId, tab.url)
+            }
         }
     }
 

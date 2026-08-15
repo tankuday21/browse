@@ -1,6 +1,6 @@
 # Security & privacy model
 
-> **Last verified against:** v6.15, 2026-08-14.
+> **Last verified against:** v6.16, 2026-08-14.
 > This file states what Andromeda *actually* guarantees. If you change a gate, a crypto choice, or a
 > network call, update this file in the same commit — an out-of-date security doc is worse than none.
 
@@ -37,7 +37,7 @@ These are the promises. Each is enforced in code, not by convention.
 | Incognito tabs are never persisted | Negative tab ids; `TabManager` skips the DAO for them, `persistRegisteredTab` early-returns |
 | Incognito has no Orbit identity | `effectiveOrbitId = if (incognito) null else orbitId` ([TabManager.kt:125](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L125)) |
 | No history rows | History insert is skipped for incognito |
-| No recently-closed entries | `closeTab` gates the insert on `!isIncognitoId(id)` ([TabManager.kt:163](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L163)) |
+| No recently-closed entries | `closeTab` gates the insert on **two independent conditions** — `!isIncognitoId(id)` **and** `closingOrbitId != null` ([TabManager.kt:168](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L168)). The second gate does not rely on the negative-id convention: `registerTabInMemory` forces `orbitId = null` for incognito, so even a caller that bypassed the id-sign protocol is still blocked (v6.16) |
 | No password capture or fill | The credential paths return early for incognito |
 | No search-suggestion keystrokes leave the device | Two-layer gate: incognito is captured at keystroke time **and** re-checked after the 200 ms debounce (v5.9 fixed a real leak here) |
 | Separate WebView storage | A fixed incognito `ProfileStore` profile, wiped on exit |
@@ -45,14 +45,19 @@ These are the promises. Each is enforced in code, not by convention.
 **Rule for new features:** if a feature writes anything derived from page content, it must have an
 incognito early-return, and a test that proves it. Assume nothing is safe by default.
 
-### 2. Orbits isolate profiles — with two known exceptions
+### 2. Orbits isolate profiles — with one known exception
 
 Per-Orbit isolation covers `tabs`, `history`, `bookmarks`, `home_shortcuts`, `credentials`,
-`downloads`, plus WebView cookies/storage via a per-Orbit `ProfileStore` profile key.
+`downloads` and `closed_tabs` (v6.16), plus WebView cookies/storage via a per-Orbit `ProfileStore`
+profile key.
 
-**Known gap:** `closed_tabs` and `reading_list` are **not** Orbit-scoped, so recently-closed entries
-and saved articles are visible across Orbits (normal browsing only — incognito is unaffected).
-Details in [DATA-MODEL.md](DATA-MODEL.md#orbit-scoping-status); fix tracked in [ROADMAP.md](ROADMAP.md).
+**Fixed in v6.16:** `closed_tabs` previously had no `orbitId` and was read unfiltered, so a tab
+closed in one Orbit appeared in — and reopened into — another. Now scoped, with a per-Orbit ring and
+purge-on-Orbit-delete.
+
+**Remaining gap:** `reading_list` is **not** Orbit-scoped, so saved articles are shared across Orbits
+(normal browsing only — incognito is unaffected). Details in
+[DATA-MODEL.md](DATA-MODEL.md#orbit-scoping-status); tracked in [ROADMAP.md](ROADMAP.md).
 
 ### 3. Credential vault
 

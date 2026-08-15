@@ -1,6 +1,6 @@
 # Roadmap & backlog
 
-> **Last updated:** 2026-08-14, after v6.15.
+> **Last updated:** 2026-08-14, after v6.16.
 > This is the single list of what is *not* done. When you ship an item, delete it here and add it to
 > [../CHANGELOG.md](../CHANGELOG.md) in the same commit.
 
@@ -21,12 +21,15 @@ first.
 
 ## Tier 1 — Correctness & privacy gaps
 
-Defects and broken promises, not features. All four verified open on 2026-08-14.
+Defects and broken promises, not features.
 
 | Item | Detail | Source |
 |---|---|---|
-| **`closed_tabs` crosses Orbits** | No `orbitId` column, and `SELECT * FROM closed_tabs` is unfiltered — a tab closed in *Work* appears in *Personal* and reopens into the active Orbit ([BrowserViewModel.kt:1314](../app/src/main/java/com/udaytank/browse/BrowserViewModel.kt#L1314)). Incognito is unaffected. Needs a column + migration 21→22 + filtered query. | Found 2026-08-14 |
-| **`reading_list` is not Orbit-scoped** | Saved articles and their offline bodies are global. Decide explicitly: scope it, or document it as intentionally device-level. Currently it is neither. | Found 2026-08-14 |
+| **🔴 `allowBackup="true"` with template backup rules** | `AndroidManifest.xml` enables backup, and **both** `backup_rules.xml` and `data_extraction_rules.xml` are the unmodified Android Studio templates — every element commented out, so there are **no exclusions**. The entire app data directory, including `browse.db` (all Orbits' history, bookmarks, tabs, downloads, closed tabs) and DataStore, is uploaded to Google cloud backup and included in device-to-device transfer. **This defeats the Black Hole panic wipe** — a backup taken before the wipe restores everything — and it means the pre-v6.16 *global* `closed_tabs` data survives off-device even though migration 21→22 discarded it locally. Credentials are safe (AES-256-GCM with a non-exportable AndroidKeyStore key), though their host/username are plaintext. Fix: `<exclude domain="database" path="."/>` + datastore + sharedpref in both files, or disable backup outright. **Largest privacy gap in the codebase.** | Security audit 2026-08-14 |
+| **Orbit deletion is not atomic, and deletes the Orbit row first** | `onDeleteOrbit` is a plain suspend sequence in `viewModelScope` with no transaction (there are zero `runInTransaction`/`withTransaction` calls in the app), and `repo.delete(id)` runs *before* the data purges. A process kill mid-sequence orphans that Orbit's `closed_tabs`, `history`, `bookmarks`, `home_shortcuts`, `credentials` and `downloads` rows forever: they match no living Orbit's filter (so the user believes the data is gone) and `deleteForOrbit(id)` will never run again. Download *files* are orphaned too. Fix: move `repo.delete(id)` last, wrap purges in `withTransaction`, and add a cold-start `deleteOrphans()` reaper (`WHERE orbitId IS NULL OR orbitId NOT IN (SELECT id FROM orbits)`) for every scoped table. | Security audit 2026-08-14 |
+| **Clear browsing data leaves up to 100 closed-tab URLs per Orbit** | `onClearHistoryRange` clears history + cookies + cache but never touches `closed_tabs`, so after "Clear browsing data → All time" the Recently-closed sheet still lists up to 100 URLs and titles per Orbit, each one tap from reopening. `closed_tabs.closedAt` makes a range-scoped `clearSince` trivial — unlike cookies, there is no API limitation excuse here. Whatever survives must also be named in the dialog copy (the v6.14 honesty precedent). | Security audit 2026-08-14 |
+| **A cold-start tab can be created under Orbit `0` (unresolved)** | `onExternalUrl`, `onOpenInNewTab`, `onNewTab` and `onCreatePopup` all pass `orbitId = activeOrbitId.value`, which is **evaluated as an argument — before `newTab`'s `initialized` gate**. `activeOrbitId` is `stateIn(..., Eagerly, 0L)` over DataStore, so until the first IO read lands it is the `0L` sentinel. A cold-start external VIEW intent therefore persists a tab with `orbitId = 0`, which is **invisible in the switcher** (it filters on `activeOrbitId`) and **unreachable by `deleteForOrbit`**. Pre-existing, not introduced by v6.16 — v6.16 only declines to compound it by filing a closed-tab row under Orbit 0. Fix: pass `null` from those four sites and resolve `orbitId ?: defaultOrbitId` **inside** `newTab`, after the gate (`initialize` already does exactly this). | Code review 2026-08-14 |
+| **`reading_list` is not Orbit-scoped** | Saved articles and their offline bodies are global. Decide explicitly: scope it (as `closed_tabs` was in v6.16), or document it as intentionally device-level. Currently it is neither. | Found 2026-08-14 |
 | **User-Agent version drift** | Hardcoded in three places and out of sync: `Andromeda/5.9` in `SuggestionEngine`, `Andromeda/3.2` in `FeedRepository` **and** `WeatherRepository`. Extract one constant from `BuildConfig`. | v5.9 |
 | **Bundle the full Mozilla PSL** | The curated suffix set can over-match between tenants of a SaaS provider it doesn't list. Bounded today by HTTPS + explicit tap + `@host` display, but the real fix is the full list. [ADR-0011](adr/0011-curated-public-suffix-list.md) | v6.5 |
 
@@ -67,6 +70,12 @@ Small, low-risk warm-up items. ⚠ All carried from v3-era notes; verify before 
 - Group header should toggle collapse on a whole-row tap, not only the chevron
 - The move-to-group submenu still lists the group the tab is already in
 - Bookmark search query is lost on process death (`rememberSaveable`)
+- Orbit deletion writes each closing tab's URL into `closed_tabs` immediately before deleting those rows — add a `record = false` parameter to `TabManager.closeTab` for the destruction path (avoids the write and the orphan window)
+- NULL-orbit `closed_tabs` rows are invisible to every query *including* the trim, so they could accumulate unbounded if a future gate is missed; the `deleteOrphans()` reaper above covers this
+- Undo's `deleteNewestForUrl(orbitId, url)` matches on URL, so a redirect landing between the switcher's snapshot and the close (`onContentChanged` mutates `_tabs` before recomposition) can restore the stale URL and consume an unrelated older row for it. Clean fix: have `TabManager.closeTab` return the id of the row it inserted and delete by id — removing the last URL-matching heuristic
+- `ClosedTabEntity.orbitId` has a `= null` default, so a future construction site can silently omit it; making it required turns "forgot the Orbit" into a compile error at ~6 call sites
+- `recentlyClosed` uses `SharingStarted.Eagerly` though it renders only inside a modal sheet; `WhileSubscribed(5_000)` (as `bookmarks`/`historyEntries` use) would drop a permanent Room observer and re-arm the `onStart` empty per open. Blocked on tests that read `.value` without collecting
+- The Recently-closed sheet lists the active Orbit's *normal* closed tabs even while the switcher is in incognito mode
 
 ## Already shipped — do not rebuild
 
@@ -74,6 +83,7 @@ Verified against code on 2026-08-14. These appeared in old deferral notes and ar
 
 | Was listed as deferred | Actually shipped in | Evidence |
 |---|---|---|
+| `closed_tabs` crossing Orbits | **v6.16** | `closed_tabs.orbitId` (migration 21 → 22), per-Orbit `observeRecent`/`trimTo`/`deleteForOrbit` |
 | Biometric gate on passwords | **v5.1** | `_passwordsLocked` defaults to `true`; `LockGate` + `promptPasswordsUnlock()` before `PasswordsScreen` ([MainActivity.kt:1116](../app/src/main/java/com/udaytank/browse/MainActivity.kt#L1116)) |
 | Manual add / edit credentials | **v5.1** | `onAddCredential`, `onEditCredential` in `BrowserViewModel` |
 | QR code generation | **v5.4** | `browser/QrGenerate.kt`, `ui/components/QrShareSheet.kt` |

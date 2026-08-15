@@ -2,6 +2,7 @@ package com.udaytank.browse.browser
 
 import com.udaytank.browse.FakeClosedTabDao
 import com.udaytank.browse.FakeTabDao
+import com.udaytank.browse.data.ClosedTabEntity
 import com.udaytank.browse.data.TabEntity
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
@@ -196,16 +197,101 @@ class TabManagerTest {
     }
 
     @Test
-    fun `closing a normal tab records it in the closed ring`() = runTest {
+    fun `closing a normal tab records it in the closed ring under its orbit`() = runTest {
         val closedTabDao = FakeClosedTabDao()
         val manager = TabManager(FakeTabDao(), closedTabDao)
         manager.initialize("home")
-        val id = manager.newTab("https://a.com")
+        val id = manager.newTab("https://a.com", orbitId = 7L)
         manager.onContentChanged(id, "https://a.com", "Site A")
         manager.closeTab(id, "home")
         val closed = closedTabDao.entries.value.single()
         assertEquals("https://a.com", closed.url)
         assertEquals("Site A", closed.title)
+        assertEquals(7L, closed.orbitId)
+    }
+
+    @Test
+    fun `a closed tab is filed under its OWN orbit, not another open tab's`() = runTest {
+        // v6.16: attribution follows the closing tab, so closing a tab that belongs to Orbit 2
+        // never files it under Orbit 1 — the cross-profile leak this release fixes.
+        val closedTabDao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), closedTabDao)
+        manager.initialize("home")
+        manager.newTab("https://one.com", orbitId = 1L)
+        val twoId = manager.newTab("https://two.com", orbitId = 2L)
+
+        manager.closeTab(twoId, "home")
+
+        val closed = closedTabDao.entries.value.single()
+        assertEquals("https://two.com", closed.url)
+        assertEquals(2L, closed.orbitId)
+    }
+
+    @Test
+    fun `closing a normal tab with no orbit records nothing`() = runTest {
+        // A null-orbit normal tab is an anomaly (it matches no Orbit's filter, so it isn't even
+        // listed). There is no correct Orbit to file it under, so we drop the record rather than
+        // guess and risk surfacing the URL in the wrong profile.
+        val closedTabDao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), closedTabDao)
+        manager.initialize("home")
+        val id = manager.newTab("https://orphan.com")
+        manager.closeTab(id, "home")
+        assertTrue(closedTabDao.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `closing a tab whose orbit is the unresolved 0 sentinel records nothing`() = runTest {
+        // The `!= 0L` half of the guard was mutation-proven untested: deleting it left all 623
+        // tests green. 0L is NOT a hypothetical — it is resolveActiveOrbitId's "not resolved yet"
+        // value, and callers pass `orbitId = activeOrbitId.value` as an argument, evaluated BEFORE
+        // newTab's `initialized` gate. A cold-start external VIEW intent can therefore persist a
+        // tab with orbitId = 0. A closed-tab row filed under 0 would be invisible to every
+        // observeRecent, never trimmed (trimTo is never called with 0), never purged by
+        // deleteForOrbit — a permanent hidden URL record that grows without bound.
+        val closedTabDao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), closedTabDao)
+        manager.defaultOrbitId = 1L
+        manager.initialize("home", orbitId = 1L)
+        val id = manager.newTab("https://early.com", orbitId = 0L)
+
+        manager.closeTab(id, "home")
+
+        assertTrue("no row may be filed under the unresolved Orbit", closedTabDao.entries.value.isEmpty())
+        assertTrue("and no ring may be trimmed under it either", closedTabDao.trimCalls.isEmpty())
+    }
+
+    @Test
+    fun `closeTab trims the CLOSING tab's orbit ring, not the active or default orbit's`() = runTest {
+        // Pins the ARGUMENT handed to trimTo, not just its effect. Without this, mutating closeTab to
+        // `trimTo(defaultOrbitId ?: 0L, 100)` passes every other test in the suite — and that
+        // mutation is reachable: onDeleteOrbit moves the active/default Orbit BEFORE closing the
+        // dying Orbit's tabs, so it would trim the SURVIVING Orbit's ring down to the cap and
+        // silently destroy the data this release exists to protect.
+        val dao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), dao)
+        manager.defaultOrbitId = 1L
+        manager.initialize("home", orbitId = 1L)
+        val twoId = manager.newTab("https://two.com", orbitId = 2L)
+
+        manager.closeTab(twoId, "home")
+
+        assertEquals(listOf(2L to 100), dao.trimCalls)
+    }
+
+    @Test
+    fun `the closed ring trims per orbit and never evicts another orbit's entries`() = runTest {
+        // Locks the fake to the real SQL's per-Orbit ring semantics (the SQL itself is covered by
+        // the real-Room androidTest). A global trim let a busy Orbit evict another Orbit's rows.
+        val closedTabDao = FakeClosedTabDao()
+        closedTabDao.insert(ClosedTabEntity(url = "https://old1.com", title = "old", closedAt = 1L, orbitId = 1L))
+        closedTabDao.insert(ClosedTabEntity(url = "https://new1.com", title = "new", closedAt = 2L, orbitId = 1L))
+        closedTabDao.insert(ClosedTabEntity(url = "https://other.com", title = "other", closedAt = 1L, orbitId = 2L))
+
+        closedTabDao.trimTo(orbitId = 1L, max = 1)
+
+        val urls = closedTabDao.entries.value.map { it.url }.toSet()
+        assertEquals(setOf("https://new1.com", "https://other.com"), urls)
     }
 
     @Test

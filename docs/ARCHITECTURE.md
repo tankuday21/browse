@@ -1,6 +1,6 @@
 # Architecture
 
-> **Last verified against:** v6.15 (`versionCode 43`), 2026-08-14.
+> **Last verified against:** v6.16 (`versionCode 44`), 2026-08-14.
 > If you change a layer boundary, an invariant, or add a package, update this file in the same commit.
 
 ## At a glance
@@ -11,7 +11,7 @@
 | Language / UI | Kotlin · Jetpack Compose (Material 3) |
 | Pattern | MVVM, one ViewModel exposing a single observable UI state |
 | Rendering | Android **System WebView** (see [ADR-0001](adr/0001-system-webview.md)) |
-| Persistence | Room (schema **v21**, 16 entities, 15 DAOs) + DataStore Preferences |
+| Persistence | Room (schema **v22**, 16 entities, 15 DAOs) + DataStore Preferences |
 | Modules | Single Gradle module (`:app`) |
 | Source | 166 Kotlin files, ~26,800 LOC |
 | Tests | 82 JVM test files, 4 instrumented |
@@ -70,11 +70,11 @@ Counts are `.kt` files under `app/src/main/java/com/udaytank/browse/`.
 These are load-bearing. Breaking one is a bug even if tests pass.
 
 **1. Orbit-scoped tables carry `orbitId` and are always queried through it.**
-Orbits are isolated browsing profiles. Six tables are scoped — `tabs`, `history`, `bookmarks`,
-`home_shortcuts`, `credentials`, `downloads` — and every query filters on the active Orbit.
-The remaining ten are intentionally device-global (`site_settings`, `favicons`, `feed_items`,
-`rss_sources`, `zapped_elements`, `tab_groups`, `player_progress`) **or are known gaps**
-(`closed_tabs`, `reading_list`) — see [DATA-MODEL.md](DATA-MODEL.md#orbit-scoping-status) and
+Orbits are isolated browsing profiles. Seven tables are scoped — `tabs`, `history`, `bookmarks`,
+`home_shortcuts`, `credentials`, `downloads`, `closed_tabs` (v6.16) — and every query filters on the
+active Orbit. The rest are intentionally device-global (`site_settings`, `favicons`, `feed_items`,
+`rss_sources`, `zapped_elements`, `tab_groups`, `player_progress`) **except one known gap**
+(`reading_list`) — see [DATA-MODEL.md](DATA-MODEL.md#orbit-scoping-status) and
 [ROADMAP.md](ROADMAP.md). Do not assume a table is scoped; check the entity.
 
 **2. Incognito never touches disk.**
