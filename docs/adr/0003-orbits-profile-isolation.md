@@ -44,6 +44,12 @@ participates as `orbitId = null`.
 - Every new user-data table now needs an explicit scoping decision — and **six of sixteen tables are
   scoped**, so the invariant is not uniform. `closed_tabs` and `reading_list` are unscoped gaps
   ([DATA-MODEL.md](../DATA-MODEL.md#orbit-scoping-status)).
+
+  > **Status update — 2026-08-14 (v6.16):** `closed_tabs` is now scoped, making it **seven of
+  > sixteen**. `reading_list` remains the one gap. The original text above is left as written: this
+  > log is append-only, and the fact that the invariant was *non-uniform for weeks* is exactly the
+  > kind of thing an ADR exists to preserve. See [ROADMAP.md](../ROADMAP.md) and the v6.16 entry in
+  > [CHANGELOG.md](../../CHANGELOG.md).
 - `ProfileStore.deleteProfile` only succeeds once every WebView bound to that profile is destroyed,
   which forced a deferred-delete handshake between `BrowserViewModel`, `MainActivity` and
   `WebViewHolder`.

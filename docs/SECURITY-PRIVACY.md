@@ -37,7 +37,7 @@ These are the promises. Each is enforced in code, not by convention.
 | Incognito tabs are never persisted | Negative tab ids; `TabManager` skips the DAO for them, `persistRegisteredTab` early-returns |
 | Incognito has no Orbit identity | `effectiveOrbitId = if (incognito) null else orbitId` ([TabManager.kt:125](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L125)) |
 | No history rows | History insert is skipped for incognito |
-| No recently-closed entries | `closeTab` gates the insert on `!isIncognitoId(id)` ([TabManager.kt:163](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L163)) |
+| No recently-closed entries | `closeTab` gates the insert on **two independent conditions** — `!isIncognitoId(id)` **and** `closingOrbitId != null` ([TabManager.kt:168](../app/src/main/java/com/udaytank/browse/browser/TabManager.kt#L168)). The second gate does not rely on the negative-id convention: `registerTabInMemory` forces `orbitId = null` for incognito, so even a caller that bypassed the id-sign protocol is still blocked (v6.16) |
 | No password capture or fill | The credential paths return early for incognito |
 | No search-suggestion keystrokes leave the device | Two-layer gate: incognito is captured at keystroke time **and** re-checked after the 200 ms debounce (v5.9 fixed a real leak here) |
 | Separate WebView storage | A fixed incognito `ProfileStore` profile, wiped on exit |

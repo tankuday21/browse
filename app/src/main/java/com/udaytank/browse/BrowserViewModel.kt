@@ -85,6 +85,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -723,8 +724,17 @@ class BrowserViewModel(
 
     // Orbit-scoped (v6.16): recently-closed must not cross profiles. Eagerly retained — the tab
     // switcher reads this immediately, before any subscriber settles.
+    //
+    // onStart { emit(emptyList()) } is load-bearing, not decoration. flatMapLatest cancels the old
+    // Room flow at once, but stateIn KEEPS ITS LAST VALUE until the new one emits — and Room emits
+    // only after running the query on its executor. Without this, switching Orbit leaves the
+    // previous Orbit's URLs rendered for a few frames, and the Orbit switcher sits directly above
+    // the Recently-closed list, so that window is on screen exactly where the switch happens.
+    // Emitting empty first makes the gap fail closed (blank), never cross-profile.
     val recentlyClosed: StateFlow<List<ClosedTabEntity>> = activeOrbitId
-        .flatMapLatest { orbitId -> closedTabDao.observeRecent(orbitId, 100) }
+        .flatMapLatest { orbitId ->
+            closedTabDao.observeRecent(orbitId, 100).onStart { emit(emptyList()) }
+        }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _uiState = MutableStateFlow(BrowserUiState())
@@ -1318,12 +1328,50 @@ class BrowserViewModel(
     }
 
     fun onReopenClosed(entry: ClosedTabEntity) {
+        // v6.16: reopen into the entry's OWN Orbit, and NEVER guess one. Falling back to the active
+        // Orbit would be the one fail-open spot in this invariant — it would open another profile's
+        // URL in the active profile, the exact leak shape v6.16 closes. Unreachable today
+        // (observeRecent cannot emit a null-orbit row), so this is defence-in-depth for the next
+        // caller that reads closed_tabs some other way.
+        val orbitId = entry.orbitId ?: return
         viewModelScope.launch {
-            // v6.16: reopen into the entry's OWN Orbit. Since the list is now Orbit-filtered these
-            // normally agree; preferring entry.orbitId makes the intent explicit and keeps a stale
-            // list item (Orbit switched mid-tap) from landing a URL in the wrong profile.
-            tabManager.newTab(entry.url, orbitId = entry.orbitId ?: activeOrbitId.value)
+            // Switch Orbit FIRST when the entry belongs elsewhere (mirrors onOpenLinkInOrbit).
+            // newTab foregrounds the tab, so without this the active tab's Orbit would disagree
+            // with activeOrbitId — and the switcher filters on activeOrbitId, so the very tab the
+            // user is looking at would be missing from it: unclosable and unswitchable.
+            if (orbitId != activeOrbitId.value) settings.setActiveOrbitId(orbitId)
+            tabManager.newTab(entry.url, orbitId = orbitId)
             closedTabDao.deleteById(entry.id)
+        }
+    }
+
+    /**
+     * Restore a SPECIFIC tab (v6.16 — backs the "Tab closed / Undo" snackbar).
+     *
+     * Undo used to reopen `recentlyClosed.maxByOrNull { closedAt }`, never re-identifying the tab it
+     * had closed. That heuristic was reliable while the list was global; now that it is
+     * Orbit-filtered it resolves to the wrong entry — switch Orbit before tapping Undo and it
+     * restores the OTHER profile's newest closed tab. It also misfired for incognito tabs, which
+     * record no row at all, so Undo surfaced an unrelated normal page while in private mode.
+     *
+     * Taking the [TabEntity] makes Undo exact, and makes it work for tabs that were never filed
+     * (incognito, or the anomalous null-Orbit tab).
+     */
+    fun onRestoreTab(tab: TabEntity) {
+        viewModelScope.launch {
+            val orbitId = tab.orbitId
+            // Same active-tab <-> active-Orbit invariant as onReopenClosed: Undo can be tapped after
+            // the user switched Orbit, and the restored tab is foregrounded. Incognito is not an
+            // Orbit, so it is exempt.
+            if (!tab.isIncognito && orbitId != null && orbitId != activeOrbitId.value) {
+                settings.setActiveOrbitId(orbitId)
+            }
+            tabManager.newTab(tab.url, incognito = tab.isIncognito, orbitId = orbitId)
+            // Consume the recently-closed row this tab produced — if it produced one. Incognito and
+            // null/0-Orbit tabs never insert, so there is nothing to clean up for them.
+            if (!tab.isIncognito && orbitId != null && orbitId != 0L) {
+                closedTabDao.deleteNewestForUrl(orbitId, tab.url)
+            }
         }
     }
 

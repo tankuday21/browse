@@ -41,12 +41,16 @@ class BrowserViewModelTest {
         suggestionFetcher: suspend (String, String) -> List<String> = { _, _ -> emptyList() },
         playerProgressDao: FakePlayerProgressDao = FakePlayerProgressDao(),
         translateEngine: FakeTranslateEngine = FakeTranslateEngine(),
+        // Defaults to null (no Orbits) as before, so every existing test is unaffected. Tests that
+        // exercise an Orbit-scoped store must pass a real one — the app always has one.
+        orbitRepository: com.udaytank.browse.data.OrbitRepository? = null,
     ) = BrowserViewModel(
         historyDao, bookmarkDao, tabDao, settings, downloadDao, closedTabDao, tabGroupDao,
         readingListDao, articleStore, siteSettingsDao, homeShortcutDao, downloadController,
         downloadManagerRemover, suggestionFetcher, ioDispatcher = Dispatchers.Unconfined,
         playerProgressDao = playerProgressDao,
         translateEngine = translateEngine,
+        orbitRepository = orbitRepository,
     )
 
     @Test
@@ -502,7 +506,16 @@ class BrowserViewModelTest {
 
     @Test
     fun `reopen closed tab restores url and removes ring entry`() = runTest {
-        val vm = vm(); advanceUntilIdle()
+        // v6.16: closed_tabs is Orbit-scoped, so this flow needs a real Orbit. With none seeded,
+        // activeOrbitId is the 0L "not resolved yet" sentinel and closeTab correctly declines to
+        // file an unattributable row — a row under Orbit 0 would be invisible to every filter and
+        // unreachable by deleteForOrbit, i.e. a permanent hidden URL record.
+        val vm = vm(
+            orbitRepository = com.udaytank.browse.data.OrbitRepository(
+                FakeOrbitDao(), io = Dispatchers.Unconfined,
+            ),
+        )
+        advanceUntilIdle()
         vm.onOpenInNewTab("https://gone.com"); advanceUntilIdle()
         val id = vm.tabs.value.first { it.url == "https://gone.com" }.id
         vm.onCloseTab(id); advanceUntilIdle()

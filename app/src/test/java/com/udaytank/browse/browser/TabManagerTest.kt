@@ -241,6 +241,24 @@ class TabManagerTest {
     }
 
     @Test
+    fun `closeTab trims the CLOSING tab's orbit ring, not the active or default orbit's`() = runTest {
+        // Pins the ARGUMENT handed to trimTo, not just its effect. Without this, mutating closeTab to
+        // `trimTo(defaultOrbitId ?: 0L, 100)` passes every other test in the suite — and that
+        // mutation is reachable: onDeleteOrbit moves the active/default Orbit BEFORE closing the
+        // dying Orbit's tabs, so it would trim the SURVIVING Orbit's ring down to the cap and
+        // silently destroy the data this release exists to protect.
+        val dao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), dao)
+        manager.defaultOrbitId = 1L
+        manager.initialize("home", orbitId = 1L)
+        val twoId = manager.newTab("https://two.com", orbitId = 2L)
+
+        manager.closeTab(twoId, "home")
+
+        assertEquals(listOf(2L to 100), dao.trimCalls)
+    }
+
+    @Test
     fun `the closed ring trims per orbit and never evicts another orbit's entries`() = runTest {
         // Locks the fake to the real SQL's per-Orbit ring semantics (the SQL itself is covered by
         // the real-Room androidTest). A global trim let a busy Orbit evict another Orbit's rows.

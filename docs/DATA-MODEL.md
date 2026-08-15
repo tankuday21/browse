@@ -8,7 +8,7 @@
 
 | Store | Used for | Location |
 |---|---|---|
-| **Room** (`BrowseDatabase`, v21) | Structured user data: tabs, history, bookmarks, downloads, credentials, … | `data/` |
+| **Room** (`BrowseDatabase`, v22) | Structured user data: tabs, history, bookmarks, downloads, credentials, … | `data/` |
 | **DataStore Preferences** (`SettingsRepository`) | Scalar settings and small string-sets (toggles, reader prefs, `neverSaveSites`) | `data/SettingsRepository.kt` |
 | **Files** (`ArticleStore`) | Offline cleaned article bodies for the reading list | app-private storage |
 | **Bundled assets** | Ad-block filter lists (~5.1 MB of text), language-id model | `app/src/main/assets/` |

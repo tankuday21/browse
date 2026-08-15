@@ -192,14 +192,21 @@ fun TabSwitcherScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    // Close a tab with an Undo affordance (reopens the just-closed tab from recently-closed).
+    // Close a tab with an Undo affordance.
+    // v6.16: SNAPSHOT the tab before closing and restore that exact tab. This previously reopened
+    // `recentlyClosed.maxByOrNull { closedAt }`, which was reliable only while the list was global —
+    // once it became Orbit-filtered, switching Orbit before tapping Undo restored the other
+    // profile's newest closed tab, and closing an incognito tab (which files no row) restored an
+    // unrelated normal page. If the snapshot is somehow missing, Undo does nothing, which is safer
+    // than restoring the wrong page.
     val closeWithUndo: (Long) -> Unit = { id ->
+        val closing = tabs.find { it.id == id }
         onCloseTabView(id)
         viewModel.onCloseTab(id)
         scope.launch {
             val result = snackbarHostState.showSnackbar(message = "Tab closed", actionLabel = "Undo")
-            if (result == SnackbarResult.ActionPerformed) {
-                recentlyClosed.maxByOrNull { it.closedAt }?.let { viewModel.onReopenClosed(it) }
+            if (result == SnackbarResult.ActionPerformed && closing != null) {
+                viewModel.onRestoreTab(closing)
             }
         }
     }

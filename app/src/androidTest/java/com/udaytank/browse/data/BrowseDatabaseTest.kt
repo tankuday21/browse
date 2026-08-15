@@ -173,13 +173,31 @@ class BrowseDatabaseTest {
     }
 
     @Test
-    fun closedTabDao_trimsToCap() = runBlocking {
+    fun closedTabDao_trimsPerOrbitAndFiltersByOrbit() = runBlocking {
+        // v6.16: the ring is PER ORBIT and reads are Orbit-filtered. This is the real-SQL cover for
+        // both (the JVM tests exercise the fake).
         val dao = database.closedTabDao()
-        repeat(105) { dao.insert(ClosedTabEntity(url = "https://x$it.com", title = "x$it", closedAt = it.toLong())) }
-        dao.trimTo(100)
-        val recent = dao.observeRecent(200).first()
-        assertEquals(100, recent.size)
-        assertEquals("x104", recent.first().title) // newest kept, ordered newest-first
+        repeat(105) {
+            dao.insert(
+                ClosedTabEntity(url = "https://x$it.com", title = "x$it", closedAt = it.toLong(), orbitId = 1L)
+            )
+        }
+        dao.insert(ClosedTabEntity(url = "https://other.com", title = "other", closedAt = 500L, orbitId = 2L))
+        dao.insert(ClosedTabEntity(url = "https://orphan.com", title = "orphan", closedAt = 600L, orbitId = null))
+
+        dao.trimTo(orbitId = 1L, max = 100)
+
+        val orbit1 = dao.observeRecent(1L, 200).first()
+        assertEquals(100, orbit1.size)
+        assertEquals("x104", orbit1.first().title) // newest kept, ordered newest-first
+
+        // Trimming Orbit 1 must not evict Orbit 2's entry.
+        val orbit2 = dao.observeRecent(2L, 200).first()
+        assertEquals(listOf("other"), orbit2.map { it.title })
+
+        // A NULL-orbit row matches no Orbit's filter — fail-closed, never misfiled.
+        assertTrue(orbit1.none { it.title == "orphan" })
+        assertTrue(orbit2.none { it.title == "orphan" })
     }
 
     @Test

@@ -161,11 +161,18 @@ class TabManager(
         val next = TabClosePolicy.nextActiveId(_tabs.value, closingId = id, activeId = _activeTabId.value)
         val closing = _tabs.value.find { it.id == id }
         // v6.16: record against the CLOSING TAB's own Orbit, not the active one, so closing a tab
-        // that belongs to another Orbit files it under the right profile. The null guard covers the
-        // documented first-install window where initialize can create a tab before an Orbit is
-        // seeded — such a tab yields no recently-closed row rather than an invisible orphan.
+        // that belongs to another Orbit files it under the right profile. This matters concretely in
+        // onDeleteOrbit, which moves the active Orbit BEFORE closing the dying Orbit's tabs — using
+        // the active/default Orbit there would file them under the survivor.
+        //
+        // The guard rejects both unattributable values. `null` is defensive: no production path
+        // creates a null-Orbit normal tab (the `initialized` gate closes the cold-start window, and
+        // MIGRATION_13_14 backfilled every pre-Orbit row). `0L` is NOT defensive — it is
+        // resolveActiveOrbitId's "not resolved yet" sentinel, so a tab created before Orbits load
+        // can genuinely carry it. Either way there is no honest Orbit to file the entry under, and a
+        // row written with 0 or null would be invisible to every Orbit's filter forever.
         val closingOrbitId = closing?.orbitId
-        if (closing != null && !isIncognitoId(id) && closingOrbitId != null) {
+        if (closing != null && !isIncognitoId(id) && closingOrbitId != null && closingOrbitId != 0L) {
             closedTabDao.insert(
                 ClosedTabEntity(
                     url = closing.url,
