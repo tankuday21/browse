@@ -293,13 +293,26 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
-    fun `onRestoreTab on a 0-sentinel-orbit tab restores it but files and consumes no row`() = runTest {
+    fun `onRestoreTab on a 0-sentinel tab restores it without filing a row or moving the active Orbit`() = runTest {
         // Mirror of the TabManager 0L guard, on the Undo path. Restoring must still work (the user
-        // asked for their tab back), but nothing may be written to or consumed from the ring under
-        // the unresolved Orbit — such a row is unreadable and unreapable forever.
+        // asked for their tab back), but the unresolved Orbit may neither be filed under nor
+        // SWITCHED TO.
+        //
+        // TWO Orbits are load-bearing here. With one, resolveActiveOrbitId(0L) resolves straight
+        // back to that same Orbit, so a setActiveOrbitId(0L) clobber is invisible and the test
+        // passes for the wrong reason — which is exactly how the first version of this test missed
+        // the bug it was written to catch.
         val closedTabs = FakeClosedTabDao()
         val vm = vm(closedTabDao = closedTabs)
         advanceUntilIdle()
+
+        vm.onCreateOrbit("Work", 0x1)
+        advanceUntilIdle()
+        val work = vm.orbits.value.first { it.name == "Work" }
+        vm.onSwitchOrbit(work.id)
+        advanceUntilIdle()
+        assertEquals(work.id, vm.activeOrbitId.value) // control: we really are in Work
+
         closedTabs.insert(
             ClosedTabEntity(url = "https://early.com", title = "Early", closedAt = 1L, orbitId = 0L)
         )
@@ -314,6 +327,10 @@ class BrowserViewModelOrbitTest {
 
         assertTrue(vm.tabs.value.any { it.url == "https://early.com" })
         assertEquals("no ring row may be written or consumed under Orbit 0", before, closedTabs.entries.value)
+        assertEquals(
+            "the 0 sentinel must not move the active Orbit (nor persist into the preference)",
+            work.id, vm.activeOrbitId.value,
+        )
     }
 
     @Test

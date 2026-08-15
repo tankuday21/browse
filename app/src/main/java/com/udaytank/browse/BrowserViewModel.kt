@@ -1363,7 +1363,16 @@ class BrowserViewModel(
      */
     fun onRestoreTab(tab: TabEntity) {
         viewModelScope.launch {
-            val orbitId = tab.orbitId
+            // Normalise the sentinel ONCE so every use below is in step. 0L is
+            // resolveActiveOrbitId's "not resolved yet" value, not a real Orbit: it may neither be
+            // switched to nor filed under. Guarding only the DAO write left setActiveOrbitId(0L)
+            // reachable, which silently relocates the user (0L re-resolves to the FIRST Orbit) and
+            // — because the value is persisted — makes every later cold start resolve to "first
+            // Orbit" instead of their last choice. The damage outlives the session.
+            // takeIf also means the restored tab carries orbitId = null rather than 0L: equally
+            // invisible to every filter, but null is the canonical "no Orbit" that a future
+            // deleteOrphans() reaper is written against.
+            val orbitId = tab.orbitId?.takeIf { it != 0L }
             // Same active-tab <-> active-Orbit invariant as onReopenClosed: Undo can be tapped after
             // the user switched Orbit, and the restored tab is foregrounded. Incognito is not an
             // Orbit, so it is exempt.
@@ -1379,7 +1388,7 @@ class BrowserViewModel(
             if (tab.locked) tabManager.setLocked(restoredId, true)
             // Consume the recently-closed row this tab produced — if it produced one. Incognito and
             // null/0-Orbit tabs never insert, so there is nothing to clean up for them.
-            if (!tab.isIncognito && orbitId != null && orbitId != 0L) {
+            if (!tab.isIncognito && orbitId != null) {
                 closedTabDao.deleteNewestForUrl(orbitId, tab.url)
             }
         }
