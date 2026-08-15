@@ -192,6 +192,10 @@ fun TabSwitcherScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    // Undo restores into the tab's OWN Orbit, switching the active Orbit if needed — correct, but
+    // being yanked back out of an Orbit you just moved to is startling. Dismissing the snackbar on
+    // a switch makes that situation unreachable from the UI instead of merely handled.
+    LaunchedEffect(activeOrbitId) { snackbarHostState.currentSnackbarData?.dismiss() }
     // Close a tab with an Undo affordance.
     // v6.16: SNAPSHOT the tab before closing and restore that exact tab. This previously reopened
     // `recentlyClosed.maxByOrNull { closedAt }`, which was reliable only while the list was global —

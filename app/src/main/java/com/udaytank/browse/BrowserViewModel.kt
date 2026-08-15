@@ -722,8 +722,12 @@ class BrowserViewModel(
     val tabGroups: StateFlow<List<TabGroupEntity>> = tabGroupDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // Orbit-scoped (v6.16): recently-closed must not cross profiles. Eagerly retained — the tab
-    // switcher reads this immediately, before any subscriber settles.
+    // Orbit-scoped (v6.16): recently-closed must not cross profiles.
+    //
+    // Eagerly is inherited, not justified by the UI: the list renders only inside a modal sheet, so
+    // WhileSubscribed(5_000) would fit better (and would re-arm the onStart empty on each open).
+    // Kept as-is because several tests read `.value` without collecting; switching sharing strategy
+    // is a separate change with its own test churn. Tracked in ROADMAP.
     //
     // onStart { emit(emptyList()) } is load-bearing, not decoration. flatMapLatest cancels the old
     // Room flow at once, but stateIn KEEPS ITS LAST VALUE until the new one emits — and Room emits
@@ -1366,7 +1370,13 @@ class BrowserViewModel(
             if (!tab.isIncognito && orbitId != null && orbitId != activeOrbitId.value) {
                 settings.setActiveOrbitId(orbitId)
             }
-            tabManager.newTab(tab.url, incognito = tab.isIncognito, orbitId = orbitId)
+            // Undo should give back the tab as it was, not a stripped copy of it: carry the group,
+            // and re-apply pinned/locked (which newTab has no parameters for).
+            val restoredId = tabManager.newTab(
+                tab.url, incognito = tab.isIncognito, groupId = tab.groupId, orbitId = orbitId,
+            )
+            if (tab.pinned) tabManager.setPinned(restoredId, true)
+            if (tab.locked) tabManager.setLocked(restoredId, true)
             // Consume the recently-closed row this tab produced — if it produced one. Incognito and
             // null/0-Orbit tabs never insert, so there is nothing to clean up for them.
             if (!tab.isIncognito && orbitId != null && orbitId != 0L) {

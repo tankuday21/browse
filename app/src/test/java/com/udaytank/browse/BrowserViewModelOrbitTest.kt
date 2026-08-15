@@ -293,6 +293,30 @@ class BrowserViewModelOrbitTest {
     }
 
     @Test
+    fun `onRestoreTab on a 0-sentinel-orbit tab restores it but files and consumes no row`() = runTest {
+        // Mirror of the TabManager 0L guard, on the Undo path. Restoring must still work (the user
+        // asked for their tab back), but nothing may be written to or consumed from the ring under
+        // the unresolved Orbit — such a row is unreadable and unreapable forever.
+        val closedTabs = FakeClosedTabDao()
+        val vm = vm(closedTabDao = closedTabs)
+        advanceUntilIdle()
+        closedTabs.insert(
+            ClosedTabEntity(url = "https://early.com", title = "Early", closedAt = 1L, orbitId = 0L)
+        )
+        val before = closedTabs.entries.value
+
+        val unresolved = TabEntity(
+            url = "https://early.com", title = "Early", position = 0,
+            isActive = true, isIncognito = false, orbitId = 0L,
+        )
+        vm.onRestoreTab(unresolved)
+        advanceUntilIdle()
+
+        assertTrue(vm.tabs.value.any { it.url == "https://early.com" })
+        assertEquals("no ring row may be written or consumed under Orbit 0", before, closedTabs.entries.value)
+    }
+
+    @Test
     fun `onReopenClosed refuses a null-orbit entry instead of guessing the active Orbit`() = runTest {
         // Fail-closed: guessing would open one profile's URL in another — the leak v6.16 closes.
         val closedTabs = FakeClosedTabDao()

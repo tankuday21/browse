@@ -241,6 +241,27 @@ class TabManagerTest {
     }
 
     @Test
+    fun `closing a tab whose orbit is the unresolved 0 sentinel records nothing`() = runTest {
+        // The `!= 0L` half of the guard was mutation-proven untested: deleting it left all 623
+        // tests green. 0L is NOT a hypothetical — it is resolveActiveOrbitId's "not resolved yet"
+        // value, and callers pass `orbitId = activeOrbitId.value` as an argument, evaluated BEFORE
+        // newTab's `initialized` gate. A cold-start external VIEW intent can therefore persist a
+        // tab with orbitId = 0. A closed-tab row filed under 0 would be invisible to every
+        // observeRecent, never trimmed (trimTo is never called with 0), never purged by
+        // deleteForOrbit — a permanent hidden URL record that grows without bound.
+        val closedTabDao = FakeClosedTabDao()
+        val manager = TabManager(FakeTabDao(), closedTabDao)
+        manager.defaultOrbitId = 1L
+        manager.initialize("home", orbitId = 1L)
+        val id = manager.newTab("https://early.com", orbitId = 0L)
+
+        manager.closeTab(id, "home")
+
+        assertTrue("no row may be filed under the unresolved Orbit", closedTabDao.entries.value.isEmpty())
+        assertTrue("and no ring may be trimmed under it either", closedTabDao.trimCalls.isEmpty())
+    }
+
+    @Test
     fun `closeTab trims the CLOSING tab's orbit ring, not the active or default orbit's`() = runTest {
         // Pins the ARGUMENT handed to trimTo, not just its effect. Without this, mutating closeTab to
         // `trimTo(defaultOrbitId ?: 0L, 100)` passes every other test in the suite — and that

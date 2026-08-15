@@ -512,13 +512,18 @@ class BrowseDatabaseTest {
     @Test
     fun migrate13to14_seedsPersonalOrbitAndAssignsNonIncognitoTabs() {
         helper.createDatabase(DB, 13).apply {
+            // pinned/locked are NOT NULL from migration 5->6. The ALTER TABLE that added them
+            // carried a DEFAULT, but createDatabase(13) builds the schema from 13.json, and Room
+            // emits no DEFAULT clause for a non-null Boolean — so these columns must be supplied
+            // explicitly. (This test had never actually been executed; omitting them threw
+            // SQLiteConstraintException the first time it ran on a device.)
             execSQL(
-                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
-                    "VALUES ('https://a.com', 'A', 0, 1, 0)"
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://a.com', 'A', 0, 1, 0, 0, 0)"
             )
             execSQL(
-                "INSERT INTO tabs (url, title, position, isActive, isIncognito) " +
-                    "VALUES ('https://incognito.com', 'Incognito', 1, 0, 1)"
+                "INSERT INTO tabs (url, title, position, isActive, isIncognito, pinned, locked) " +
+                    "VALUES ('https://incognito.com', 'Incognito', 1, 0, 1, 0, 0)"
             )
             close()
         }
